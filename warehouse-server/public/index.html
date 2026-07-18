@@ -1,0 +1,339 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Адресное хранение склада</title>
+<style>
+  :root{
+    --bg: #F5F6F8;
+    --panel: #FFFFFF;
+    --ink: #1C2430;
+    --ink-soft: #5B6472;
+    --line: #E1E4E9;
+    --accent: #2C5CE0;
+    --accent-soft: #E8EEFE;
+    --multi: #C9760C;
+    --multi-soft: #FBEEDC;
+    --service: #8A93A3;
+    --service-soft: #EEF0F3;
+    --empty: #EDEFF2;
+    --danger: #D2483A;
+    --good: #2E8B57;
+    --mono: 'JetBrains Mono', 'SFMono-Regular', Consolas, monospace;
+    --sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  }
+  *{box-sizing:border-box;}
+  body{
+    margin:0; font-family:var(--sans); background:var(--bg); color:var(--ink);
+    font-size:14px; -webkit-font-smoothing:antialiased;
+  }
+  #app{display:flex; flex-direction:column; min-height:100vh;}
+
+  /* Header */
+  header{
+    background:var(--panel); border-bottom:1px solid var(--line);
+    padding:14px 20px; display:flex; align-items:center; gap:20px; flex-wrap:wrap;
+  }
+  header h1{
+    font-size:16px; font-weight:700; margin:0; letter-spacing:.2px; white-space:nowrap;
+  }
+  header h1 .tag{
+    font-family:var(--mono); font-size:11px; color:var(--accent); background:var(--accent-soft);
+    padding:2px 6px; border-radius:4px; margin-left:8px; vertical-align:middle;
+  }
+  .stats{display:flex; gap:0; margin-left:auto;}
+  .stat{
+    padding:2px 18px; border-left:1px solid var(--line); text-align:right;
+  }
+  .stat:first-child{border-left:none;}
+  .stat .num{font-family:var(--mono); font-size:17px; font-weight:700; display:block; line-height:1.2;}
+  .stat .lbl{font-size:10.5px; color:var(--ink-soft); text-transform:uppercase; letter-spacing:.4px;}
+
+  .btn{
+    font-family:var(--sans); font-size:12.5px; font-weight:600; padding:8px 14px;
+    border-radius:7px; border:1px solid var(--line); background:var(--panel); color:var(--ink);
+    cursor:pointer; white-space:nowrap; transition:.12s;
+  }
+  .btn:hover{border-color:var(--accent); color:var(--accent);}
+  .btn.primary{background:var(--ink); color:#fff; border-color:var(--ink);}
+  .btn.primary:hover{background:var(--accent); border-color:var(--accent); color:#fff;}
+  input[type=file]{display:none;}
+
+  /* Tabs */
+  nav.tabs{
+    background:var(--panel); border-bottom:1px solid var(--line); padding:0 20px;
+    display:flex; gap:4px;
+  }
+  nav.tabs button{
+    font-family:var(--sans); font-size:13px; font-weight:600; padding:12px 16px;
+    background:none; border:none; border-bottom:2px solid transparent; color:var(--ink-soft);
+    cursor:pointer;
+  }
+  nav.tabs button.active{color:var(--accent); border-bottom-color:var(--accent);}
+
+  main{flex:1; padding:18px 20px; display:flex; flex-direction:column; gap:16px; max-width:1400px; width:100%; margin:0 auto;}
+  .view{display:none;}
+  .view.active{display:flex; flex-direction:column; gap:16px;}
+
+  .panel{background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:16px;}
+  .panel h2{font-size:13px; margin:0 0 12px; text-transform:uppercase; letter-spacing:.4px; color:var(--ink-soft);}
+
+  /* Toolbar row */
+  .toolbar{display:flex; gap:10px; align-items:center; flex-wrap:wrap;}
+  .search{
+    flex:1; min-width:220px; position:relative;
+  }
+  .search input{
+    width:100%; padding:9px 12px 9px 32px; border:1px solid var(--line); border-radius:7px;
+    font-family:var(--sans); font-size:13px; background:var(--bg);
+  }
+  .search::before{
+    content:"⌕"; position:absolute; left:11px; top:50%; transform:translateY(-50%); color:var(--ink-soft); font-size:15px;
+  }
+  select{
+    padding:8px 10px; border:1px solid var(--line); border-radius:7px; background:var(--panel);
+    font-family:var(--sans); font-size:13px; color:var(--ink);
+  }
+
+  /* Aisle selector chips */
+  .aisles{display:flex; gap:6px; flex-wrap:wrap;}
+  .aisle-chip{
+    font-family:var(--mono); font-size:12px; font-weight:600; padding:6px 12px; border-radius:6px;
+    border:1px solid var(--line); background:var(--panel); cursor:pointer; color:var(--ink-soft);
+  }
+  .aisle-chip.active{background:var(--ink); color:#fff; border-color:var(--ink);}
+  .aisle-chip .n{opacity:.65; font-weight:400; margin-left:4px;}
+
+  /* Grid map */
+  .grid-wrap{overflow-x:auto; padding-bottom:6px;}
+  .rack-grid{display:inline-grid; gap:3px; align-items:center;}
+  .level-label{
+    font-family:var(--mono); font-size:10px; color:var(--ink-soft); text-align:right; padding-right:6px;
+    position:sticky; left:0; background:var(--panel);
+  }
+  .rack-label{
+    font-family:var(--mono); font-size:9px; color:var(--ink-soft); text-align:center; writing-mode:vertical-rl;
+    transform:rotate(180deg); padding-bottom:2px;
+  }
+  .cell{
+    width:22px; height:22px; border-radius:4px; background:var(--empty); cursor:default;
+    border:1px solid transparent; position:relative;
+  }
+  .cell.filled{background:var(--accent-soft); border-color:var(--accent); cursor:pointer;}
+  .cell.multi{background:var(--multi-soft); border-color:var(--multi); cursor:pointer;}
+  .cell.filled:hover, .cell.multi:hover{transform:scale(1.18); z-index:2; box-shadow:0 2px 6px rgba(0,0,0,.15);}
+  .legend{display:flex; gap:16px; font-size:11.5px; color:var(--ink-soft); margin-top:10px; flex-wrap:wrap;}
+  .legend span{display:inline-flex; align-items:center; gap:6px;}
+  .swatch{width:11px; height:11px; border-radius:3px; display:inline-block;}
+
+  /* Table */
+  table{width:100%; border-collapse:collapse; font-size:12.5px;}
+  thead th{
+    text-align:left; padding:8px 10px; border-bottom:2px solid var(--line); color:var(--ink-soft);
+    font-weight:600; font-size:11px; text-transform:uppercase; letter-spacing:.3px; white-space:nowrap;
+    position:sticky; top:0; background:var(--panel);
+  }
+  tbody td{padding:7px 10px; border-bottom:1px solid var(--line); vertical-align:middle;}
+  tbody tr:hover{background:var(--bg);}
+  td.cellcode, td.article{font-family:var(--mono); font-size:12px;}
+  .table-scroll{max-height:520px; overflow:auto; border:1px solid var(--line); border-radius:8px;}
+  .edit-input{
+    width:70px; padding:4px 6px; border:1px solid var(--line); border-radius:5px; font-family:var(--mono);
+    font-size:12px; background:var(--bg);
+  }
+  .edit-input.cellinput{width:100px;}
+  .edit-input:focus{outline:2px solid var(--accent); outline-offset:1px; background:#fff;}
+  .badge{
+    font-size:10px; font-weight:700; padding:2px 7px; border-radius:20px; text-transform:uppercase;
+  }
+  .badge.service{background:var(--service-soft); color:var(--service);}
+  .badge.ok{background:#E7F5EC; color:var(--good);}
+  .badge.multi{background:var(--multi-soft); color:var(--multi);}
+
+  /* Service zones */
+  .zones-grid{display:grid; grid-template-columns:repeat(auto-fill, minmax(200px,1fr)); gap:10px;}
+  .zone-card{
+    border:1px solid var(--line); border-radius:8px; padding:12px; background:var(--bg); cursor:pointer;
+  }
+  .zone-card:hover{border-color:var(--service);}
+  .zone-card .name{font-weight:700; font-size:13px; margin-bottom:6px;}
+  .zone-card .row{display:flex; justify-content:space-between; font-size:11.5px; color:var(--ink-soft);}
+  .zone-card .row b{color:var(--ink); font-family:var(--mono);}
+
+  /* Detail panel (side drawer) */
+  #drawer-backdrop{
+    position:fixed; inset:0; background:rgba(20,24,32,.35); display:none; z-index:50;
+  }
+  #drawer{
+    position:fixed; top:0; right:0; height:100%; width:400px; max-width:92vw; background:var(--panel);
+    box-shadow:-8px 0 24px rgba(0,0,0,.12); z-index:51; transform:translateX(100%); transition:transform .18s ease;
+    display:flex; flex-direction:column;
+  }
+  #drawer.open{transform:translateX(0);}
+  #drawer-backdrop.open{display:block;}
+  #drawer .dh{padding:16px 18px; border-bottom:1px solid var(--line); display:flex; justify-content:space-between; align-items:center;}
+  #drawer .dh h3{margin:0; font-family:var(--mono); font-size:16px;}
+  #drawer .dh button{background:none; border:none; font-size:20px; cursor:pointer; color:var(--ink-soft);}
+  #drawer .db{padding:16px 18px; overflow-y:auto; flex:1; display:flex; flex-direction:column; gap:12px;}
+  .rec-card{border:1px solid var(--line); border-radius:8px; padding:12px; background:var(--bg);}
+  .rec-card .art{font-family:var(--mono); font-weight:700; font-size:13px; color:var(--accent);}
+  .rec-card .name{font-size:12.5px; margin:4px 0 8px;}
+  .rec-card dl{display:grid; grid-template-columns:auto 1fr; gap:3px 8px; font-size:11.5px; margin:0;}
+  .rec-card dt{color:var(--ink-soft);}
+  .rec-card dd{margin:0; font-family:var(--mono);}
+
+  .empty-note{color:var(--ink-soft); font-size:12.5px; padding:24px; text-align:center;}
+  footer.upload-hint{font-size:11px; color:var(--ink-soft); padding:10px 20px;}
+</style>
+</head>
+<body>
+<div id="app">
+
+  <header>
+    <h1>Адресное хранение <span class="tag" id="src-tag">подключение…</span></h1>
+    <div class="stats" id="stats"></div>
+    <span id="sync-status" style="font-size:11px; color:var(--ink-soft); white-space:nowrap;"></span>
+    <button class="btn" id="sync-btn" title="Подтянуть последние данные с сервера">⟳ Синхронизировать</button>
+    <label class="btn primary" for="file-input">Загрузить новые данные (.xlsx)</label>
+    <input type="file" id="file-input" accept=".xlsx,.xls,.csv">
+    <button class="btn" id="export-btn">Экспорт в Excel</button>
+  </header>
+
+  <nav class="tabs">
+    <button data-view="map" class="active">Схема склада</button>
+    <button data-view="table">Таблица данных</button>
+    <button data-view="zones">Служебные зоны</button>
+    <button data-view="reco">Рекомендация пикинга</button>
+  </nav>
+
+  <main>
+
+    <!-- MAP VIEW -->
+    <section class="view active" id="view-map">
+      <div class="panel">
+        <h2>Ряд / проход</h2>
+        <div class="aisles" id="aisle-chips"></div>
+      </div>
+      <div class="panel">
+        <div class="toolbar" style="margin-bottom:12px;">
+          <div class="search"><input type="text" id="map-search" placeholder="Найти артикул, ячейку или ТЕ на схеме…"></div>
+        </div>
+        <div class="grid-wrap"><div class="rack-grid" id="rack-grid"></div></div>
+        <div class="legend">
+          <span><i class="swatch" style="background:var(--accent-soft);border:1px solid var(--accent);"></i>занята (1 артикул)</span>
+          <span><i class="swatch" style="background:var(--multi-soft);border:1px solid var(--multi);"></i>занята (несколько артикулов)</span>
+          <span><i class="swatch" style="background:var(--empty);"></i>адрес существует, данных нет</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- TABLE VIEW -->
+    <section class="view" id="view-table">
+      <div class="panel">
+        <div class="toolbar">
+          <div class="search"><input type="text" id="table-search" placeholder="Поиск по артикулу, наименованию, ячейке или ТЕ…"></div>
+          <select id="table-filter">
+            <option value="all">Все записи</option>
+            <option value="address">Только адресные ячейки</option>
+            <option value="service">Только служебные зоны</option>
+          </select>
+          <span id="table-count" style="color:var(--ink-soft); font-size:12px;"></span>
+        </div>
+      </div>
+      <div class="panel" style="padding:0;">
+        <div class="table-scroll">
+          <table>
+            <thead><tr>
+              <th>Ячейка</th><th>Артикул</th><th>Наименование</th><th>Остаток, шт</th>
+              <th>Дата изгот.</th><th>Срок годности</th><th>ТЕ</th><th>Тип</th>
+            </tr></thead>
+            <tbody id="table-body"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- PICKING RECOMMENDATION VIEW -->
+    <section class="view" id="view-reco">
+      <div class="panel">
+        <h2>Логика размещения</h2>
+        <p style="font-size:12.5px; color:var(--ink-soft); line-height:1.5; margin:0;">
+          Приоритет размещения: <b>1) класс ABC</b> (A — самая доступная позиция, ближе к 1-й ячейке маршрута; далее B, затем C) → <b>2) категория товара</b> (соки с соками, вода с водой и т.д. — внутри класса ABC однородные группы не разбиваются) → <b>3) вес/объём единицы</b> (от тяжёлой упаковки к лёгкой). Сборка начинается с 1-й ячейки маршрута (ряд 01, минимальный стеллаж). Товар размещается на <b>1 ярусе</b> (пикинг), остаток каждого артикула — на ярусах выше того же стеллажа (пополнение).
+        </p>
+      </div>
+
+      <div class="panel">
+        <h2>ABC-анализ по доле объёма стока</h2>
+        <div class="zones-grid" id="abc-summary"></div>
+      </div>
+
+      <div class="panel">
+        <h2>Ряд / проход — схема пикинга (ярус 1) и пополнения (ярусы выше)</h2>
+        <div class="aisles" id="reco-aisle-chips"></div>
+        <div class="grid-wrap" style="margin-top:12px;"><div class="rack-grid" id="reco-strip"></div></div>
+        <div class="legend" id="category-legend"></div>
+        <div class="legend" style="margin-top:6px;">
+          <span><i class="swatch" style="background:#8B5E34;"></i>цвет = категория товара; тёмный оттенок = тяжелее/крупнее → светлый = легче</span>
+          <span><i class="swatch" style="background:rgba(139,94,52,.32);"></i>ярусы выше 1: пополнение того же артикула (резерв)</span>
+          <span><i class="swatch" style="box-shadow:inset 0 0 0 2px var(--danger); background:var(--empty);"></i>обводка = класс A</span>
+          <span><i class="swatch" style="background:var(--accent-soft);border:1px solid var(--accent);"></i>без рекомендации, но сейчас есть товар — кликабельно</span>
+          <span><i class="swatch" style="background:var(--empty);"></i>нет назначения и нет остатка</span>
+        </div>
+      </div>
+
+      <div class="panel">
+        <h2>Служебные зоны — рекомендуемое разделение</h2>
+        <p style="font-size:12.5px; color:var(--ink-soft); margin:0 0 12px;">Каждый статус хранится в собственной, физически отдельной зоне — брак/возврат и карантин не смешиваются с остальными и обособлены в первую очередь.</p>
+        <div class="zones-grid" id="svc-reco-grid"></div>
+      </div>
+
+      <div class="panel">
+        <div class="toolbar">
+          <div class="search"><input type="text" id="reco-search" placeholder="Поиск по артикулу или наименованию…"></div>
+          <select id="reco-abc-filter">
+            <option value="all">Все классы ABC</option>
+            <option value="A">Класс A</option>
+            <option value="B">Класс B</option>
+            <option value="C">Класс C</option>
+          </select>
+          <select id="reco-category-filter"></select>
+          <span id="reco-count" style="color:var(--ink-soft); font-size:12px;"></span>
+        </div>
+      </div>
+      <div class="panel" style="padding:0;">
+        <div class="table-scroll">
+          <table>
+            <thead><tr>
+              <th>№ (порядок размещения)</th><th>Артикул</th><th>Наименование</th><th>Категория</th><th>Объём/вес ед.</th>
+              <th>Остаток всего, шт</th><th>Доля объёма стока</th><th>ABC</th><th>Пикинг-адрес (ярус 1)</th><th>Пополнение (резерв)</th>
+            </tr></thead>
+            <tbody id="reco-body"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- ZONES VIEW -->
+    <section class="view" id="view-zones">
+      <div class="panel">
+        <h2>Служебные зоны (вне адресной сетки)</h2>
+        <div class="zones-grid" id="zones-grid"></div>
+      </div>
+    </section>
+
+  </main>
+
+  <footer class="upload-hint">Данные хранятся в базе на сервере — все, кто открывает сайт, видят одно и то же. Правки в таблице сохраняются сразу на сервере. «Загрузить новые данные» полностью заменяет сток в базе новым файлом (видно всем). Кнопка «Синхронизировать» подтягивает последние изменения, если их внёс кто-то другой.</footer>
+
+  <div id="drawer-backdrop"></div>
+  <div id="drawer">
+    <div class="dh"><h3 id="drawer-title">Ячейка</h3><button id="drawer-close">✕</button></div>
+    <div class="db" id="drawer-body"></div>
+  </div>
+
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>

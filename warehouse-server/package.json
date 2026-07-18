@@ -1,0 +1,20 @@
+{
+  "name": "warehouse-address-storage",
+  "version": "1.0.0",
+  "description": "Адресное хранение склада — сервер с базой данных (SQLite) и REST API, отдаёт статический фронтенд из /public.",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "better-sqlite3": "^11.3.0",
+    "cors": "^2.8.5",
+    "express": "^4.19.2",
+    "multer": "^1.4.5-lts.1",
+    "xlsx": "^0.18.5"
+  }
+}
