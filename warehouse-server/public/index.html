@@ -123,6 +123,10 @@
   .cell.filled{background:var(--accent-soft); border-color:var(--accent); cursor:pointer;}
   .cell.multi{background:var(--multi-soft); border-color:var(--multi); cursor:pointer;}
   .cell.filled:hover, .cell.multi:hover{transform:scale(1.18); z-index:2; box-shadow:0 2px 6px rgba(0,0,0,.15);}
+  .cell[draggable="true"]{cursor:grab;}
+  .cell.drag-source{opacity:.35;}
+  .cell.drag-over{outline:2px dashed var(--accent); outline-offset:1px; transform:scale(1.15); z-index:3;}
+  .cell.drag-over.drop-invalid{outline-color:var(--danger);}
   .legend{display:flex; gap:16px; font-size:11.5px; color:var(--ink-soft); margin-top:10px; flex-wrap:wrap;}
   .legend span{display:inline-flex; align-items:center; gap:6px;}
   .swatch{width:11px; height:11px; border-radius:3px; display:inline-block;}
@@ -183,6 +187,41 @@
   .rec-card dt{color:var(--ink-soft);}
   .rec-card dd{margin:0; font-family:var(--mono);}
 
+  /* Small inline pin button next to a cell input, opens the map picker */
+  .pin-btn{
+    width:26px; height:26px; border-radius:5px; border:1px solid var(--line); background:var(--panel);
+    cursor:pointer; font-size:12px; display:inline-flex; align-items:center; justify-content:center; flex-shrink:0;
+  }
+  .pin-btn:hover{border-color:var(--accent); background:var(--accent-soft);}
+
+  /* Centered modal (cell picker / add product) */
+  #modal-backdrop{
+    position:fixed; inset:0; background:rgba(20,24,32,.45); display:none; z-index:60;
+    align-items:center; justify-content:center; padding:20px;
+  }
+  #modal-backdrop.open{display:flex;}
+  #modal{
+    background:var(--panel); border-radius:12px; width:100%; max-width:720px; max-height:88vh;
+    display:flex; flex-direction:column; box-shadow:0 20px 60px rgba(0,0,0,.25);
+  }
+  #modal .mh{padding:16px 20px; border-bottom:1px solid var(--line); display:flex; justify-content:space-between; align-items:center;}
+  #modal .mh h3{margin:0; font-size:15px;}
+  #modal .mh button{background:none; border:none; font-size:20px; cursor:pointer; color:var(--ink-soft);}
+  #modal .mb{padding:18px 20px; overflow-y:auto;}
+  #modal .mf{padding:14px 20px; border-top:1px solid var(--line); display:flex; justify-content:flex-end; gap:8px;}
+  .form-grid{display:grid; grid-template-columns:1fr 1fr; gap:12px;}
+  .form-grid .full{grid-column:1 / -1;}
+  .form-field label{display:block; font-size:11px; color:var(--ink-soft); text-transform:uppercase; letter-spacing:.3px; margin-bottom:5px;}
+  .form-field input{
+    width:100%; padding:8px 10px; border:1px solid var(--line); border-radius:7px; font-family:var(--sans);
+    font-size:13px; background:var(--bg); box-sizing:border-box;
+  }
+  .form-field input:focus{outline:2px solid var(--accent); outline-offset:1px; background:#fff;}
+  .form-field.with-pin{display:flex; align-items:flex-end; gap:6px;}
+  .form-field.with-pin > div{flex:1;}
+  .form-error{color:var(--danger); font-size:12px; margin-top:8px; display:none;}
+  .form-error.show{display:block;}
+
   .empty-note{color:var(--ink-soft); font-size:12.5px; padding:24px; text-align:center;}
   footer.upload-hint{font-size:11px; color:var(--ink-soft); padding:10px 20px;}
 </style>
@@ -219,11 +258,12 @@
         <div class="toolbar" style="margin-bottom:12px;">
           <div class="search"><input type="text" id="map-search" placeholder="Найти артикул, ячейку или ТЕ на схеме…"></div>
         </div>
+        <p style="font-size:12px; color:var(--ink-soft); margin:0 0 10px;">Перетащите занятую ячейку на другую (пустую или занятую), чтобы переместить товар физически — сохранится сразу на сервере.</p>
         <div class="grid-wrap"><div class="rack-grid" id="rack-grid"></div></div>
         <div class="legend">
-          <span><i class="swatch" style="background:var(--accent-soft);border:1px solid var(--accent);"></i>занята (1 артикул)</span>
-          <span><i class="swatch" style="background:var(--multi-soft);border:1px solid var(--multi);"></i>занята (несколько артикулов)</span>
-          <span><i class="swatch" style="background:var(--empty);"></i>адрес существует, данных нет</span>
+          <span><i class="swatch" style="background:var(--accent-soft);border:1px solid var(--accent);"></i>занята (1 артикул) — перетаскивается</span>
+          <span><i class="swatch" style="background:var(--multi-soft);border:1px solid var(--multi);"></i>занята (несколько артикулов) — перетаскивается</span>
+          <span><i class="swatch" style="background:var(--empty);"></i>адрес существует, данных нет — можно перетащить сюда</span>
         </div>
       </div>
     </section>
@@ -239,6 +279,7 @@
             <option value="service">Только служебные зоны</option>
           </select>
           <span id="table-count" style="color:var(--ink-soft); font-size:12px;"></span>
+          <button class="btn primary" id="add-product-btn" style="margin-left:auto;">+ Добавить товар</button>
         </div>
       </div>
       <div class="panel" style="padding:0;">
@@ -246,7 +287,7 @@
           <table>
             <thead><tr>
               <th>Ячейка</th><th>Артикул</th><th>Наименование</th><th>Остаток, шт</th>
-              <th>Дата изгот.</th><th>Срок годности</th><th>ТЕ</th><th>Тип</th>
+              <th>Дата изгот.</th><th>Срок годности</th><th>ТЕ</th><th>Тип</th><th></th>
             </tr></thead>
             <tbody id="table-body"></tbody>
           </table>
@@ -330,6 +371,14 @@
   <div id="drawer">
     <div class="dh"><h3 id="drawer-title">Ячейка</h3><button id="drawer-close">✕</button></div>
     <div class="db" id="drawer-body"></div>
+  </div>
+
+  <div id="modal-backdrop">
+    <div id="modal">
+      <div class="mh"><h3 id="modal-title">Заголовок</h3><button id="modal-close">✕</button></div>
+      <div class="mb" id="modal-body"></div>
+      <div class="mf" id="modal-footer"></div>
+    </div>
   </div>
 
 </div>

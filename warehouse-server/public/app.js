@@ -149,6 +149,8 @@
     });
   }
 
+  let dragSourceAddress = null;
+
   function renderGrid(){
     const grid = document.getElementById('rack-grid');
     if(!currentAisle){ grid.innerHTML = '<div class="empty-note">Нет адресных ячеек в данных</div>'; return; }
@@ -180,7 +182,11 @@
       fullRacks.forEach(rk=>{
         const key = rk+"|"+lv;
         const items = byPos[key];
-        if(!items){ html += `<div class="cell"></div>`; return; }
+        const addr = `${currentAisle}-${zpad(rk)}-${lv}`;
+        if(!items){
+          html += `<div class="cell" data-rack="${rk}" data-level="${lv}" data-address="${addr}" title="${addr} · свободно — сюда можно перетащить товар"></div>`;
+          return;
+        }
         const arts = Array.from(new Set(items.map(i=>i.article)));
         const matches = term && (
           items.some(i=> i.article.toLowerCase().includes(term) || i.cell.toLowerCase().includes(term) || i.name.toLowerCase().includes(term) || (i.te && i.te.toLowerCase().includes(term)))
@@ -188,7 +194,7 @@
         const cls = arts.length>1 ? 'multi' : 'filled';
         const dim = term && !matches ? 'opacity:.25;' : '';
         const ring = matches ? 'box-shadow:0 0 0 2px var(--danger);' : '';
-        html += `<div class="cell ${cls}" style="${dim}${ring}" data-rack="${rk}" data-level="${lv}" title="${items[0].cell} · ${arts.length} артикул(ов)"></div>`;
+        html += `<div class="cell ${cls}" style="${dim}${ring}" draggable="true" data-rack="${rk}" data-level="${lv}" data-address="${addr}" title="${items[0].cell} · ${arts.length} артикул(ов) · перетащите, чтобы переместить"></div>`;
       });
     });
     html += `</div>`;
@@ -200,7 +206,62 @@
         const items = byPos[rk+"|"+lv];
         openDrawer(items[0].cell, items);
       });
+      el.addEventListener('dragstart', (e)=>{
+        dragSourceAddress = el.dataset.address;
+        el.classList.add('drag-source');
+        e.dataTransfer.effectAllowed = 'move';
+        e.dataTransfer.setData('text/plain', dragSourceAddress);
+      });
+      el.addEventListener('dragend', ()=>{
+        el.classList.remove('drag-source');
+        dragSourceAddress = null;
+      });
     });
+
+    // every cell (empty or filled) is a valid drop target
+    grid.querySelectorAll('.cell[data-address]').forEach(el=>{
+      el.addEventListener('dragover', (e)=>{
+        if(!dragSourceAddress) return;
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'move';
+        el.classList.add('drag-over');
+        el.classList.toggle('drop-invalid', el.dataset.address===dragSourceAddress);
+      });
+      el.addEventListener('dragleave', ()=>{
+        el.classList.remove('drag-over','drop-invalid');
+      });
+      el.addEventListener('drop', async (e)=>{
+        e.preventDefault();
+        el.classList.remove('drag-over','drop-invalid');
+        const source = dragSourceAddress;
+        const target = el.dataset.address;
+        dragSourceAddress = null;
+        if(!source || source===target) return;
+        await moveCellContents(source, target);
+      });
+    });
+  }
+
+  async function moveCellContents(sourceAddress, targetAddress){
+    const recs = state.records.filter(r=>r.cell===sourceAddress);
+    if(!recs.length) return;
+    setSyncStatus('перемещение…');
+    try{
+      for(const rec of recs){
+        const res = await fetch(`${API_BASE}/api/records/${rec.id}`, {
+          method:'PATCH', headers:{'Content-Type':'application/json'},
+          body: JSON.stringify({ cell: targetAddress })
+        });
+        if(!res.ok) throw new Error('HTTP '+res.status);
+      }
+      await fetchRecords();
+      renderAll();
+      setSyncStatus(`перемещено в ${targetAddress} · ` + new Date().toLocaleTimeString('ru-RU'));
+    }catch(err){
+      setSyncStatus('ошибка перемещения', true);
+      alert('Не удалось переместить товар: ' + err.message);
+      await fetchRecords(); renderAll();
+    }
   }
 
   // ---------- DRAWER ----------
@@ -229,7 +290,87 @@
   document.getElementById('drawer-close').addEventListener('click', closeDrawer);
   document.getElementById('drawer-backdrop').addEventListener('click', closeDrawer);
 
-  // ---------- TABLE VIEW ----------
+  // ---------- GENERIC MODAL ----------
+  function openModal(title, bodyHtml, footerHtml){
+    document.getElementById('modal-title').textContent = title;
+    document.getElementById('modal-body').innerHTML = bodyHtml;
+    document.getElementById('modal-footer').innerHTML = footerHtml || '';
+    document.getElementById('modal-backdrop').classList.add('open');
+  }
+  function closeModal(){
+    document.getElementById('modal-backdrop').classList.remove('open');
+  }
+  document.getElementById('modal-close').addEventListener('click', closeModal);
+  document.getElementById('modal-backdrop').addEventListener('click', (e)=>{
+    if(e.target.id==='modal-backdrop') closeModal();
+  });
+
+  // ---------- CELL PICKER (visual map to choose an address) ----------
+  // Used both by the pin button next to each table row and by the "add product" form.
+  let pickerAisle = null;
+  function openCellPicker(onPick, currentValue){
+    const aisles = aisleList();
+    pickerAisle = (currentValue && classify(currentValue).row) || pickerAisle || aisles[0];
+    if(!aisles.includes(pickerAisle)) pickerAisle = aisles[0];
+
+    const body = `
+      <div class="aisles" id="picker-aisle-chips"></div>
+      <div class="grid-wrap" style="margin-top:12px;"><div class="rack-grid" id="picker-grid"></div></div>
+      <div class="legend">
+        <span><i class="swatch" style="background:var(--accent-soft);border:1px solid var(--accent);"></i>занята</span>
+        <span><i class="swatch" style="background:var(--empty);"></i>свободна — можно выбрать</span>
+      </div>
+    `;
+    openModal('Выберите ячейку на схеме склада', body, '');
+
+    function renderPickerAisles(){
+      const box = document.getElementById('picker-aisle-chips');
+      box.innerHTML = aisles.map(a=>`<button class="aisle-chip ${a===pickerAisle?'active':''}" data-aisle="${a}">Ряд ${a}</button>`).join('');
+      box.querySelectorAll('.aisle-chip').forEach(btn=>{
+        btn.addEventListener('click', ()=>{ pickerAisle = btn.dataset.aisle; renderPickerAisles(); renderPickerGrid(); });
+      });
+    }
+
+    function renderPickerGrid(){
+      const grid = document.getElementById('picker-grid');
+      const rows = addressRecords().filter(r=>r.row===pickerAisle);
+      if(rows.length===0){ grid.innerHTML = '<div class="empty-note">Пусто</div>'; return; }
+      const racks = Array.from(new Set(rows.map(r=>r.rack))).sort((a,b)=>a-b);
+      const minRack = racks[0], maxRack = racks[racks.length-1];
+      const levelsPresent = Array.from(new Set(rows.map(r=>r.level)));
+      const levels = LEVEL_ORDER.filter(l=>levelsPresent.includes(l)).reverse();
+      const byPos = {};
+      rows.forEach(r=>{ (byPos[r.rack+'|'+r.level] = byPos[r.rack+'|'+r.level] || []).push(r); });
+
+      let html = `<div style="display:grid; grid-template-columns:34px repeat(${maxRack-minRack+1}, 22px); gap:3px;">`;
+      html += `<div></div>`;
+      for(let rk=minRack; rk<=maxRack; rk++) html += `<div class="rack-label">${rk}</div>`;
+      levels.forEach(lv=>{
+        html += `<div class="level-label">${lv}</div>`;
+        for(let rk=minRack; rk<=maxRack; rk++){
+          const addr = `${pickerAisle}-${zpad(rk)}-${lv}`;
+          const items = byPos[rk+'|'+lv];
+          const cls = items ? (new Set(items.map(i=>i.article)).size>1 ? 'multi' : 'filled') : '';
+          const current = addr===currentValue ? 'box-shadow:0 0 0 2px var(--danger);' : '';
+          const title = items ? `${addr} · занята (${items.length} запис.)` : `${addr} · свободна`;
+          html += `<div class="cell ${cls}" style="cursor:pointer; ${current}" data-address="${addr}" title="${title}"></div>`;
+        }
+      });
+      html += `</div>`;
+      grid.innerHTML = html;
+      grid.querySelectorAll('.cell[data-address]').forEach(el=>{
+        el.addEventListener('click', ()=>{
+          onPick(el.dataset.address);
+          closeModal();
+        });
+      });
+    }
+
+    renderPickerAisles();
+    renderPickerGrid();
+  }
+
+
   let tableTerm = "";
   let tableFilter = "all";
 
@@ -249,7 +390,12 @@
     const shown = rows.slice(0, MAX);
     body.innerHTML = shown.map(r=>`
       <tr data-id="${r.id}">
-        <td class="cellcode"><input class="edit-input cellinput" data-field="cell" value="${r.cell}"></td>
+        <td class="cellcode">
+          <div style="display:flex; gap:5px; align-items:center;">
+            <input class="edit-input cellinput" data-field="cell" value="${r.cell}">
+            <button class="pin-btn map-pick-btn" title="Выбрать на карте склада">📍</button>
+          </div>
+        </td>
         <td class="article">${r.article}</td>
         <td>${r.name}</td>
         <td><input class="edit-input" data-field="qty" type="number" value="${r.qty}"></td>
@@ -257,8 +403,41 @@
         <td>${r.exp||'—'}</td>
         <td class="cellcode" style="font-size:11px;">${r.te||'—'}</td>
         <td>${r.isService ? '<span class="badge service">служебная</span>' : '<span class="badge ok">адресная</span>'}</td>
+        <td><button class="pin-btn row-delete-btn" title="Удалить запись">🗑</button></td>
       </tr>
-    `).join('') + (rows.length>MAX ? `<tr><td colspan="8" style="text-align:center;color:var(--ink-soft);padding:14px;">Показаны первые ${MAX} из ${fmtNum(rows.length)} — уточните поиск, чтобы увидеть остальные</td></tr>` : '');
+    `).join('') + (rows.length>MAX ? `<tr><td colspan="9" style="text-align:center;color:var(--ink-soft);padding:14px;">Показаны первые ${MAX} из ${fmtNum(rows.length)} — уточните поиск, чтобы увидеть остальные</td></tr>` : '');
+
+    body.querySelectorAll('.map-pick-btn').forEach(btn=>{
+      btn.addEventListener('click', ()=>{
+        const tr = btn.closest('tr');
+        const id = parseInt(tr.dataset.id,10);
+        const rec = state.records.find(r=>r.id===id);
+        const input = tr.querySelector('input[data-field="cell"]');
+        openCellPicker((address)=>{
+          input.value = address;
+          input.dispatchEvent(new Event('change', { bubbles: true }));
+        }, rec.cell);
+      });
+    });
+
+    body.querySelectorAll('.row-delete-btn').forEach(btn=>{
+      btn.addEventListener('click', async ()=>{
+        const tr = btn.closest('tr');
+        const id = parseInt(tr.dataset.id,10);
+        const rec = state.records.find(r=>r.id===id);
+        if(!rec) return;
+        if(!confirm(`Удалить запись «${rec.article}» из ячейки ${rec.cell}?`)) return;
+        try{
+          const res = await fetch(`${API_BASE}/api/records/${id}`, { method:'DELETE' });
+          if(!res.ok) throw new Error('HTTP '+res.status);
+          await fetchRecords();
+          renderAll();
+          setSyncStatus('запись удалена · ' + new Date().toLocaleTimeString('ru-RU'));
+        }catch(err){
+          alert('Не удалось удалить запись: ' + err.message);
+        }
+      });
+    });
 
     body.querySelectorAll('input.edit-input').forEach(inp=>{
       inp.addEventListener('change', async (e)=>{
@@ -299,7 +478,111 @@
     });
   }
 
-  // ---------- PICKING RECOMMENDATION ----------
+  // ---------- ADD PRODUCT ----------
+  function openAddProductForm(){
+    const draft = { cell:'', article:'', name:'', qty:'', mfg:'', exp:'', te:'' };
+
+    function renderForm(){
+      const body = `
+        <div class="form-grid">
+          <div class="form-field with-pin full">
+            <div>
+              <label>Ячейка</label>
+              <input id="f-cell" type="text" placeholder="напр. 01-12-02" value="${draft.cell}">
+            </div>
+            <button class="pin-btn" id="f-cell-pick" title="Выбрать на карте склада" style="height:34px;">📍</button>
+          </div>
+          <div class="form-field">
+            <label>Артикул *</label>
+            <input id="f-article" type="text" value="${draft.article}">
+          </div>
+          <div class="form-field">
+            <label>Остаток, шт</label>
+            <input id="f-qty" type="number" min="0" value="${draft.qty}">
+          </div>
+          <div class="form-field full">
+            <label>Наименование</label>
+            <input id="f-name" type="text" value="${draft.name}">
+          </div>
+          <div class="form-field">
+            <label>Дата изготовления</label>
+            <input id="f-mfg" type="text" placeholder="дд.мм.гггг" value="${draft.mfg}">
+          </div>
+          <div class="form-field">
+            <label>Срок годности</label>
+            <input id="f-exp" type="text" placeholder="дд.мм.гггг" value="${draft.exp}">
+          </div>
+          <div class="form-field full">
+            <label>ТЕ</label>
+            <input id="f-te" type="text" value="${draft.te}">
+          </div>
+        </div>
+        <div class="form-error" id="f-error"></div>
+      `;
+      const footer = `
+        <button class="btn" id="f-cancel">Отмена</button>
+        <button class="btn primary" id="f-submit">Добавить</button>
+      `;
+      openModal('Добавить товар в ячейку', body, footer);
+
+      document.getElementById('f-cell-pick').addEventListener('click', ()=>{
+        // remember what's typed so far, open the picker, come back to this form on pick
+        syncDraft();
+        openCellPicker((address)=>{
+          draft.cell = address;
+          renderForm();
+        }, draft.cell);
+      });
+      document.getElementById('f-cancel').addEventListener('click', closeModal);
+      document.getElementById('f-submit').addEventListener('click', submitForm);
+
+      function syncDraft(){
+        draft.cell = document.getElementById('f-cell').value.trim();
+        draft.article = document.getElementById('f-article').value.trim();
+        draft.name = document.getElementById('f-name').value.trim();
+        draft.qty = document.getElementById('f-qty').value;
+        draft.mfg = document.getElementById('f-mfg').value.trim();
+        draft.exp = document.getElementById('f-exp').value.trim();
+        draft.te = document.getElementById('f-te').value.trim();
+      }
+
+      async function submitForm(){
+        syncDraft();
+        const errEl = document.getElementById('f-error');
+        if(!draft.cell || !draft.article){
+          errEl.textContent = 'Заполните минимум «Ячейка» и «Артикул».';
+          errEl.classList.add('show');
+          return;
+        }
+        errEl.classList.remove('show');
+        try{
+          const res = await fetch(`${API_BASE}/api/records`, {
+            method:'POST',
+            headers:{'Content-Type':'application/json'},
+            body: JSON.stringify({
+              cell: draft.cell, article: draft.article, name: draft.name,
+              qty: Number(draft.qty)||0, mfg: draft.mfg, exp: draft.exp, te: draft.te
+            })
+          });
+          const payload = await res.json().catch(()=>({}));
+          if(!res.ok) throw new Error(payload.error || ('HTTP '+res.status));
+          closeModal();
+          await fetchRecords();
+          renderAll();
+          setSyncStatus('товар добавлен · ' + new Date().toLocaleTimeString('ru-RU'));
+        }catch(err){
+          errEl.textContent = 'Не удалось сохранить: ' + err.message;
+          errEl.classList.add('show');
+        }
+      }
+    }
+
+    renderForm();
+  }
+
+  document.getElementById('add-product-btn').addEventListener('click', openAddProductForm);
+
+
   let recoAisle = null;
   let recoSearchTerm = "";
   let recoCache = null; // {sorted:[...], posPool:[...]}
