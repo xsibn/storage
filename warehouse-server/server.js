@@ -83,6 +83,24 @@ app.patch('/api/records/:id', (req, res) => {
   res.json({ record: updated });
 });
 
+// POST /api/records — добавить новый товар в ячейку (форма «+ Добавить товар»)
+app.post('/api/records', (req, res) => {
+  const { cell, article, name, qty, mfg, exp, te } = req.body || {};
+  if (!cell || !article) return res.status(400).json({ error: 'обязательны поля "cell" и "article"' });
+  const record = db.createRecord({ cell, article, name, qty, mfg, exp, te });
+  if (!record) return res.status(400).json({ error: 'не удалось создать запись' });
+  res.status(201).json({ record });
+});
+
+// DELETE /api/records/:id — удалить ошибочно добавленную запись
+app.delete('/api/records/:id', (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  if (!Number.isInteger(id)) return res.status(400).json({ error: 'bad id' });
+  const ok = db.deleteRecord(id);
+  if (!ok) return res.status(404).json({ error: 'not found' });
+  res.json({ ok: true });
+});
+
 // POST /api/import — загрузка нового .xlsx: полностью заменяет текущие данные в базе
 app.post('/api/import', upload.single('file'), (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'file is required (field name "file")' });

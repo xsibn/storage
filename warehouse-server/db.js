@@ -122,4 +122,31 @@ function seedIfEmpty(seedRows, sourceLabel) {
   }
 }
 
-module.exports = { db, classifyCell, listRecords, replaceAll, updateRecord, getMeta, setMeta, count, seedIfEmpty };
+function createRecord(rec) {
+  const cell = String(rec.cell || '').trim();
+  const article = String(rec.article || '').trim();
+  if (!cell || !article) return null;
+  const cls = classifyCell(cell);
+  const info = db.prepare(`
+    INSERT INTO stock_records (cell, article, name, qty, mfg, exp, te, is_service, row_code, rack, level_code)
+    VALUES (@cell, @article, @name, @qty, @mfg, @exp, @te, @isService, @row, @rack, @level)
+  `).run({
+    cell, article,
+    name: rec.name || '',
+    qty: Math.max(0, Number(rec.qty) || 0),
+    mfg: rec.mfg || '',
+    exp: rec.exp || '',
+    te: rec.te || '',
+    isService: cls.isService, row: cls.row, rack: cls.rack, level: cls.level
+  });
+  return db.prepare('SELECT * FROM stock_records WHERE id = ?').get(info.lastInsertRowid);
+}
+
+function deleteRecord(id) {
+  const existing = db.prepare('SELECT * FROM stock_records WHERE id = ?').get(id);
+  if (!existing) return false;
+  db.prepare('DELETE FROM stock_records WHERE id = ?').run(id);
+  return true;
+}
+
+module.exports = { db, classifyCell, listRecords, replaceAll, updateRecord, createRecord, deleteRecord, getMeta, setMeta, count, seedIfEmpty };
