@@ -252,6 +252,16 @@ function deleteRecord(id) {
   return true;
 }
 
+// Bulk operations below (swap, rename) move records with raw SQL instead of
+// going through updateRecord(), so they don't get the automatic expandLayout()
+// call. This re-derives the layout from the actual current table and merges
+// it in (union, never shrinks) — a safety net so a row that receives racks
+// it didn't previously "know about" doesn't lose them from the map.
+function syncLayoutWithData() {
+  const discovered = computeLayout(listRecords());
+  setLayout(mergeLayouts(getLayout(), discovered));
+}
+
 // Swap two aisles ("ряды") wholesale: every address record in rowA moves to
 // rowB (keeping its rack/level) and every record in rowB moves to rowA — a
 // true two-way exchange, done in one transaction so it can't half-apply.
@@ -279,6 +289,8 @@ const swapRows = db.transaction((rowA, rowB) => {
     const cls = classifyCell(newCell);
     update.run({ id: r.id, cell: newCell, row: cls.row, rack: cls.rack, level: cls.level });
   }
+
+  syncLayoutWithData();
 
   return { movedA: recordsA.length, movedB: recordsB.length };
 });
@@ -369,6 +381,8 @@ const swapRacks = db.transaction((row, rackA, rackB) => {
     const cls = classifyCell(newCell);
     update.run({ id: r.id, cell: newCell, row: cls.row, rack: cls.rack, level: cls.level });
   }
+
+  syncLayoutWithData();
 
   return { movedA: recordsA.length, movedB: recordsB.length };
 });

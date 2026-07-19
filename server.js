@@ -29,6 +29,11 @@ if (fs.existsSync(seedPath)) {
     // map after becoming fully empty (layout used to be inferred from current
     // occupancy only). Never shrinks anything already recorded.
     db.ensureLayoutFromSeed(seedRows);
+    // Also reconcile the layout against whatever is ACTUALLY in the table right
+    // now — repairs drift left over from row/rack swaps performed before this
+    // safety net existed (the stock data itself was always fine; only the
+    // display structure could lag behind it).
+    db.rebuildLayoutFromCurrent();
   } catch (err) {
     console.error('Не удалось загрузить seed-данные:', err.message);
   }
