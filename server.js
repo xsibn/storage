@@ -177,7 +177,8 @@ app.get('/api/export', (req, res) => {
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, 'Данные');
   const buf = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
-  res.setHeader('Content-Disposition', 'attachment; filename="адресное_хранение.xlsx"');
+  const encodedName = encodeURIComponent('адресное_хранение.xlsx');
+  res.setHeader('Content-Disposition', `attachment; filename="warehouse-export.xlsx"; filename*=UTF-8''${encodedName}`);
   res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
   res.send(buf);
 });
