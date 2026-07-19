@@ -111,6 +111,35 @@ app.delete('/api/records/:id', (req, res) => {
   res.json({ ok: true });
 });
 
+// PUT /api/layout/:row/rename — переименовать ряд (перенести все записи под новый код)
+app.put('/api/layout/:row/rename', (req, res) => {
+  const oldRow = String(req.params.row).trim().padStart(2, '0');
+  const { newRow } = req.body || {};
+  if (!newRow || !/^\d{1,2}$/.test(String(newRow).trim())) {
+    return res.status(400).json({ error: '"newRow" должен быть числом из 1-2 цифр' });
+  }
+  const nr = String(newRow).trim().padStart(2, '0');
+  try {
+    const result = db.renameRow(oldRow, nr);
+    res.json({ ok: true, oldRow, newRow: nr, moved: result.moved });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+// PUT /api/layout/:row/racks — задать список стеллажей ряда (добавление/удаление ячеек)
+app.put('/api/layout/:row/racks', (req, res) => {
+  const row = String(req.params.row).trim().padStart(2, '0');
+  const { racks } = req.body || {};
+  if (!Array.isArray(racks)) return res.status(400).json({ error: '"racks" должен быть массивом номеров стеллажей' });
+  try {
+    const updated = db.setRacks(row, racks);
+    res.json({ ok: true, row, racks: updated.racks });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
 // PUT /api/layout/:row/rack-order — сохранить пользовательский порядок стеллажей ряда
 app.put('/api/layout/:row/rack-order', (req, res) => {
   const row = String(req.params.row).trim().padStart(2, '0');

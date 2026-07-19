@@ -84,6 +84,56 @@
     if(el){ el.textContent = text; el.style.color = isError ? 'var(--danger)' : 'var(--ink-soft)'; }
   }
 
+  // ---------- PROGRESS BAR ----------
+  // Two modes: indeterminate (quick JSON calls — we don't know real duration,
+  // just show something is happening) and determinate (file upload/download,
+  // where we can track real bytes transferred).
+  let progressDepth = 0; // supports nested/overlapping async calls
+  function progressStart(label){
+    progressDepth++;
+    const bar = document.getElementById('progress-bar');
+    bar.classList.add('active','indeterminate');
+    bar.style.width = '';
+    if(label){
+      const lbl = document.getElementById('progress-label');
+      lbl.textContent = label;
+      lbl.classList.add('active');
+    }
+  }
+  function progressSet(pct, label){
+    const bar = document.getElementById('progress-bar');
+    bar.classList.remove('indeterminate');
+    bar.classList.add('active');
+    bar.style.width = Math.max(2, Math.min(100, pct)) + '%';
+    if(label){
+      const lbl = document.getElementById('progress-label');
+      lbl.textContent = label;
+      lbl.classList.add('active');
+    }
+  }
+  function progressEnd(){
+    progressDepth = Math.max(0, progressDepth-1);
+    if(progressDepth>0) return; // another operation still running, keep the bar up
+    const bar = document.getElementById('progress-bar');
+    bar.classList.remove('indeterminate');
+    bar.style.width = '100%';
+    setTimeout(()=>{
+      bar.classList.remove('active');
+      bar.style.width = '0%';
+      document.getElementById('progress-label').classList.remove('active');
+    }, 300);
+  }
+  // Wrap any async operation with the indeterminate bar — used for the many
+  // quick JSON calls (save a field, delete a row, swap rows/racks, rename...).
+  async function withProgress(label, taskFn){
+    progressStart(label);
+    try{
+      return await taskFn();
+    } finally {
+      progressEnd();
+    }
+  }
+
   async function fetchRecords(){
     const res = await fetch(API_BASE + '/api/records');
     if(!res.ok) throw new Error('Сервер вернул ошибку ' + res.status);
@@ -97,7 +147,7 @@
   async function syncFromServer(showAlert){
     try{
       setSyncStatus('синхронизация…');
-      await fetchRecords();
+      await withProgress('Синхронизация…', fetchRecords);
       renderAll();
       setSyncStatus('обновлено ' + state.lastSync.toLocaleTimeString('ru-RU'));
     }catch(err){
@@ -201,6 +251,7 @@
   async function swapAisles(rowA, rowB){
     if(!confirm(`Поменять местами весь товар ряда ${rowA} и ряда ${rowB}? Это затронет все ячейки обоих рядов и сохранится сразу для всех.`)) return;
     setSyncStatus('обмен рядами…');
+    progressStart(`Обмен рядами ${rowA} ⇄ ${rowB}…`);
     try{
       const res = await fetch(`${API_BASE}/api/records/swap-rows`, {
         method:'POST', headers:{'Content-Type':'application/json'},
@@ -216,6 +267,8 @@
       setSyncStatus('ошибка обмена рядами', true);
       alert('Не удалось поменять ряды местами: ' + err.message);
       await fetchRecords(); renderAll();
+    } finally {
+      progressEnd();
     }
   }
 
@@ -225,6 +278,7 @@
   async function swapRacks(row, rackA, rackB){
     if(!confirm(`Поменять местами стеллаж ${rackA} и стеллаж ${rackB} в ряду ${row}? Затронет все ярусы обоих стеллажей.`)) return;
     setSyncStatus('обмен стеллажами…');
+    progressStart(`Обмен стеллажами ${rackA} ⇄ ${rackB}…`);
     try{
       const res = await fetch(`${API_BASE}/api/records/swap-racks`, {
         method:'POST', headers:{'Content-Type':'application/json'},
@@ -239,6 +293,8 @@
       setSyncStatus('ошибка обмена стеллажами', true);
       alert('Не удалось поменять стеллажи местами: ' + err.message);
       await fetchRecords(); renderAll();
+    } finally {
+      progressEnd();
     }
   }
 
@@ -366,13 +422,15 @@
     const recs = state.records.filter(r=>r.cell===sourceAddress);
     if(!recs.length) return;
     setSyncStatus('перемещение…');
+    progressStart(`Перемещение в ${targetAddress}…`);
     try{
-      for(const rec of recs){
-        const res = await fetch(`${API_BASE}/api/records/${rec.id}`, {
+      for(let i=0;i<recs.length;i++){
+        const res = await fetch(`${API_BASE}/api/records/${recs[i].id}`, {
           method:'PATCH', headers:{'Content-Type':'application/json'},
           body: JSON.stringify({ cell: targetAddress })
         });
         if(!res.ok) throw new Error('HTTP '+res.status);
+        if(recs.length>1) progressSet((i+1)/recs.length*100, `Перемещение в ${targetAddress}… ${i+1}/${recs.length}`);
       }
       await fetchRecords();
       renderAll();
@@ -381,6 +439,8 @@
       setSyncStatus('ошибка перемещения', true);
       alert('Не удалось переместить товар: ' + err.message);
       await fetchRecords(); renderAll();
+    } finally {
+      progressEnd();
     }
   }
 
@@ -546,6 +606,7 @@
         const rec = state.records.find(r=>r.id===id);
         if(!rec) return;
         if(!confirm(`Удалить запись «${rec.article}» из ячейки ${rec.cell}?`)) return;
+        progressStart('Удаление записи…');
         try{
           const res = await fetch(`${API_BASE}/api/records/${id}`, { method:'DELETE' });
           if(!res.ok) throw new Error('HTTP '+res.status);
@@ -554,6 +615,8 @@
           setSyncStatus('запись удалена · ' + new Date().toLocaleTimeString('ru-RU'));
         }catch(err){
           alert('Не удалось удалить запись: ' + err.message);
+        } finally {
+          progressEnd();
         }
       });
     });
@@ -576,7 +639,7 @@
           patch.cell = rec.cell;
         }
         renderAll(); // optimistic recalc everything
-
+        progressStart('Сохранение…');
         try{
           const res = await fetch(`${API_BASE}/api/records/${id}`, {
             method:'PATCH',
@@ -592,25 +655,40 @@
           renderAll();
           setSyncStatus('не удалось сохранить', true);
           alert('Не удалось сохранить изменение на сервере: ' + err.message);
+        } finally {
+          progressEnd();
         }
       });
     });
   }
 
-  // ---------- RACK ORDER EDITOR ----------
-  // Lets the user set an arbitrary display order for a row's racks — real
-  // warehouses don't always run 1,2,3...N (e.g. 75,74,73,1,2,3...).
-  function openRackOrderEditor(){
+  // ---------- ROW MANAGEMENT (rename + add/remove/reorder racks) ----------
+  // Real warehouses don't always run 1,2,3...N in order (e.g. 75,74,73,1,2,3...),
+  // rows sometimes need relabelling, and the number of racks in a row changes
+  // when shelving is added or removed — this one panel covers all three.
+  function openRowManager(){
     if(!currentAisle){ alert('Сначала выберите ряд.'); return; }
     const extent = aisleExtent(currentAisle);
     if(!extent){ alert('Для этого ряда пока нет структуры склада.'); return; }
+    const originalRow = currentAisle;
     let orderDraft = extent.racks.slice();
     let dragIdx = null;
 
+    function occupiedRacksInDraftRow(){
+      // ranks that currently hold stock in THIS row — removing them needs a warning
+      const set = new Set();
+      addressRecords().filter(r=>r.row===originalRow).forEach(r=>set.add(r.rack));
+      return set;
+    }
+
     function renderChips(){
-      const body = document.getElementById('modal-body');
-      const list = body.querySelector('.order-list');
-      list.innerHTML = orderDraft.map((rk,idx)=>`<div class="order-chip" draggable="true" data-idx="${idx}">${rk}</div>`).join('');
+      const occupied = occupiedRacksInDraftRow();
+      const list = document.getElementById('modal-body').querySelector('.order-list');
+      list.innerHTML = orderDraft.map((rk,idx)=>`
+        <div class="order-chip" draggable="true" data-idx="${idx}" data-rack="${rk}" title="${occupied.has(rk)?'В этом стеллаже есть товар':'Пусто'}">
+          ${rk}${occupied.has(rk)?'':' <span class="rm" style="opacity:.5;">×</span>'}
+        </div>
+      `).join('');
 
       list.querySelectorAll('.order-chip').forEach(chip=>{
         chip.addEventListener('dragstart', (e)=>{
@@ -619,10 +697,7 @@
           e.dataTransfer.effectAllowed = 'move';
           e.dataTransfer.setData('text/plain', String(dragIdx));
         });
-        chip.addEventListener('dragend', ()=>{
-          chip.classList.remove('drag-source');
-          dragIdx = null;
-        });
+        chip.addEventListener('dragend', ()=>{ chip.classList.remove('drag-source'); dragIdx = null; });
         chip.addEventListener('dragover', (e)=>{
           if(dragIdx===null) return;
           e.preventDefault();
@@ -640,45 +715,99 @@
           dragIdx = null;
           renderChips();
         });
+        // click the × to remove — only shown for racks with no stock
+        const rmBtn = chip.querySelector('.rm');
+        if(rmBtn){
+          rmBtn.addEventListener('click', (e)=>{
+            e.stopPropagation();
+            const rk = parseInt(chip.dataset.rack,10);
+            orderDraft = orderDraft.filter(r=>r!==rk);
+            renderChips();
+          });
+        }
       });
     }
 
     const body = `
-      <p style="font-size:12.5px; color:var(--ink-soft); margin:0 0 12px;">Перетаскивайте номера, чтобы задать порядок отображения стеллажей ряда ${currentAisle}. Сохранится для всех.</p>
-      <div class="order-list"></div>
+      <div class="form-field" style="margin-bottom:16px;">
+        <label>Название ряда (2 цифры)</label>
+        <input id="row-rename-input" type="text" maxlength="2" value="${originalRow}" style="width:80px; padding:8px 10px; border:1px solid var(--line); border-radius:7px; font-family:var(--mono); font-size:14px;">
+      </div>
+      <div class="form-field" style="margin-bottom:10px;">
+        <label>Стеллажи ряда — перетаскивайте, чтобы задать порядок; × убирает пустой стеллаж</label>
+        <div class="order-list"></div>
+      </div>
+      <div class="form-field with-pin" style="max-width:260px;">
+        <div><input id="add-rack-input" type="number" min="1" placeholder="Номер нового стеллажа"></div>
+        <button class="btn" id="add-rack-btn" style="height:34px;">+ Добавить</button>
+      </div>
+      <div class="form-error" id="row-mgr-error"></div>
     `;
     const footer = `
       <button class="btn" id="order-reset">По возрастанию</button>
-      <button class="btn" id="order-cancel">Отмена</button>
-      <button class="btn primary" id="order-save">Сохранить порядок</button>
+      <button class="btn" id="row-mgr-cancel">Отмена</button>
+      <button class="btn primary" id="row-mgr-save">Сохранить</button>
     `;
-    openModal(`Порядок стеллажей — ряд ${currentAisle}`, body, footer);
+    openModal(`Управление рядом ${originalRow}`, body, footer);
     renderChips();
 
     document.getElementById('order-reset').addEventListener('click', ()=>{
       orderDraft = [...orderDraft].sort((a,b)=>a-b);
       renderChips();
     });
-    document.getElementById('order-cancel').addEventListener('click', closeModal);
-    document.getElementById('order-save').addEventListener('click', async ()=>{
+    document.getElementById('add-rack-btn').addEventListener('click', ()=>{
+      const inp = document.getElementById('add-rack-input');
+      const v = parseInt(inp.value,10);
+      if(!Number.isInteger(v) || v<=0) return;
+      if(!orderDraft.includes(v)) orderDraft.push(v);
+      inp.value = '';
+      renderChips();
+    });
+    document.getElementById('row-mgr-cancel').addEventListener('click', closeModal);
+
+    document.getElementById('row-mgr-save').addEventListener('click', async ()=>{
+      const errEl = document.getElementById('row-mgr-error');
+      errEl.classList.remove('show');
+      const newRow = document.getElementById('row-rename-input').value.trim().padStart(2,'0');
+      if(!/^\d{2}$/.test(newRow)){
+        errEl.textContent = 'Название ряда должно быть числом (1-2 цифры).';
+        errEl.classList.add('show');
+        return;
+      }
+      progressStart('Сохранение структуры ряда…');
       try{
-        const res = await fetch(`${API_BASE}/api/layout/${currentAisle}/rack-order`, {
+        let workingRow = originalRow;
+        if(newRow !== originalRow){
+          const res = await fetch(`${API_BASE}/api/layout/${originalRow}/rename`, {
+            method:'PUT', headers:{'Content-Type':'application/json'},
+            body: JSON.stringify({ newRow })
+          });
+          const payload = await res.json().catch(()=>({}));
+          if(!res.ok) throw new Error(payload.error || ('HTTP '+res.status));
+          workingRow = newRow;
+        }
+        const res2 = await fetch(`${API_BASE}/api/layout/${workingRow}/racks`, {
           method:'PUT', headers:{'Content-Type':'application/json'},
-          body: JSON.stringify({ order: orderDraft })
+          body: JSON.stringify({ racks: orderDraft })
         });
-        const payload = await res.json().catch(()=>({}));
-        if(!res.ok) throw new Error(payload.error || ('HTTP '+res.status));
+        const payload2 = await res2.json().catch(()=>({}));
+        if(!res2.ok) throw new Error(payload2.error || ('HTTP '+res2.status));
+
         closeModal();
+        currentAisle = workingRow;
         await fetchRecords();
         renderAll();
-        setSyncStatus('порядок стеллажей сохранён · ' + new Date().toLocaleTimeString('ru-RU'));
+        setSyncStatus(`ряд ${workingRow} обновлён · ` + new Date().toLocaleTimeString('ru-RU'));
       }catch(err){
-        alert('Не удалось сохранить порядок: ' + err.message);
+        errEl.textContent = 'Не удалось сохранить: ' + err.message;
+        errEl.classList.add('show');
+      } finally {
+        progressEnd();
       }
     });
   }
 
-  document.getElementById('rack-order-btn').addEventListener('click', openRackOrderEditor);
+  document.getElementById('rack-order-btn').addEventListener('click', openRowManager);
 
 
   function openAddProductForm(){
@@ -757,6 +886,7 @@
           return;
         }
         errEl.classList.remove('show');
+        progressStart('Добавление товара…');
         try{
           const res = await fetch(`${API_BASE}/api/records`, {
             method:'POST',
@@ -775,6 +905,8 @@
         }catch(err){
           errEl.textContent = 'Не удалось сохранить: ' + err.message;
           errEl.classList.add('show');
+        } finally {
+          progressEnd();
         }
       }
     }
@@ -1165,12 +1297,29 @@
     const file = e.target.files[0];
     if(!file) return;
     setSyncStatus('загрузка файла на сервер…');
+    progressStart(`Загрузка ${file.name}… 0%`);
     try{
       const form = new FormData();
       form.append('file', file);
-      const res = await fetch(API_BASE + '/api/import', { method:'POST', body: form });
-      const payload = await res.json().catch(()=>({}));
-      if(!res.ok) throw new Error(payload.error || ('HTTP '+res.status));
+      const payload = await new Promise((resolve, reject)=>{
+        const xhr = new XMLHttpRequest();
+        xhr.open('POST', API_BASE + '/api/import');
+        xhr.upload.addEventListener('progress', (ev)=>{
+          if(ev.lengthComputable){
+            const pct = ev.loaded/ev.total*100;
+            progressSet(pct, `Загрузка ${file.name}… ${Math.round(pct)}%`);
+          }
+        });
+        xhr.onload = ()=>{
+          let data = {};
+          try{ data = JSON.parse(xhr.responseText); }catch(_){}
+          if(xhr.status>=200 && xhr.status<300) resolve(data);
+          else reject(new Error(data.error || ('HTTP '+xhr.status)));
+        };
+        xhr.onerror = ()=> reject(new Error('сетевая ошибка при загрузке'));
+        xhr.send(form);
+      });
+      progressSet(100, 'Обработка на сервере…');
       currentAisle = null; recoAisle = null;
       await fetchRecords();
       renderAll();
@@ -1180,12 +1329,51 @@
       alert('Не удалось загрузить файл на сервер: '+err.message);
     }finally{
       e.target.value = '';
+      progressEnd();
     }
   });
 
   // ---------- EXPORT (server builds the .xlsx from the current database state) ----------
-  document.getElementById('export-btn').addEventListener('click', ()=>{
-    window.location.href = API_BASE + '/api/export';
+  document.getElementById('export-btn').addEventListener('click', async ()=>{
+    progressStart('Формирование файла на сервере…');
+    try{
+      const res = await fetch(API_BASE + '/api/export');
+      if(!res.ok) throw new Error('HTTP '+res.status);
+      const total = parseInt(res.headers.get('Content-Length')||'0', 10);
+      const reader = res.body ? res.body.getReader() : null;
+      let filename = 'адресное_хранение.xlsx';
+      const disp = res.headers.get('Content-Disposition') || '';
+      const starMatch = disp.match(/filename\*=UTF-8''([^;]+)/i);
+      if(starMatch) filename = decodeURIComponent(starMatch[1]);
+
+      let blob;
+      if(reader && total){
+        const chunks = [];
+        let received = 0;
+        while(true){
+          const {done, value} = await reader.read();
+          if(done) break;
+          chunks.push(value);
+          received += value.length;
+          progressSet(received/total*100, `Скачивание… ${Math.round(received/total*100)}%`);
+        }
+        blob = new Blob(chunks, {type: res.headers.get('Content-Type')||'application/octet-stream'});
+      } else {
+        blob = await res.blob(); // fallback if streaming isn't available
+      }
+
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = filename;
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(()=>URL.revokeObjectURL(url), 2000);
+      setSyncStatus('экспорт скачан · ' + new Date().toLocaleTimeString('ru-RU'));
+    }catch(err){
+      setSyncStatus('ошибка экспорта', true);
+      alert('Не удалось скачать экспорт: ' + err.message);
+    } finally {
+      progressEnd();
+    }
   });
 
   // ---------- MANUAL / PERIODIC SYNC ----------

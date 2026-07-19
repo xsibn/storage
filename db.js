@@ -283,6 +283,66 @@ const swapRows = db.transaction((rowA, rowB) => {
   return { movedA: recordsA.length, movedB: recordsB.length };
 });
 
+// Rename a row wholesale: relabels the row code itself (e.g. "07" -> "50"),
+// rewriting every record's cell prefix and moving the layout entry. Fails if
+// the target row code is already in use, to avoid silently merging two rows.
+const renameRow = db.transaction((oldRow, newRow) => {
+  if (oldRow === newRow) return { moved: 0 };
+  const layout = getLayout();
+  if (!layout[oldRow]) throw new Error(`ряд ${oldRow} не найден в структуре склада`);
+  if (layout[newRow]) throw new Error(`ряд ${newRow} уже существует — выберите другое название`);
+
+  const records = db.prepare('SELECT id, cell FROM stock_records WHERE row_code = ? AND is_service = 0').all(oldRow);
+  const update = db.prepare(`
+    UPDATE stock_records
+    SET cell = @cell, row_code = @row, rack = @rack, level_code = @level, updated_at = datetime('now')
+    WHERE id = @id
+  `);
+  const rewriteRow = (oldCell, targetRow) => targetRow + oldCell.slice(2);
+  for (const r of records) {
+    const newCell = rewriteRow(r.cell, newRow);
+    const cls = classifyCell(newCell);
+    update.run({ id: r.id, cell: newCell, row: cls.row, rack: cls.rack, level: cls.level });
+  }
+
+  layout[newRow] = layout[oldRow];
+  delete layout[oldRow];
+  setLayout(layout);
+
+  return { moved: records.length };
+});
+
+// Add and/or remove racks for a row in one go — this is the "change the
+// number of cells" operation. Adding is always safe (just a new empty
+// position). Removing is blocked if that rack still holds any stock, so a
+// careless edit can't silently delete inventory.
+function setRacks(row, racks) {
+  const layout = getLayout();
+  if (!layout[row]) throw new Error(`ряд ${row} не найден в структуре склада`);
+
+  const cleanRacks = [];
+  const seen = new Set();
+  for (const n of racks) {
+    const v = parseInt(n, 10);
+    if (Number.isInteger(v) && v > 0 && !seen.has(v)) { cleanRacks.push(v); seen.add(v); }
+  }
+
+  const removed = layout[row].racks.filter(rk => !seen.has(rk));
+  if (removed.length) {
+    const placeholders = removed.map(() => '?').join(',');
+    const stillOccupied = db.prepare(
+      `SELECT DISTINCT rack FROM stock_records WHERE row_code = ? AND is_service = 0 AND rack IN (${placeholders})`
+    ).all(row, ...removed);
+    if (stillOccupied.length) {
+      throw new Error(`нельзя убрать стеллаж(и) ${stillOccupied.map(r => r.rack).join(', ')} — там ещё есть товар`);
+    }
+  }
+
+  layout[row].racks = cleanRacks;
+  setLayout(layout);
+  return layout[row];
+}
+
 // Swap two racks ("стеллажи") within the same row wholesale: every level of
 // rackA moves to rackB and vice versa — same idea as swapRows, one segment down.
 const swapRacks = db.transaction((row, rackA, rackB) => {
@@ -340,6 +400,6 @@ function setRackOrder(row, order) {
 
 module.exports = {
   db, classifyCell, listRecords, replaceAll, updateRecord, createRecord, deleteRecord,
-  swapRows, swapRacks, getMeta, setMeta, count, seedIfEmpty,
+  swapRows, swapRacks, renameRow, setRacks, getMeta, setMeta, count, seedIfEmpty,
   getLayout, ensureLayoutFromSeed, rebuildLayoutFromCurrent, setRackOrder
 };
