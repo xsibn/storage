@@ -180,4 +180,34 @@ const swapRows = db.transaction((rowA, rowB) => {
   return { movedA: recordsA.length, movedB: recordsB.length };
 });
 
-module.exports = { db, classifyCell, listRecords, replaceAll, updateRecord, createRecord, deleteRecord, swapRows, getMeta, setMeta, count, seedIfEmpty };
+// Swap two racks ("стеллажи") within the same row wholesale: every level of
+// rackA moves to rackB and vice versa — same idea as swapRows, one segment down.
+const swapRacks = db.transaction((row, rackA, rackB) => {
+  if (rackA === rackB) return { movedA: 0, movedB: 0 };
+
+  const recordsA = db.prepare('SELECT id, cell FROM stock_records WHERE row_code = ? AND rack = ? AND is_service = 0').all(row, rackA);
+  const recordsB = db.prepare('SELECT id, cell FROM stock_records WHERE row_code = ? AND rack = ? AND is_service = 0').all(row, rackB);
+  const update = db.prepare(`
+    UPDATE stock_records
+    SET cell = @cell, row_code = @row, rack = @rack, level_code = @level, updated_at = datetime('now')
+    WHERE id = @id
+  `);
+
+  // cell format is RR-SS-LL — swap just the middle (rack) segment, keep row/level as-is
+  const rewriteRack = (oldCell, targetRack) => oldCell.replace(/^(\d{2})-(\d{2})-/, (_, r) => `${r}-${String(targetRack).padStart(2, '0')}-`);
+
+  for (const r of recordsA) {
+    const newCell = rewriteRack(r.cell, rackB);
+    const cls = classifyCell(newCell);
+    update.run({ id: r.id, cell: newCell, row: cls.row, rack: cls.rack, level: cls.level });
+  }
+  for (const r of recordsB) {
+    const newCell = rewriteRack(r.cell, rackA);
+    const cls = classifyCell(newCell);
+    update.run({ id: r.id, cell: newCell, row: cls.row, rack: cls.rack, level: cls.level });
+  }
+
+  return { movedA: recordsA.length, movedB: recordsB.length };
+});
+
+module.exports = { db, classifyCell, listRecords, replaceAll, updateRecord, createRecord, deleteRecord, swapRows, swapRacks, getMeta, setMeta, count, seedIfEmpty };

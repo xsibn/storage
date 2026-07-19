@@ -119,6 +119,9 @@
     font-family:var(--mono); font-size:9px; color:var(--ink-soft); text-align:center; writing-mode:vertical-rl;
     transform:rotate(180deg); padding-bottom:2px;
   }
+  .rack-label[draggable="true"]{cursor:grab;}
+  .rack-label.drag-source{opacity:.35;}
+  .rack-label.drag-over{outline:2px dashed var(--accent); outline-offset:1px; color:var(--accent);}
   .cell{
     width:22px; height:22px; border-radius:4px; background:var(--empty); cursor:default;
     border:1px solid transparent; position:relative;
@@ -262,7 +265,7 @@
         <div class="toolbar" style="margin-bottom:12px;">
           <div class="search"><input type="text" id="map-search" placeholder="Найти артикул, ячейку или ТЕ на схеме…"></div>
         </div>
-        <p style="font-size:12px; color:var(--ink-soft); margin:0 0 10px;">Перетащите занятую ячейку на другую (пустую или занятую), чтобы переместить товар физически — сохранится сразу на сервере.</p>
+        <p style="font-size:12px; color:var(--ink-soft); margin:0 0 10px;">Перетащите занятую ячейку на другую (пустую или занятую), чтобы переместить товар — сохранится сразу. Перетащите номер стеллажа сверху сетки на другой номер, чтобы поменять местами стеллажи целиком.</p>
         <div class="grid-wrap"><div class="rack-grid" id="rack-grid"></div></div>
         <div class="legend">
           <span><i class="swatch" style="background:var(--accent-soft);border:1px solid var(--accent);"></i>занята (1 артикул) — перетаскивается</span>

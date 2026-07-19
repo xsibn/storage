@@ -116,6 +116,24 @@ app.post('/api/records/swap-rows', (req, res) => {
   }
 });
 
+// POST /api/records/swap-racks — поменять местами два стеллажа целиком внутри одного ряда
+app.post('/api/records/swap-racks', (req, res) => {
+  const { row, rackA, rackB } = req.body || {};
+  if (!row || rackA === undefined || rackB === undefined) {
+    return res.status(400).json({ error: 'обязательны поля "row", "rackA", "rackB"' });
+  }
+  const r = String(row).trim().padStart(2, '0');
+  const a = parseInt(rackA, 10), b = parseInt(rackB, 10);
+  if (!Number.isInteger(a) || !Number.isInteger(b)) return res.status(400).json({ error: 'rackA и rackB должны быть числами' });
+  if (a === b) return res.status(400).json({ error: 'rackA и rackB совпадают' });
+  try {
+    const result = db.swapRacks(r, a, b);
+    res.json({ ok: true, row: r, rackA: a, rackB: b, ...result });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // POST /api/import — загрузка нового .xlsx: полностью заменяет текущие данные в базе
 app.post('/api/import', upload.single('file'), (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'file is required (field name "file")' });

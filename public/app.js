@@ -201,6 +201,28 @@
   }
 
   let dragSourceAddress = null;
+  let dragSourceRack = null;
+
+  async function swapRacks(row, rackA, rackB){
+    if(!confirm(`Поменять местами стеллаж ${rackA} и стеллаж ${rackB} в ряду ${row}? Затронет все ярусы обоих стеллажей.`)) return;
+    setSyncStatus('обмен стеллажами…');
+    try{
+      const res = await fetch(`${API_BASE}/api/records/swap-racks`, {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ row, rackA, rackB })
+      });
+      const payload = await res.json().catch(()=>({}));
+      if(!res.ok) throw new Error(payload.error || ('HTTP '+res.status));
+      await fetchRecords();
+      renderAll();
+      setSyncStatus(`стеллажи ${rackA} и ${rackB} обменяны (${fmtNum(payload.movedA)} / ${fmtNum(payload.movedB)}) · ` + new Date().toLocaleTimeString('ru-RU'));
+    }catch(err){
+      setSyncStatus('ошибка обмена стеллажами', true);
+      alert('Не удалось поменять стеллажи местами: ' + err.message);
+      await fetchRecords(); renderAll();
+    }
+  }
+
 
   function renderGrid(){
     const grid = document.getElementById('rack-grid');
@@ -227,7 +249,7 @@
 
     let html = `<div style="display:grid; grid-template-columns:34px repeat(${fullRacks.length}, 22px); gap:3px;">`;
     html += `<div></div>`;
-    fullRacks.forEach(rk=> html += `<div class="rack-label">${rk}</div>`);
+    fullRacks.forEach(rk=> html += `<div class="rack-label" draggable="true" data-rack="${rk}" title="Перетащите на другой стеллаж, чтобы поменять их местами целиком">${rk}</div>`);
     levels.forEach(lv=>{
       html += `<div class="level-label">${lv}</div>`;
       fullRacks.forEach(rk=>{
@@ -266,6 +288,38 @@
       el.addEventListener('dragend', ()=>{
         el.classList.remove('drag-source');
         dragSourceAddress = null;
+      });
+    });
+
+    grid.querySelectorAll('.rack-label[data-rack]').forEach(el=>{
+      el.addEventListener('dragstart', (e)=>{
+        e.stopPropagation();
+        dragSourceRack = el.dataset.rack;
+        el.classList.add('drag-source');
+        e.dataTransfer.effectAllowed = 'move';
+        e.dataTransfer.setData('text/plain', dragSourceRack);
+      });
+      el.addEventListener('dragend', ()=>{
+        el.classList.remove('drag-source');
+        dragSourceRack = null;
+      });
+      el.addEventListener('dragover', (e)=>{
+        if(!dragSourceRack || dragSourceRack===el.dataset.rack) return;
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'move';
+        el.classList.add('drag-over');
+      });
+      el.addEventListener('dragleave', ()=>{
+        el.classList.remove('drag-over');
+      });
+      el.addEventListener('drop', async (e)=>{
+        e.preventDefault();
+        el.classList.remove('drag-over');
+        const source = dragSourceRack;
+        const target = el.dataset.rack;
+        dragSourceRack = null;
+        if(!source || source===target) return;
+        await swapRacks(currentAisle, source, target);
       });
     });
 
