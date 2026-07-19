@@ -64,42 +64,67 @@ function setMeta(key, value) {
 // fully empty (e.g. after a swap) would silently vanish from the map, even
 // though it's still a real physical location. This is stored in meta as JSON
 // and only ever grows (never shrinks) once a location has been seen.
+//
+// Each row's racks are an explicit ORDERED list, not just a min/max range —
+// real warehouses don't always run 1,2,3...N in a straight line (e.g.
+// 75,74,73,1,2,3...), and that order is user-editable and persisted.
 function computeLayout(rows) {
-  const layout = {};
+  const bounds = {};
   for (const r of rows) {
     const cls = classifyCell(r.cell);
     if (cls.isService) continue;
-    if (!layout[cls.row]) layout[cls.row] = { minRack: cls.rack, maxRack: cls.rack, levels: new Set() };
-    const L = layout[cls.row];
-    if (cls.rack < L.minRack) L.minRack = cls.rack;
-    if (cls.rack > L.maxRack) L.maxRack = cls.rack;
-    L.levels.add(cls.level);
+    if (!bounds[cls.row]) bounds[cls.row] = { min: cls.rack, max: cls.rack, levels: new Set() };
+    const B = bounds[cls.row];
+    if (cls.rack < B.min) B.min = cls.rack;
+    if (cls.rack > B.max) B.max = cls.rack;
+    B.levels.add(cls.level);
   }
   const out = {};
-  for (const row of Object.keys(layout)) {
-    out[row] = { minRack: layout[row].minRack, maxRack: layout[row].maxRack, levels: Array.from(layout[row].levels) };
+  for (const row of Object.keys(bounds)) {
+    const { min, max, levels } = bounds[row];
+    const racks = [];
+    for (let i = min; i <= max; i++) racks.push(i); // default order: full consecutive range, gaps included
+    out[row] = { racks, levels: Array.from(levels) };
   }
   return out;
 }
 
+// Old stored shape was {minRack, maxRack, levels}; convert on read so an
+// already-deployed database keeps working without a manual migration step.
+function normalizeLayoutEntry(entry) {
+  if (entry.racks) return { racks: entry.racks.slice(), levels: (entry.levels || []).slice() };
+  if (entry.minRack != null && entry.maxRack != null) {
+    const racks = [];
+    for (let i = entry.minRack; i <= entry.maxRack; i++) racks.push(i);
+    return { racks, levels: (entry.levels || []).slice() };
+  }
+  return { racks: [], levels: (entry.levels || []).slice() };
+}
+
 function getLayout() {
   const raw = getMeta('layout');
-  return raw ? JSON.parse(raw) : {};
+  if (!raw) return {};
+  const parsed = JSON.parse(raw);
+  const out = {};
+  for (const row of Object.keys(parsed)) out[row] = normalizeLayoutEntry(parsed[row]);
+  return out;
 }
 function setLayout(layout) {
   setMeta('layout', JSON.stringify(layout));
 }
 
+// Merge two layouts, preserving whatever custom rack ORDER is already in `a`
+// (the previously-persisted / user-arranged one) and appending any racks
+// found only in `b` to the end, rather than re-sorting everything.
 function mergeLayouts(a, b) {
   const out = {};
   for (const row of new Set([...Object.keys(a), ...Object.keys(b)])) {
     const la = a[row], lb = b[row];
     if (la && lb) {
-      out[row] = {
-        minRack: Math.min(la.minRack, lb.minRack),
-        maxRack: Math.max(la.maxRack, lb.maxRack),
-        levels: Array.from(new Set([...la.levels, ...lb.levels]))
-      };
+      const seen = new Set(la.racks);
+      const racks = [...la.racks];
+      for (const rk of lb.racks) if (!seen.has(rk)) { racks.push(rk); seen.add(rk); }
+      out[row] = { racks, levels: Array.from(new Set([...la.levels, ...lb.levels])) };
     } else {
       out[row] = la || lb;
     }
@@ -109,22 +134,24 @@ function mergeLayouts(a, b) {
 
 // Called at server startup: guarantees the stored layout covers at least the
 // full extent of the given seed rows, merged with whatever is already stored
-// (so manual expansions since then aren't lost, and nothing ever shrinks).
+// (so manual expansions and custom ordering since then aren't lost, and
+// nothing ever shrinks).
 function ensureLayoutFromSeed(seedRows) {
   const seedLayout = computeLayout(seedRows.map(r => ({ cell: r.c })));
   const current = getLayout();
   setLayout(mergeLayouts(current, seedLayout));
 }
 
-// Widen the stored layout with a single new location, if it isn't already covered.
+// Widen the stored layout with a single new location, if it isn't already
+// covered. A brand-new rack is appended to the end of the row's order —
+// the user can drag it into place afterward if it belongs elsewhere.
 function expandLayout(row, rack, level) {
   if (!row || rack == null || !level) return;
   const layout = getLayout();
   if (!layout[row]) {
-    layout[row] = { minRack: rack, maxRack: rack, levels: [level] };
+    layout[row] = { racks: [rack], levels: [level] };
   } else {
-    layout[row].minRack = Math.min(layout[row].minRack, rack);
-    layout[row].maxRack = Math.max(layout[row].maxRack, rack);
+    if (!layout[row].racks.includes(rack)) layout[row].racks.push(rack);
     if (!layout[row].levels.includes(level)) layout[row].levels.push(level);
   }
   setLayout(layout);
@@ -294,8 +321,25 @@ function rebuildLayoutFromCurrent() {
   return getLayout();
 }
 
+// Persist a user-chosen display order for a row's racks (e.g. 75,74,73,1,2,3...).
+// `order` must be exactly a reordering of the racks already known for that row —
+// it can't silently add or drop a rack, to avoid corrupting the structure.
+function setRackOrder(row, order) {
+  const layout = getLayout();
+  if (!layout[row]) throw new Error(`ряд ${row} не найден в структуре склада`);
+  const cleanOrder = order.map(n => parseInt(n, 10)).filter(n => Number.isInteger(n));
+  const current = new Set(layout[row].racks);
+  const incoming = new Set(cleanOrder);
+  if (current.size !== incoming.size || [...current].some(rk => !incoming.has(rk))) {
+    throw new Error('новый порядок должен содержать ровно те же стеллажи, что и раньше — без добавления или удаления');
+  }
+  layout[row].racks = cleanOrder;
+  setLayout(layout);
+  return layout[row];
+}
+
 module.exports = {
   db, classifyCell, listRecords, replaceAll, updateRecord, createRecord, deleteRecord,
   swapRows, swapRacks, getMeta, setMeta, count, seedIfEmpty,
-  getLayout, ensureLayoutFromSeed, rebuildLayoutFromCurrent
+  getLayout, ensureLayoutFromSeed, rebuildLayoutFromCurrent, setRackOrder
 };

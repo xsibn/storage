@@ -123,15 +123,16 @@
 
   // Full known extent of a row (racks + levels), independent of what's occupied
   // right now — this is what keeps a rack from "disappearing" once it's empty.
+  // `racks` is an explicit, user-orderable list (not necessarily ascending).
   function aisleExtent(row){
     const L = state.layout && state.layout[row];
-    if(L) return { minRack: L.minRack, maxRack: L.maxRack, levels: L.levels.slice() };
+    if(L) return { racks: L.racks.slice(), levels: L.levels.slice() };
     // fallback: derive from whatever is currently occupied
     const rows = addressRecords().filter(r=>r.row===row);
     if(!rows.length) return null;
-    const racks = rows.map(r=>r.rack);
+    const racks = Array.from(new Set(rows.map(r=>r.rack))).sort((a,b)=>a-b);
     const levels = Array.from(new Set(rows.map(r=>r.level)));
-    return { minRack: Math.min(...racks), maxRack: Math.max(...racks), levels };
+    return { racks, levels };
   }
 
   // ---------- header stats ----------
@@ -249,10 +250,7 @@
     if(!extent){ grid.innerHTML = '<div class="empty-note">Пусто</div>'; return; }
     const rows = addressRecords().filter(r=>r.row===currentAisle);
 
-    const minRack = extent.minRack, maxRack = extent.maxRack;
-    const fullRacks = [];
-    for(let i=minRack;i<=maxRack;i++) fullRacks.push(i);
-
+    const fullRacks = extent.racks;
     const levels = LEVEL_ORDER.filter(l=>extent.levels.includes(l)).reverse();
 
     // group by rack-level
@@ -458,24 +456,24 @@
       const extent = aisleExtent(pickerAisle);
       if(!extent){ grid.innerHTML = '<div class="empty-note">Пусто</div>'; return; }
       const rows = addressRecords().filter(r=>r.row===pickerAisle);
-      const minRack = extent.minRack, maxRack = extent.maxRack;
+      const racks = extent.racks;
       const levels = LEVEL_ORDER.filter(l=>extent.levels.includes(l)).reverse();
       const byPos = {};
       rows.forEach(r=>{ (byPos[r.rack+'|'+r.level] = byPos[r.rack+'|'+r.level] || []).push(r); });
 
-      let html = `<div style="display:grid; grid-template-columns:34px repeat(${maxRack-minRack+1}, 22px); gap:3px;">`;
+      let html = `<div style="display:grid; grid-template-columns:34px repeat(${racks.length}, 22px); gap:3px;">`;
       html += `<div></div>`;
-      for(let rk=minRack; rk<=maxRack; rk++) html += `<div class="rack-label">${rk}</div>`;
+      racks.forEach(rk=> html += `<div class="rack-label">${rk}</div>`);
       levels.forEach(lv=>{
         html += `<div class="level-label">${lv}</div>`;
-        for(let rk=minRack; rk<=maxRack; rk++){
+        racks.forEach(rk=>{
           const addr = `${pickerAisle}-${zpad(rk)}-${lv}`;
           const items = byPos[rk+'|'+lv];
           const cls = items ? (new Set(items.map(i=>i.article)).size>1 ? 'multi' : 'filled') : '';
           const current = addr===currentValue ? 'box-shadow:0 0 0 2px var(--danger);' : '';
           const title = items ? `${addr} · занята (${items.length} запис.)` : `${addr} · свободна`;
           html += `<div class="cell ${cls}" style="cursor:pointer; ${current}" data-address="${addr}" title="${title}"></div>`;
-        }
+        });
       });
       html += `</div>`;
       grid.innerHTML = html;
@@ -599,7 +597,90 @@
     });
   }
 
-  // ---------- ADD PRODUCT ----------
+  // ---------- RACK ORDER EDITOR ----------
+  // Lets the user set an arbitrary display order for a row's racks — real
+  // warehouses don't always run 1,2,3...N (e.g. 75,74,73,1,2,3...).
+  function openRackOrderEditor(){
+    if(!currentAisle){ alert('Сначала выберите ряд.'); return; }
+    const extent = aisleExtent(currentAisle);
+    if(!extent){ alert('Для этого ряда пока нет структуры склада.'); return; }
+    let orderDraft = extent.racks.slice();
+    let dragIdx = null;
+
+    function renderChips(){
+      const body = document.getElementById('modal-body');
+      const list = body.querySelector('.order-list');
+      list.innerHTML = orderDraft.map((rk,idx)=>`<div class="order-chip" draggable="true" data-idx="${idx}">${rk}</div>`).join('');
+
+      list.querySelectorAll('.order-chip').forEach(chip=>{
+        chip.addEventListener('dragstart', (e)=>{
+          dragIdx = parseInt(chip.dataset.idx,10);
+          chip.classList.add('drag-source');
+          e.dataTransfer.effectAllowed = 'move';
+          e.dataTransfer.setData('text/plain', String(dragIdx));
+        });
+        chip.addEventListener('dragend', ()=>{
+          chip.classList.remove('drag-source');
+          dragIdx = null;
+        });
+        chip.addEventListener('dragover', (e)=>{
+          if(dragIdx===null) return;
+          e.preventDefault();
+          e.dataTransfer.dropEffect = 'move';
+          chip.classList.add('drag-over');
+        });
+        chip.addEventListener('dragleave', ()=>{ chip.classList.remove('drag-over'); });
+        chip.addEventListener('drop', (e)=>{
+          e.preventDefault();
+          chip.classList.remove('drag-over');
+          const targetIdx = parseInt(chip.dataset.idx,10);
+          if(dragIdx===null || dragIdx===targetIdx) return;
+          const [moved] = orderDraft.splice(dragIdx,1);
+          orderDraft.splice(targetIdx,0,moved);
+          dragIdx = null;
+          renderChips();
+        });
+      });
+    }
+
+    const body = `
+      <p style="font-size:12.5px; color:var(--ink-soft); margin:0 0 12px;">Перетаскивайте номера, чтобы задать порядок отображения стеллажей ряда ${currentAisle}. Сохранится для всех.</p>
+      <div class="order-list"></div>
+    `;
+    const footer = `
+      <button class="btn" id="order-reset">По возрастанию</button>
+      <button class="btn" id="order-cancel">Отмена</button>
+      <button class="btn primary" id="order-save">Сохранить порядок</button>
+    `;
+    openModal(`Порядок стеллажей — ряд ${currentAisle}`, body, footer);
+    renderChips();
+
+    document.getElementById('order-reset').addEventListener('click', ()=>{
+      orderDraft = [...orderDraft].sort((a,b)=>a-b);
+      renderChips();
+    });
+    document.getElementById('order-cancel').addEventListener('click', closeModal);
+    document.getElementById('order-save').addEventListener('click', async ()=>{
+      try{
+        const res = await fetch(`${API_BASE}/api/layout/${currentAisle}/rack-order`, {
+          method:'PUT', headers:{'Content-Type':'application/json'},
+          body: JSON.stringify({ order: orderDraft })
+        });
+        const payload = await res.json().catch(()=>({}));
+        if(!res.ok) throw new Error(payload.error || ('HTTP '+res.status));
+        closeModal();
+        await fetchRecords();
+        renderAll();
+        setSyncStatus('порядок стеллажей сохранён · ' + new Date().toLocaleTimeString('ru-RU'));
+      }catch(err){
+        alert('Не удалось сохранить порядок: ' + err.message);
+      }
+    });
+  }
+
+  document.getElementById('rack-order-btn').addEventListener('click', openRackOrderEditor);
+
+
   function openAddProductForm(){
     const draft = { cell:'', article:'', name:'', qty:'', mfg:'', exp:'', te:'' };
 
@@ -850,7 +931,7 @@
 
     const extent = aisleExtent(recoAisle);
     if(!extent){ strip.innerHTML = '<div class="empty-note">Пусто</div>'; return; }
-    const minRack = extent.minRack, maxRack = extent.maxRack;
+    const racks = extent.racks;
 
     let levels = LEVEL_ORDER.filter(l=>extent.levels.includes(l));
     if(!levels.includes('01')) levels = ['01', ...levels];
@@ -873,12 +954,12 @@
 
     const term = recoSearchTerm.trim().toLowerCase();
 
-    let html = `<div style="display:grid; grid-template-columns:34px repeat(${maxRack-minRack+1}, 22px); gap:3px;">`;
+    let html = `<div style="display:grid; grid-template-columns:34px repeat(${racks.length}, 22px); gap:3px;">`;
     html += `<div></div>`;
-    for(let rk=minRack; rk<=maxRack; rk++) html += `<div class="rack-label">${rk}</div>`;
+    racks.forEach(rk=> html += `<div class="rack-label">${rk}</div>`);
     levels.forEach(lv=>{
       html += `<div class="level-label">${lv}</div>`;
-      for(let rk=minRack; rk<=maxRack; rk++){
+      racks.forEach(rk=>{
         const a = byRack[rk];
         if(a){
           const t = a.vol==null ? 1 : (maxUnitVol>0 ? 1 - Math.min(1, a.vol/maxUnitVol) : 0);
@@ -890,7 +971,7 @@
           const ring = matches ? `box-shadow:0 0 0 2px var(--danger);` : (isPickLevel && abcRing[a.abcClass]!=='none' ? `box-shadow:inset 0 0 0 2px ${abcRing[a.abcClass]};` : '');
           const label = isPickLevel ? `#${a.rank} · ПИКИНГ · ${a.article} · ${a.category}` : `Пополнение · ${a.article} · ${a.category} · резерв ${fmtNum(a.qty)} шт всего`;
           html += `<div class="cell" style="background:${bg}; border-color:${bg}; ${dim}${ring}" data-rack="${rk}" data-level="${lv}" data-kind="reco" title="${label} · класс ${a.abcClass}"></div>`;
-          continue;
+          return;
         }
         const actual = actualByAddr[rk+'|'+lv];
         if(actual){
@@ -900,10 +981,10 @@
           const ring = matches ? 'box-shadow:0 0 0 2px var(--danger);' : '';
           const cls = arts.length>1 ? 'multi' : 'filled';
           html += `<div class="cell ${cls}" style="${dim}${ring}" data-rack="${rk}" data-level="${lv}" data-kind="actual" title="Без рекомендации · сейчас: ${actual[0].article} · ${actual.length>1?'+ ещё '+(actual.length-1):''}"></div>`;
-          continue;
+          return;
         }
         html += `<div class="cell"></div>`;
-      }
+      });
     });
     html += `</div>`;
     strip.innerHTML = html;

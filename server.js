@@ -111,6 +111,21 @@ app.delete('/api/records/:id', (req, res) => {
   res.json({ ok: true });
 });
 
+// PUT /api/layout/:row/rack-order — сохранить пользовательский порядок стеллажей ряда
+app.put('/api/layout/:row/rack-order', (req, res) => {
+  const row = String(req.params.row).trim().padStart(2, '0');
+  const { order } = req.body || {};
+  if (!Array.isArray(order) || !order.length) {
+    return res.status(400).json({ error: '"order" должен быть непустым массивом номеров стеллажей' });
+  }
+  try {
+    const updated = db.setRackOrder(row, order);
+    res.json({ ok: true, row, racks: updated.racks });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
 // POST /api/records/swap-rows — поменять местами весь товар двух рядов целиком
 app.post('/api/records/swap-rows', (req, res) => {
   const { rowA, rowB } = req.body || {};

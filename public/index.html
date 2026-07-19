@@ -228,6 +228,15 @@
   .form-error{color:var(--danger); font-size:12px; margin-top:8px; display:none;}
   .form-error.show{display:block;}
 
+  /* Rack-order editor: draggable chip list for reordering (not swapping) */
+  .order-list{display:flex; flex-wrap:wrap; gap:6px; padding:4px 0;}
+  .order-chip{
+    font-family:var(--mono); font-size:12px; font-weight:600; padding:6px 10px; border-radius:6px;
+    border:1px solid var(--line); background:var(--bg); cursor:grab; user-select:none;
+  }
+  .order-chip.drag-source{opacity:.35;}
+  .order-chip.drag-over{outline:2px dashed var(--accent); outline-offset:1px;}
+
   .empty-note{color:var(--ink-soft); font-size:12.5px; padding:24px; text-align:center;}
   footer.upload-hint{font-size:11px; color:var(--ink-soft); padding:10px 20px;}
 </style>
@@ -264,8 +273,9 @@
       <div class="panel">
         <div class="toolbar" style="margin-bottom:12px;">
           <div class="search"><input type="text" id="map-search" placeholder="Найти артикул, ячейку или ТЕ на схеме…"></div>
+          <button class="btn" id="rack-order-btn">⇄ Порядок стеллажей</button>
         </div>
-        <p style="font-size:12px; color:var(--ink-soft); margin:0 0 10px;">Перетащите занятую ячейку на другую (пустую или занятую), чтобы переместить товар — сохранится сразу. Перетащите номер стеллажа сверху сетки на другой номер, чтобы поменять местами стеллажи целиком.</p>
+        <p style="font-size:12px; color:var(--ink-soft); margin:0 0 10px;">Перетащите занятую ячейку на другую (пустую или занятую), чтобы переместить товар — сохранится сразу. Перетащите номер стеллажа сверху сетки на другой номер, чтобы поменять местами стеллажи целиком. Кнопка «Порядок стеллажей» — если нумерация в проходе идёт не по порядку (например 75,74,73,1,2,3…).</p>
         <div class="grid-wrap"><div class="rack-grid" id="rack-grid"></div></div>
         <div class="legend">
           <span><i class="swatch" style="background:var(--accent-soft);border:1px solid var(--accent);"></i>занята (1 артикул) — перетаскивается</span>
