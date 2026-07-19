@@ -104,6 +104,9 @@
   }
   .aisle-chip.active{background:var(--ink); color:#fff; border-color:var(--ink);}
   .aisle-chip .n{opacity:.65; font-weight:400; margin-left:4px;}
+  .aisle-chip[draggable="true"]{cursor:grab;}
+  .aisle-chip.drag-source{opacity:.35;}
+  .aisle-chip.drag-over{outline:2px dashed var(--accent); outline-offset:2px; background:var(--accent-soft); color:var(--ink);}
 
   /* Grid map */
   .grid-wrap{overflow-x:auto; padding-bottom:6px;}
@@ -252,6 +255,7 @@
     <section class="view active" id="view-map">
       <div class="panel">
         <h2>Ряд / проход</h2>
+        <p style="font-size:12px; color:var(--ink-soft); margin:8px 0 10px;">Перетащите один ряд на другой, чтобы поменять их местами целиком — весь товар обоих рядов обменяется.</p>
         <div class="aisles" id="aisle-chips"></div>
       </div>
       <div class="panel">

@@ -101,6 +101,21 @@ app.delete('/api/records/:id', (req, res) => {
   res.json({ ok: true });
 });
 
+// POST /api/records/swap-rows — поменять местами весь товар двух рядов целиком
+app.post('/api/records/swap-rows', (req, res) => {
+  const { rowA, rowB } = req.body || {};
+  if (!rowA || !rowB) return res.status(400).json({ error: 'обязательны поля "rowA" и "rowB"' });
+  const a = String(rowA).trim().padStart(2, '0');
+  const b = String(rowB).trim().padStart(2, '0');
+  if (a === b) return res.status(400).json({ error: 'rowA и rowB совпадают' });
+  try {
+    const result = db.swapRows(a, b);
+    res.json({ ok: true, rowA: a, rowB: b, ...result });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // POST /api/import — загрузка нового .xlsx: полностью заменяет текущие данные в базе
 app.post('/api/import', upload.single('file'), (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'file is required (field name "file")' });

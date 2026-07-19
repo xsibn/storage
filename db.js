@@ -149,4 +149,35 @@ function deleteRecord(id) {
   return true;
 }
 
-module.exports = { db, classifyCell, listRecords, replaceAll, updateRecord, createRecord, deleteRecord, getMeta, setMeta, count, seedIfEmpty };
+// Swap two aisles ("ряды") wholesale: every address record in rowA moves to
+// rowB (keeping its rack/level) and every record in rowB moves to rowA — a
+// true two-way exchange, done in one transaction so it can't half-apply.
+const swapRows = db.transaction((rowA, rowB) => {
+  if (rowA === rowB) return { movedA: 0, movedB: 0 };
+
+  const recordsA = db.prepare('SELECT id, cell FROM stock_records WHERE row_code = ? AND is_service = 0').all(rowA);
+  const recordsB = db.prepare('SELECT id, cell FROM stock_records WHERE row_code = ? AND is_service = 0').all(rowB);
+  const update = db.prepare(`
+    UPDATE stock_records
+    SET cell = @cell, row_code = @row, rack = @rack, level_code = @level, updated_at = datetime('now')
+    WHERE id = @id
+  `);
+
+  // cell format is always RR-SS-LL — swap just the two-digit row prefix, keep rack/level as-is
+  const rewriteRow = (oldCell, targetRow) => targetRow + oldCell.slice(2);
+
+  for (const r of recordsA) {
+    const newCell = rewriteRow(r.cell, rowB);
+    const cls = classifyCell(newCell);
+    update.run({ id: r.id, cell: newCell, row: cls.row, rack: cls.rack, level: cls.level });
+  }
+  for (const r of recordsB) {
+    const newCell = rewriteRow(r.cell, rowA);
+    const cls = classifyCell(newCell);
+    update.run({ id: r.id, cell: newCell, row: cls.row, rack: cls.rack, level: cls.level });
+  }
+
+  return { movedA: recordsA.length, movedB: recordsB.length };
+});
+
+module.exports = { db, classifyCell, listRecords, replaceAll, updateRecord, createRecord, deleteRecord, swapRows, getMeta, setMeta, count, seedIfEmpty };

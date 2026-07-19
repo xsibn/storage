@@ -134,6 +134,7 @@
   // ---------- MAP VIEW ----------
   let currentAisle = null;
   let mapFilterTerm = "";
+  let dragSourceAisle = null;
 
   function renderAisleChips(){
     const aisles = aisleList();
@@ -142,11 +143,61 @@
     box.innerHTML = aisles.map(a=>{
       const n = addressRecords().filter(r=>r.row===a);
       const cells = new Set(n.map(r=>r.cell)).size;
-      return `<button class="aisle-chip ${a===currentAisle?'active':''}" data-aisle="${a}">Ряд ${a}<span class="n">· ${cells}</span></button>`;
+      return `<button class="aisle-chip ${a===currentAisle?'active':''}" draggable="true" data-aisle="${a}" title="Перетащите на другой ряд, чтобы поменять их местами целиком">Ряд ${a}<span class="n">· ${cells}</span></button>`;
     }).join('');
     box.querySelectorAll('.aisle-chip').forEach(btn=>{
       btn.addEventListener('click', ()=>{ currentAisle = btn.dataset.aisle; renderAisleChips(); renderGrid(); });
+
+      btn.addEventListener('dragstart', (e)=>{
+        dragSourceAisle = btn.dataset.aisle;
+        btn.classList.add('drag-source');
+        e.dataTransfer.effectAllowed = 'move';
+        e.dataTransfer.setData('text/plain', dragSourceAisle);
+      });
+      btn.addEventListener('dragend', ()=>{
+        btn.classList.remove('drag-source');
+        dragSourceAisle = null;
+      });
+      btn.addEventListener('dragover', (e)=>{
+        if(!dragSourceAisle || dragSourceAisle===btn.dataset.aisle) return;
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'move';
+        btn.classList.add('drag-over');
+      });
+      btn.addEventListener('dragleave', ()=>{
+        btn.classList.remove('drag-over');
+      });
+      btn.addEventListener('drop', async (e)=>{
+        e.preventDefault();
+        btn.classList.remove('drag-over');
+        const source = dragSourceAisle;
+        const target = btn.dataset.aisle;
+        dragSourceAisle = null;
+        if(!source || source===target) return;
+        await swapAisles(source, target);
+      });
     });
+  }
+
+  async function swapAisles(rowA, rowB){
+    if(!confirm(`Поменять местами весь товар ряда ${rowA} и ряда ${rowB}? Это затронет все ячейки обоих рядов и сохранится сразу для всех.`)) return;
+    setSyncStatus('обмен рядами…');
+    try{
+      const res = await fetch(`${API_BASE}/api/records/swap-rows`, {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ rowA, rowB })
+      });
+      const payload = await res.json().catch(()=>({}));
+      if(!res.ok) throw new Error(payload.error || ('HTTP '+res.status));
+      currentAisle = rowB; // follow the row we dragged to where it now lives
+      await fetchRecords();
+      renderAll();
+      setSyncStatus(`ряды ${rowA} и ${rowB} обменяны (${fmtNum(payload.movedA)} / ${fmtNum(payload.movedB)} записей) · ` + new Date().toLocaleTimeString('ru-RU'));
+    }catch(err){
+      setSyncStatus('ошибка обмена рядами', true);
+      alert('Не удалось поменять ряды местами: ' + err.message);
+      await fetchRecords(); renderAll();
+    }
   }
 
   let dragSourceAddress = null;
