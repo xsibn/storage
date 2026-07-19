@@ -168,7 +168,10 @@ app.post('/api/import', upload.single('file'), (req, res) => {
     const json = XLSX.utils.sheet_to_json(sheet, { defval: '' });
     const rows = json.map(mapSheetRow).filter(r => r.cell !== '' && r.article !== '');
     if (!rows.length) return res.status(400).json({ error: 'файл не содержит распознаваемых строк' });
-    db.replaceAll(rows, req.file.originalname);
+    // multer/busboy decode the multipart filename header as latin1 by default,
+    // which turns Cyrillic (and any non-ASCII) filenames into mojibake — undo that.
+    const filename = Buffer.from(req.file.originalname, 'latin1').toString('utf8');
+    db.replaceAll(rows, filename);
     res.json({ ok: true, imported: rows.length });
   } catch (err) {
     res.status(400).json({ error: 'не удалось прочитать файл: ' + err.message });
