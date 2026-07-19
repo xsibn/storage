@@ -58,6 +58,78 @@ function setMeta(key, value) {
               ON CONFLICT(key) DO UPDATE SET value = excluded.value`).run(key, String(value));
 }
 
+// ---------- Warehouse layout (structure) ----------
+// The grid needs to know which racks/levels EXIST per row, independent of
+// which cells currently happen to hold stock — otherwise a rack that becomes
+// fully empty (e.g. after a swap) would silently vanish from the map, even
+// though it's still a real physical location. This is stored in meta as JSON
+// and only ever grows (never shrinks) once a location has been seen.
+function computeLayout(rows) {
+  const layout = {};
+  for (const r of rows) {
+    const cls = classifyCell(r.cell);
+    if (cls.isService) continue;
+    if (!layout[cls.row]) layout[cls.row] = { minRack: cls.rack, maxRack: cls.rack, levels: new Set() };
+    const L = layout[cls.row];
+    if (cls.rack < L.minRack) L.minRack = cls.rack;
+    if (cls.rack > L.maxRack) L.maxRack = cls.rack;
+    L.levels.add(cls.level);
+  }
+  const out = {};
+  for (const row of Object.keys(layout)) {
+    out[row] = { minRack: layout[row].minRack, maxRack: layout[row].maxRack, levels: Array.from(layout[row].levels) };
+  }
+  return out;
+}
+
+function getLayout() {
+  const raw = getMeta('layout');
+  return raw ? JSON.parse(raw) : {};
+}
+function setLayout(layout) {
+  setMeta('layout', JSON.stringify(layout));
+}
+
+function mergeLayouts(a, b) {
+  const out = {};
+  for (const row of new Set([...Object.keys(a), ...Object.keys(b)])) {
+    const la = a[row], lb = b[row];
+    if (la && lb) {
+      out[row] = {
+        minRack: Math.min(la.minRack, lb.minRack),
+        maxRack: Math.max(la.maxRack, lb.maxRack),
+        levels: Array.from(new Set([...la.levels, ...lb.levels]))
+      };
+    } else {
+      out[row] = la || lb;
+    }
+  }
+  return out;
+}
+
+// Called at server startup: guarantees the stored layout covers at least the
+// full extent of the given seed rows, merged with whatever is already stored
+// (so manual expansions since then aren't lost, and nothing ever shrinks).
+function ensureLayoutFromSeed(seedRows) {
+  const seedLayout = computeLayout(seedRows.map(r => ({ cell: r.c })));
+  const current = getLayout();
+  setLayout(mergeLayouts(current, seedLayout));
+}
+
+// Widen the stored layout with a single new location, if it isn't already covered.
+function expandLayout(row, rack, level) {
+  if (!row || rack == null || !level) return;
+  const layout = getLayout();
+  if (!layout[row]) {
+    layout[row] = { minRack: rack, maxRack: rack, levels: [level] };
+  } else {
+    layout[row].minRack = Math.min(layout[row].minRack, rack);
+    layout[row].maxRack = Math.max(layout[row].maxRack, rack);
+    if (!layout[row].levels.includes(level)) layout[row].levels.push(level);
+  }
+  setLayout(layout);
+}
+
 function count() {
   return db.prepare('SELECT COUNT(*) AS n FROM stock_records').get().n;
 }
@@ -92,6 +164,7 @@ const replaceAll = db.transaction((rows, sourceLabel) => {
   }
   setMeta('source_label', sourceLabel || 'база данных');
   setMeta('imported_at', new Date().toISOString());
+  setLayout(mergeLayouts(getLayout(), computeLayout(rows)));
 });
 
 function updateRecord(id, patch) {
@@ -110,6 +183,8 @@ function updateRecord(id, patch) {
         updated_at = datetime('now')
     WHERE id = @id
   `).run({ id, cell: next.cell, qty: next.qty, isService: cls.isService, row: cls.row, rack: cls.rack, level: cls.level });
+
+  if (!cls.isService) expandLayout(cls.row, cls.rack, cls.level);
 
   return db.prepare('SELECT * FROM stock_records WHERE id = ?').get(id);
 }
@@ -139,6 +214,7 @@ function createRecord(rec) {
     te: rec.te || '',
     isService: cls.isService, row: cls.row, rack: cls.rack, level: cls.level
   });
+  if (!cls.isService) expandLayout(cls.row, cls.rack, cls.level);
   return db.prepare('SELECT * FROM stock_records WHERE id = ?').get(info.lastInsertRowid);
 }
 
@@ -210,4 +286,16 @@ const swapRacks = db.transaction((row, rackA, rackB) => {
   return { movedA: recordsA.length, movedB: recordsB.length };
 });
 
-module.exports = { db, classifyCell, listRecords, replaceAll, updateRecord, createRecord, deleteRecord, swapRows, swapRacks, getMeta, setMeta, count, seedIfEmpty };
+// Fallback for a DB that predates the layout feature: build it once from
+// whatever is currently in the table (better than nothing) and persist it.
+function rebuildLayoutFromCurrent() {
+  const layout = computeLayout(listRecords());
+  setLayout(mergeLayouts(getLayout(), layout));
+  return getLayout();
+}
+
+module.exports = {
+  db, classifyCell, listRecords, replaceAll, updateRecord, createRecord, deleteRecord,
+  swapRows, swapRacks, getMeta, setMeta, count, seedIfEmpty,
+  getLayout, ensureLayoutFromSeed, rebuildLayoutFromCurrent
+};

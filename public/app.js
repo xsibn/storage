@@ -6,7 +6,8 @@
   const state = {
     records: [],   // {id, cell, article, name, qty, mfg, exp, isService, row, rack, level}
     sourceLabel: "подключение…",
-    lastSync: null
+    lastSync: null,
+    layout: {}     // {row: {minRack, maxRack, levels}} — full known warehouse structure
   };
 
   const CELL_RE = /^(\d{2})-(\d{2})-([A-Za-zА-Яа-я0-9]+)$/;
@@ -89,6 +90,7 @@
     const data = await res.json();
     state.records = data.records.map(fromServerRow);
     state.sourceLabel = data.meta.source || 'база данных';
+    state.layout = data.meta.layout || {};
     state.lastSync = new Date();
   }
 
@@ -111,9 +113,25 @@
   function serviceRecords(){ return state.records.filter(r=>r.isService); }
 
   function aisleList(){
+    const fromLayout = Object.keys(state.layout || {});
+    if(fromLayout.length) return fromLayout.sort();
+    // fallback for a server that hasn't returned a layout yet
     const rows = new Set();
     addressRecords().forEach(r=>rows.add(r.row));
     return Array.from(rows).sort();
+  }
+
+  // Full known extent of a row (racks + levels), independent of what's occupied
+  // right now — this is what keeps a rack from "disappearing" once it's empty.
+  function aisleExtent(row){
+    const L = state.layout && state.layout[row];
+    if(L) return { minRack: L.minRack, maxRack: L.maxRack, levels: L.levels.slice() };
+    // fallback: derive from whatever is currently occupied
+    const rows = addressRecords().filter(r=>r.row===row);
+    if(!rows.length) return null;
+    const racks = rows.map(r=>r.rack);
+    const levels = Array.from(new Set(rows.map(r=>r.level)));
+    return { minRack: Math.min(...racks), maxRack: Math.max(...racks), levels };
   }
 
   // ---------- header stats ----------
@@ -227,16 +245,15 @@
   function renderGrid(){
     const grid = document.getElementById('rack-grid');
     if(!currentAisle){ grid.innerHTML = '<div class="empty-note">Нет адресных ячеек в данных</div>'; return; }
+    const extent = aisleExtent(currentAisle);
+    if(!extent){ grid.innerHTML = '<div class="empty-note">Пусто</div>'; return; }
     const rows = addressRecords().filter(r=>r.row===currentAisle);
-    if(rows.length===0){ grid.innerHTML = '<div class="empty-note">Пусто</div>'; return; }
 
-    const racks = Array.from(new Set(rows.map(r=>r.rack))).sort((a,b)=>a-b);
-    const minRack = racks[0], maxRack = racks[racks.length-1];
+    const minRack = extent.minRack, maxRack = extent.maxRack;
     const fullRacks = [];
     for(let i=minRack;i<=maxRack;i++) fullRacks.push(i);
 
-    const levelsPresent = Array.from(new Set(rows.map(r=>r.level)));
-    const levels = LEVEL_ORDER.filter(l=>levelsPresent.includes(l)).reverse();
+    const levels = LEVEL_ORDER.filter(l=>extent.levels.includes(l)).reverse();
 
     // group by rack-level
     const byPos = {};
@@ -438,12 +455,11 @@
 
     function renderPickerGrid(){
       const grid = document.getElementById('picker-grid');
+      const extent = aisleExtent(pickerAisle);
+      if(!extent){ grid.innerHTML = '<div class="empty-note">Пусто</div>'; return; }
       const rows = addressRecords().filter(r=>r.row===pickerAisle);
-      if(rows.length===0){ grid.innerHTML = '<div class="empty-note">Пусто</div>'; return; }
-      const racks = Array.from(new Set(rows.map(r=>r.rack))).sort((a,b)=>a-b);
-      const minRack = racks[0], maxRack = racks[racks.length-1];
-      const levelsPresent = Array.from(new Set(rows.map(r=>r.level)));
-      const levels = LEVEL_ORDER.filter(l=>levelsPresent.includes(l)).reverse();
+      const minRack = extent.minRack, maxRack = extent.maxRack;
+      const levels = LEVEL_ORDER.filter(l=>extent.levels.includes(l)).reverse();
       const byPos = {};
       rows.forEach(r=>{ (byPos[r.rack+'|'+r.level] = byPos[r.rack+'|'+r.level] || []).push(r); });
 
@@ -832,13 +848,11 @@
     const strip = document.getElementById('reco-strip');
     if(!recoAisle){ strip.innerHTML = '<div class="empty-note">Нет адресных ячеек в данных</div>'; return; }
 
-    const aisleRecords = addressRecords().filter(r=>r.row===recoAisle);
-    const racksInAisle = Array.from(new Set(aisleRecords.map(r=>r.rack))).sort((a,b)=>a-b);
-    if(racksInAisle.length===0){ strip.innerHTML = '<div class="empty-note">Пусто</div>'; return; }
-    const minRack = racksInAisle[0], maxRack = racksInAisle[racksInAisle.length-1];
+    const extent = aisleExtent(recoAisle);
+    if(!extent){ strip.innerHTML = '<div class="empty-note">Пусто</div>'; return; }
+    const minRack = extent.minRack, maxRack = extent.maxRack;
 
-    const levelsPresent = Array.from(new Set(aisleRecords.map(r=>r.level)));
-    let levels = LEVEL_ORDER.filter(l=>levelsPresent.includes(l));
+    let levels = LEVEL_ORDER.filter(l=>extent.levels.includes(l));
     if(!levels.includes('01')) levels = ['01', ...levels];
     levels = levels.reverse(); // same visual convention as the actual scheme tab
 
@@ -850,7 +864,7 @@
     // fallback: what is actually stored at a given address today, for cells that
     // received no picking recommendation (more physical slots than articles to place)
     const actualByAddr = {};
-    aisleRecords.forEach(r=>{
+    addressRecords().filter(r=>r.row===recoAisle).forEach(r=>{
       const key = r.rack+'|'+r.level;
       (actualByAddr[key] = actualByAddr[key] || []).push(r);
     });

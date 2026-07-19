@@ -24,6 +24,11 @@ if (fs.existsSync(seedPath)) {
   try {
     const seedRows = JSON.parse(fs.readFileSync(seedPath, 'utf-8'));
     db.seedIfEmpty(seedRows, 'Сток_на_15_07_2026.xlsx (первичная загрузка)');
+    // Always widen the stored layout to at least the seed's full extent — this
+    // also repairs older databases where racks/levels "disappeared" from the
+    // map after becoming fully empty (layout used to be inferred from current
+    // occupancy only). Never shrinks anything already recorded.
+    db.ensureLayoutFromSeed(seedRows);
   } catch (err) {
     console.error('Не удалось загрузить seed-данные:', err.message);
   }
@@ -57,15 +62,20 @@ function mapSheetRow(row) {
 
 // ---------- API ----------
 
-// GET /api/records — весь текущий сток + метаданные (источник, время импорта)
+// GET /api/records — весь текущий сток + метаданные (источник, время импорта, структура склада)
 app.get('/api/records', (req, res) => {
   const records = db.listRecords();
+  let layout = db.getLayout();
+  if (Object.keys(layout).length === 0 && records.length) {
+    layout = db.rebuildLayoutFromCurrent();
+  }
   res.json({
     records,
     meta: {
       source: db.getMeta('source_label') || 'база данных',
       importedAt: db.getMeta('imported_at'),
-      count: records.length
+      count: records.length,
+      layout
     }
   });
 });
