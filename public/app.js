@@ -7,7 +7,8 @@
     records: [],   // {id, cell, article, name, qty, mfg, exp, isService, row, rack, level}
     sourceLabel: "подключение…",
     lastSync: null,
-    layout: {}     // {row: {minRack, maxRack, levels}} — full known warehouse structure
+    layout: {},    // {row: {minRack, maxRack, levels}} — full known warehouse structure
+    abcClasses: {} // {article: 'A'|'B'|'C'} — fixed classification, not computed
   };
 
   const CELL_RE = /^(\d{2})-(\d{2})-([A-Za-zА-Яа-я0-9]+)$/;
@@ -141,6 +142,7 @@
     state.records = data.records.map(fromServerRow);
     state.sourceLabel = data.meta.source || 'база данных';
     state.layout = data.meta.layout || {};
+    state.abcClasses = data.meta.abcClasses || {};
     state.lastSync = new Date();
   }
 
@@ -205,6 +207,24 @@
   let mapFilterTerm = "";
   let dragSourceAisle = null;
 
+  // Tap-to-select mode: native HTML5 drag-and-drop doesn't work on touch
+  // screens, so this gives phones a two-tap alternative (select, then tap the
+  // target) for the same three actions: move a cell, swap two rows, swap two
+  // racks. Off by default so desktop click behaviour (open drawer, switch
+  // aisle) stays unchanged.
+  let moveMode = false;
+  let tapSourceAddress = null;
+  let tapSourceAisleSel = null;
+  let tapSourceRackSel = null;
+
+  function setMoveMode(on){
+    moveMode = on;
+    tapSourceAddress = null; tapSourceAisleSel = null; tapSourceRackSel = null;
+    document.getElementById('move-mode-btn').classList.toggle('active', moveMode);
+    renderAisleChips();
+    renderGrid();
+  }
+
   function renderAisleChips(){
     const aisles = aisleList();
     if(!currentAisle || !aisles.includes(currentAisle)) currentAisle = aisles[0];
@@ -212,10 +232,20 @@
     box.innerHTML = aisles.map(a=>{
       const n = addressRecords().filter(r=>r.row===a);
       const cells = new Set(n.map(r=>r.cell)).size;
-      return `<button class="aisle-chip ${a===currentAisle?'active':''}" draggable="true" data-aisle="${a}" title="Перетащите на другой ряд, чтобы поменять их местами целиком">Ряд ${a}<span class="n">· ${cells}</span></button>`;
+      const sel = moveMode && a===tapSourceAisleSel ? 'tap-selected' : '';
+      return `<button class="aisle-chip ${a===currentAisle?'active':''} ${sel}" draggable="true" data-aisle="${a}" title="Перетащите на другой ряд, чтобы поменять их местами целиком">Ряд ${a}<span class="n">· ${cells}</span></button>`;
     }).join('');
     box.querySelectorAll('.aisle-chip').forEach(btn=>{
-      btn.addEventListener('click', ()=>{ currentAisle = btn.dataset.aisle; renderAisleChips(); renderGrid(); });
+      btn.addEventListener('click', async ()=>{
+        if(moveMode){
+          const a = btn.dataset.aisle;
+          if(tapSourceAisleSel===null){ tapSourceAisleSel = a; renderAisleChips(); }
+          else if(tapSourceAisleSel===a){ tapSourceAisleSel = null; renderAisleChips(); }
+          else { const src = tapSourceAisleSel; tapSourceAisleSel = null; await swapAisles(src, a); }
+          return;
+        }
+        currentAisle = btn.dataset.aisle; renderAisleChips(); renderGrid();
+      });
 
       btn.addEventListener('dragstart', (e)=>{
         dragSourceAisle = btn.dataset.aisle;
@@ -320,15 +350,19 @@
 
     let html = `<div style="display:grid; grid-template-columns:34px repeat(${fullRacks.length}, 22px); gap:3px;">`;
     html += `<div></div>`;
-    fullRacks.forEach(rk=> html += `<div class="rack-label" draggable="true" data-rack="${rk}" title="Перетащите на другой стеллаж, чтобы поменять их местами целиком">${rk}</div>`);
+    fullRacks.forEach(rk=> {
+      const sel = moveMode && String(rk)===tapSourceRackSel ? 'tap-selected' : '';
+      html += `<div class="rack-label ${sel}" draggable="true" data-rack="${rk}" title="Перетащите на другой стеллаж, чтобы поменять их местами целиком">${rk}</div>`;
+    });
     levels.forEach(lv=>{
       html += `<div class="level-label">${lv}</div>`;
       fullRacks.forEach(rk=>{
         const key = rk+"|"+lv;
         const items = byPos[key];
         const addr = `${currentAisle}-${zpad(rk)}-${lv}`;
+        const selCell = moveMode && addr===tapSourceAddress ? 'tap-selected' : '';
         if(!items){
-          html += `<div class="cell" data-rack="${rk}" data-level="${lv}" data-address="${addr}" title="${addr} · свободно — сюда можно перетащить товар"></div>`;
+          html += `<div class="cell ${selCell}" data-rack="${rk}" data-level="${lv}" data-address="${addr}" title="${addr} · свободно — сюда можно перетащить товар"></div>`;
           return;
         }
         const arts = Array.from(new Set(items.map(i=>i.article)));
@@ -338,19 +372,35 @@
         const cls = arts.length>1 ? 'multi' : 'filled';
         const dim = term && !matches ? 'opacity:.25;' : '';
         const ring = matches ? 'box-shadow:0 0 0 2px var(--danger);' : '';
-        html += `<div class="cell ${cls}" style="${dim}${ring}" draggable="true" data-rack="${rk}" data-level="${lv}" data-address="${addr}" title="${items[0].cell} · ${arts.length} артикул(ов) · перетащите, чтобы переместить"></div>`;
+        html += `<div class="cell ${cls} ${selCell}" style="${dim}${ring}" draggable="true" data-rack="${rk}" data-level="${lv}" data-address="${addr}" title="${items[0].cell} · ${arts.length} артикул(ов) · перетащите, чтобы переместить"></div>`;
       });
     });
     html += `</div>`;
     grid.innerHTML = html;
 
-    grid.querySelectorAll('.cell.filled, .cell.multi').forEach(el=>{
-      el.addEventListener('click', ()=>{
-        const rk = el.dataset.rack, lv = el.dataset.level;
-        const items = byPos[rk+"|"+lv];
-        openDrawer(items[0].cell, items);
+    // Every cell (empty or filled) responds to a click — in move-mode that's
+    // tap-to-select-then-target; otherwise only filled cells open the drawer.
+    grid.querySelectorAll('.cell[data-address]').forEach(el=>{
+      const rk = el.dataset.rack, lv = el.dataset.level;
+      const items = byPos[rk+"|"+lv];
+      el.addEventListener('click', async ()=>{
+        if(moveMode){
+          const addr = el.dataset.address;
+          if(tapSourceAddress===null){
+            if(!items) return; // nothing to move from an empty cell
+            tapSourceAddress = addr; renderGrid();
+          } else if(tapSourceAddress===addr){
+            tapSourceAddress = null; renderGrid();
+          } else {
+            const src = tapSourceAddress; tapSourceAddress = null;
+            await moveCellContents(src, addr);
+          }
+          return;
+        }
+        if(items) openDrawer(items[0].cell, items);
       });
       el.addEventListener('dragstart', (e)=>{
+        if(!items) { e.preventDefault(); return; }
         dragSourceAddress = el.dataset.address;
         el.classList.add('drag-source');
         e.dataTransfer.effectAllowed = 'move';
@@ -360,9 +410,35 @@
         el.classList.remove('drag-source');
         dragSourceAddress = null;
       });
+      el.addEventListener('dragover', (e)=>{
+        if(!dragSourceAddress) return;
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'move';
+        el.classList.add('drag-over');
+        el.classList.toggle('drop-invalid', el.dataset.address===dragSourceAddress);
+      });
+      el.addEventListener('dragleave', ()=>{
+        el.classList.remove('drag-over','drop-invalid');
+      });
+      el.addEventListener('drop', async (e)=>{
+        e.preventDefault();
+        el.classList.remove('drag-over','drop-invalid');
+        const source = dragSourceAddress;
+        const target = el.dataset.address;
+        dragSourceAddress = null;
+        if(!source || source===target) return;
+        await moveCellContents(source, target);
+      });
     });
 
     grid.querySelectorAll('.rack-label[data-rack]').forEach(el=>{
+      el.addEventListener('click', async ()=>{
+        if(!moveMode) return;
+        const rk = el.dataset.rack;
+        if(tapSourceRackSel===null){ tapSourceRackSel = rk; renderGrid(); }
+        else if(tapSourceRackSel===rk){ tapSourceRackSel = null; renderGrid(); }
+        else { const src = tapSourceRackSel; tapSourceRackSel = null; await swapRacks(currentAisle, src, rk); }
+      });
       el.addEventListener('dragstart', (e)=>{
         e.stopPropagation();
         dragSourceRack = el.dataset.rack;
@@ -391,29 +467,6 @@
         dragSourceRack = null;
         if(!source || source===target) return;
         await swapRacks(currentAisle, source, target);
-      });
-    });
-
-    // every cell (empty or filled) is a valid drop target
-    grid.querySelectorAll('.cell[data-address]').forEach(el=>{
-      el.addEventListener('dragover', (e)=>{
-        if(!dragSourceAddress) return;
-        e.preventDefault();
-        e.dataTransfer.dropEffect = 'move';
-        el.classList.add('drag-over');
-        el.classList.toggle('drop-invalid', el.dataset.address===dragSourceAddress);
-      });
-      el.addEventListener('dragleave', ()=>{
-        el.classList.remove('drag-over','drop-invalid');
-      });
-      el.addEventListener('drop', async (e)=>{
-        e.preventDefault();
-        el.classList.remove('drag-over','drop-invalid');
-        const source = dragSourceAddress;
-        const target = el.dataset.address;
-        dragSourceAddress = null;
-        if(!source || source===target) return;
-        await moveCellContents(source, target);
       });
     });
   }
@@ -686,7 +739,9 @@
       const list = document.getElementById('modal-body').querySelector('.order-list');
       list.innerHTML = orderDraft.map((rk,idx)=>`
         <div class="order-chip" draggable="true" data-idx="${idx}" data-rack="${rk}" title="${occupied.has(rk)?'В этом стеллаже есть товар':'Пусто'}">
+          <span class="oc-move" data-dir="-1" title="Сдвинуть влево">◀</span>
           ${rk}${occupied.has(rk)?'':' <span class="rm" style="opacity:.5;">×</span>'}
+          <span class="oc-move" data-dir="1" title="Сдвинуть вправо">▶</span>
         </div>
       `).join('');
 
@@ -714,6 +769,18 @@
           orderDraft.splice(targetIdx,0,moved);
           dragIdx = null;
           renderChips();
+        });
+        // ◀▶ buttons: touch-friendly reorder alternative to drag (phones can't drag)
+        chip.querySelectorAll('.oc-move').forEach(btn=>{
+          btn.addEventListener('click', (e)=>{
+            e.stopPropagation();
+            const idx = parseInt(chip.dataset.idx,10);
+            const dir = parseInt(btn.dataset.dir,10);
+            const newIdx = idx + dir;
+            if(newIdx<0 || newIdx>=orderDraft.length) return;
+            [orderDraft[idx], orderDraft[newIdx]] = [orderDraft[newIdx], orderDraft[idx]];
+            renderChips();
+          });
         });
         // click the × to remove — only shown for racks with no stock
         const rmBtn = chip.querySelector('.rm');
@@ -808,6 +875,7 @@
   }
 
   document.getElementById('rack-order-btn').addEventListener('click', openRowManager);
+  document.getElementById('move-mode-btn').addEventListener('click', ()=> setMoveMode(!moveMode));
 
 
   function openAddProductForm(){
@@ -934,8 +1002,11 @@
     });
     const articles = Object.values(byArt).map(a=>({...a, vol: parseVolume(a.name)}));
 
-    // ABC by share of total stock VOLUME on the warehouse (qty * unit volume).
-    // Unknown unit volume -> counted as 0 volume (still shown, falls into C).
+    // ABC class comes from a fixed, externally-supplied classification (not
+    // computed here) — volShare/cumShare are still calculated purely as
+    // informational stats (share of total stock volume), they just no longer
+    // determine the class itself. Articles missing from the source file
+    // default to C.
     articles.forEach(a=>{ a.stockVolume = a.qty * (a.vol==null?0:a.vol); });
     const grandVolume = articles.reduce((s,a)=>s+a.stockVolume,0);
     const abcSorted = [...articles].sort((a,b)=>b.stockVolume-a.stockVolume);
@@ -944,7 +1015,7 @@
       a.volShare = grandVolume>0 ? a.stockVolume/grandVolume*100 : 0;
       cum += a.volShare;
       a.cumShare = cum;
-      a.abcClass = a.stockVolume<=0 ? 'C' : (cum<=80 ? 'A' : (cum<=95 ? 'B' : 'C'));
+      a.abcClass = (state.abcClasses && state.abcClasses[a.article]) || 'C';
     });
     const abcByArticle = {};
     abcSorted.forEach(a=>{ abcByArticle[a.article] = a; });

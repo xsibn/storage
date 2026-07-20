@@ -255,6 +255,74 @@
     box-shadow:0 2px 8px rgba(0,0,0,.08); display:none;
   }
   #progress-label.active{display:block;}
+
+  /* Move-mode toggle (tap-to-select alternative to drag-and-drop, for touch) */
+  #move-mode-btn.active{background:var(--accent); color:#fff; border-color:var(--accent);}
+  .cell.tap-selected{outline:2px solid var(--accent); outline-offset:1px; box-shadow:0 0 0 3px var(--accent-soft);}
+  .aisle-chip.tap-selected, .rack-label.tap-selected{outline:2px solid var(--accent); outline-offset:1px;}
+  .order-chip .oc-move{cursor:pointer; padding:0 3px; color:var(--ink-soft);}
+  .order-chip .oc-move:hover{color:var(--accent);}
+  .order-chip{display:inline-flex; align-items:center; gap:4px;}
+
+  /* ============ RESPONSIVE (tablet / phone) ============ */
+  @media (max-width: 860px){
+    header{padding:10px 12px; gap:8px 12px;}
+    header h1{font-size:14px; flex:1 1 auto;}
+    .stats{margin-left:0; order:3; width:100%; justify-content:space-between; border-top:1px solid var(--line); padding-top:8px;}
+    .stat{padding:2px 6px;}
+    .stat .num{font-size:14px;}
+    .stat .lbl{font-size:8.5px;}
+    #sync-status{display:none;}
+    header .btn{padding:8px 10px; font-size:12px;}
+
+    nav.tabs{overflow-x:auto; -webkit-overflow-scrolling:touch; padding:0 12px; scrollbar-width:none;}
+    nav.tabs::-webkit-scrollbar{display:none;}
+    nav.tabs button{padding:11px 12px; white-space:nowrap; flex-shrink:0; font-size:12.5px;}
+
+    main{padding:12px; gap:12px;}
+    .panel{padding:12px;}
+
+    .toolbar{gap:8px;}
+    .search{min-width:0; flex:1 1 100%;}
+    select, #reco-abc-filter, #reco-category-filter, #table-filter{flex:1 1 auto;}
+
+    .grid-wrap, .table-scroll{-webkit-overflow-scrolling:touch;}
+    table{font-size:11px;}
+    thead th{padding:7px 6px; font-size:10px;}
+    tbody td{padding:6px;}
+    .edit-input{width:56px;}
+    .edit-input.cellinput{width:76px;}
+
+    #drawer{width:100%; max-width:100%;}
+    #modal{max-width:96vw; max-height:94vh;}
+    #modal .mb{padding:14px;}
+    .form-grid{grid-template-columns:1fr;}
+    .form-field.with-pin{max-width:none !important;}
+
+    .zones-grid{grid-template-columns:repeat(auto-fill, minmax(150px,1fr));}
+    .legend{gap:10px; font-size:10.5px;}
+
+    #progress-label{right:8px; left:8px; text-align:center;}
+  }
+
+  @media (max-width: 480px){
+    header h1 .tag{display:none;}
+    header{flex-wrap:wrap;}
+    .stats{grid-template-columns:repeat(2,1fr); display:grid; gap:6px;}
+    .stat{border-left:none; text-align:left; padding:0;}
+    #add-product-btn{width:100%; margin-left:0 !important; order:5;}
+    .toolbar{flex-direction:column; align-items:stretch;}
+    .toolbar > *{width:100%;}
+    nav.tabs button{padding:10px 10px; font-size:12px;}
+    #modal .mf{flex-wrap:wrap;}
+    #modal .mf .btn{flex:1 1 auto;}
+  }
+
+  /* Touch devices: native HTML5 drag-and-drop doesn't work via touch, so give
+     a visible affordance for the tap-to-select alternative instead. */
+  @media (hover: none) and (pointer: coarse){
+    .cell[draggable="true"], .aisle-chip[draggable="true"], .rack-label[draggable="true"]{cursor:pointer;}
+  }
 </style>
 </head>
 <body>
@@ -291,9 +359,10 @@
       <div class="panel">
         <div class="toolbar" style="margin-bottom:12px;">
           <div class="search"><input type="text" id="map-search" placeholder="Найти артикул, ячейку или ТЕ на схеме…"></div>
+          <button class="btn" id="move-mode-btn" title="Для телефона: перетаскивание мышкой недоступно, включите этот режим — коснитесь ячейки, затем коснитесь другой">✥ Режим перемещения</button>
           <button class="btn" id="rack-order-btn">⚙ Управление рядом</button>
         </div>
-        <p style="font-size:12px; color:var(--ink-soft); margin:0 0 10px;">Перетащите занятую ячейку на другую (пустую или занятую), чтобы переместить товар — сохранится сразу. Перетащите номер стеллажа сверху сетки на другой номер, чтобы поменять местами стеллажи целиком. Кнопка «Управление рядом» — переименовать ряд, добавить/убрать стеллажи или задать порядок нумерации (например 75,74,73,1,2,3…).</p>
+        <p style="font-size:12px; color:var(--ink-soft); margin:0 0 10px;">Перетащите занятую ячейку на другую (пустую или занятую), чтобы переместить товар — сохранится сразу. Перетащите номер стеллажа сверху сетки на другой номер, чтобы поменять местами стеллажи целиком. На телефоне перетаскивание недоступно — включите «✥ Режим перемещения»: коснитесь ячейки/ряда/стеллажа, затем коснитесь цели. Кнопка «Управление рядом» — переименовать ряд, добавить/убрать стеллажи или задать порядок нумерации (например 75,74,73,1,2,3…).</p>
         <div class="grid-wrap"><div class="rack-grid" id="rack-grid"></div></div>
         <div class="legend">
           <span><i class="swatch" style="background:var(--accent-soft);border:1px solid var(--accent);"></i>занята (1 артикул) — перетаскивается</span>
@@ -335,12 +404,13 @@
       <div class="panel">
         <h2>Логика размещения</h2>
         <p style="font-size:12.5px; color:var(--ink-soft); line-height:1.5; margin:0;">
-          Приоритет размещения: <b>1) класс ABC</b> (A — самая доступная позиция, ближе к 1-й ячейке маршрута; далее B, затем C) → <b>2) категория товара</b> (соки с соками, вода с водой и т.д. — внутри класса ABC однородные группы не разбиваются) → <b>3) вес/объём единицы</b> (от тяжёлой упаковки к лёгкой). Сборка начинается с 1-й ячейки маршрута (ряд 01, минимальный стеллаж). Товар размещается на <b>1 ярусе</b> (пикинг), остаток каждого артикула — на ярусах выше того же стеллажа (пополнение).
+          Приоритет размещения: <b>1) класс ABC</b> (A — самая доступная позиция, ближе к 1-й ячейке маршрута; далее B, затем C — класс задаётся заранее по каждому артикулу, не пересчитывается по остаткам) → <b>2) категория товара</b> (соки с соками, вода с водой и т.д. — внутри класса ABC однородные группы не разбиваются) → <b>3) вес/объём единицы</b> (от тяжёлой упаковки к лёгкой). Сборка начинается с 1-й ячейки маршрута (ряд 01, минимальный стеллаж). Товар размещается на <b>1 ярусе</b> (пикинг), остаток каждого артикула — на ярусах выше того же стеллажа (пополнение).
         </p>
       </div>
 
       <div class="panel">
-        <h2>ABC-анализ по доле объёма стока</h2>
+        <h2>ABC-классы</h2>
+        <p style="font-size:12px; color:var(--ink-soft); margin:0 0 12px;">Класс каждого артикула задан заранее (постоянная классификация), а не рассчитывается по текущему остатку. Доля объёма стока рядом — справочная информация.</p>
         <div class="zones-grid" id="abc-summary"></div>
       </div>
 

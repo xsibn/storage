@@ -39,6 +39,17 @@ if (fs.existsSync(seedPath)) {
   }
 }
 
+// ---- фиксированная ABC-классификация (постоянная, задаётся файлом, не импортом) ----
+const abcClassesPath = path.join(__dirname, 'seed', 'abc-classes.json');
+if (fs.existsSync(abcClassesPath)) {
+  try {
+    const classMap = JSON.parse(fs.readFileSync(abcClassesPath, 'utf-8'));
+    db.seedAbcClasses(classMap);
+  } catch (err) {
+    console.error('Не удалось загрузить ABC-классы:', err.message);
+  }
+}
+
 // Приводим строки заголовков к нужным полям вне зависимости от порядка
 // колонок и небольших расхождений в написании ("Артикул " с пробелом и т.п.).
 function mapSheetRow(row) {
@@ -80,7 +91,8 @@ app.get('/api/records', (req, res) => {
       source: db.getMeta('source_label') || 'база данных',
       importedAt: db.getMeta('imported_at'),
       count: records.length,
-      layout
+      layout,
+      abcClasses: db.getAbcClasses()
     }
   });
 });

@@ -38,7 +38,61 @@ db.exec(`
     key   TEXT PRIMARY KEY,
     value TEXT
   );
+
+  CREATE TABLE IF NOT EXISTS activity_log (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    ts         TEXT NOT NULL DEFAULT (datetime('now')),
+    action     TEXT NOT NULL,
+    summary    TEXT NOT NULL,
+    undo_data  TEXT
+  );
+
+  CREATE TABLE IF NOT EXISTS abc_classes (
+    article TEXT PRIMARY KEY,
+    class   TEXT NOT NULL
+  );
 `);
+
+// Every mutating operation calls this. undoData is a small JSON-serialisable
+// object with just enough info to reverse the action — null means it can't
+// be undone (currently only bulk-import, since storing a full pre-import
+// snapshot for every upload would bloat the log for little practical value).
+// The log is capped so it can't grow forever.
+function logActivity(action, summary, undoData) {
+  db.prepare('INSERT INTO activity_log (action, summary, undo_data) VALUES (?, ?, ?)')
+    .run(action, summary, undoData ? JSON.stringify(undoData) : null);
+  db.prepare(`DELETE FROM activity_log WHERE id NOT IN (SELECT id FROM activity_log ORDER BY id DESC LIMIT 200)`).run();
+}
+
+function listActivity(limit) {
+  return db.prepare('SELECT id, ts, action, summary, (undo_data IS NOT NULL) AS undoable FROM activity_log ORDER BY id DESC LIMIT ?')
+    .all(limit || 50);
+}
+
+function getLastActivity() {
+  return db.prepare('SELECT * FROM activity_log ORDER BY id DESC LIMIT 1').get();
+}
+
+// ---------- Fixed ABC classification (supplied by the business, not computed) ----------
+// This is a static article -> class ('A'/'B'/'C') lookup from an external file
+// (e.g. product strength/priority planning), not derived from stock volume.
+// It rarely changes, so there's no upload UI for it — only seeded from a
+// bundled JSON file, and it only ever grows/updates (never cleared) so a
+// re-seed doesn't wipe classes for articles no longer in the source file.
+function seedAbcClasses(classMap) {
+  const upsert = db.prepare(`INSERT INTO abc_classes (article, class) VALUES (?, ?)
+                              ON CONFLICT(article) DO UPDATE SET class = excluded.class`);
+  const tx = db.transaction((entries) => { for (const [article, klass] of entries) upsert.run(article, klass); });
+  tx(Object.entries(classMap));
+}
+
+function getAbcClasses() {
+  const rows = db.prepare('SELECT article, class FROM abc_classes').all();
+  const out = {};
+  rows.forEach(r => { out[r.article] = r.class; });
+  return out;
+}
+
 
 // Same address format as the frontend: РЯД-СТЕЛЛАЖ-УРОВЕНЬ, e.g. "01-12-02".
 // Anything that doesn't match is a service zone (Карантин, Брак, Приёмка, ...).
@@ -213,6 +267,13 @@ function updateRecord(id, patch) {
 
   if (!cls.isService) expandLayout(cls.row, cls.rack, cls.level);
 
+  const bits = [];
+  if (patch.cell !== undefined && next.cell !== existing.cell) bits.push(`ячейка ${existing.cell} → ${next.cell}`);
+  if (patch.qty !== undefined && next.qty !== existing.qty) bits.push(`остаток ${existing.qty} → ${next.qty}`);
+  if (bits.length) {
+    logActivity('update', `${existing.article}: ${bits.join(', ')}`, { id, prevCell: existing.cell, prevQty: existing.qty });
+  }
+
   return db.prepare('SELECT * FROM stock_records WHERE id = ?').get(id);
 }
 
@@ -242,6 +303,7 @@ function createRecord(rec) {
     isService: cls.isService, row: cls.row, rack: cls.rack, level: cls.level
   });
   if (!cls.isService) expandLayout(cls.row, cls.rack, cls.level);
+  logActivity('create', `Добавлен товар ${article} в ${cell}`, { id: info.lastInsertRowid });
   return db.prepare('SELECT * FROM stock_records WHERE id = ?').get(info.lastInsertRowid);
 }
 
@@ -249,6 +311,12 @@ function deleteRecord(id) {
   const existing = db.prepare('SELECT * FROM stock_records WHERE id = ?').get(id);
   if (!existing) return false;
   db.prepare('DELETE FROM stock_records WHERE id = ?').run(id);
+  logActivity('delete', `Удалена запись ${existing.article} из ${existing.cell}`, {
+    record: {
+      cell: existing.cell, article: existing.article, name: existing.name, qty: existing.qty,
+      mfg: existing.mfg, exp: existing.exp, te: existing.te
+    }
+  });
   return true;
 }
 
@@ -292,6 +360,8 @@ const swapRows = db.transaction((rowA, rowB) => {
 
   syncLayoutWithData();
 
+  logActivity('swap-rows', `Обмен рядами ${rowA} ⇄ ${rowB} (${recordsA.length}/${recordsB.length} записей)`, { rowA, rowB });
+
   return { movedA: recordsA.length, movedB: recordsB.length };
 });
 
@@ -320,6 +390,8 @@ const renameRow = db.transaction((oldRow, newRow) => {
   layout[newRow] = layout[oldRow];
   delete layout[oldRow];
   setLayout(layout);
+
+  logActivity('rename-row', `Ряд ${oldRow} переименован в ${newRow} (${records.length} записей)`, { oldRow, newRow });
 
   return { moved: records.length };
 });
@@ -350,8 +422,16 @@ function setRacks(row, racks) {
     }
   }
 
+  const prevRacks = layout[row].racks.slice();
   layout[row].racks = cleanRacks;
   setLayout(layout);
+
+  const added = cleanRacks.filter(rk => !prevRacks.includes(rk));
+  const bits = [];
+  if (added.length) bits.push(`добавлены ${added.join(', ')}`);
+  if (removed.length) bits.push(`убраны ${removed.join(', ')}`);
+  if (bits.length) logActivity('set-racks', `Ряд ${row}: ${bits.join('; ')}`, { row, prevRacks });
+
   return layout[row];
 }
 
@@ -384,6 +464,8 @@ const swapRacks = db.transaction((row, rackA, rackB) => {
 
   syncLayoutWithData();
 
+  logActivity('swap-racks', `Обмен стеллажами ${rackA} ⇄ ${rackB} в ряду ${row} (${recordsA.length}/${recordsB.length} записей)`, { row, rackA, rackB });
+
   return { movedA: recordsA.length, movedB: recordsB.length };
 });
 
@@ -412,8 +494,79 @@ function setRackOrder(row, order) {
   return layout[row];
 }
 
+// ---------- Bulk operations (multi-select in the table) ----------
+
+const bulkMove = db.transaction((ids, targetCell) => {
+  const target = String(targetCell).trim();
+  const cls = classifyCell(target);
+  const moves = [];
+  const update = db.prepare(`
+    UPDATE stock_records
+    SET cell = @cell, is_service = @isService, row_code = @row, rack = @rack, level_code = @level, updated_at = datetime('now')
+    WHERE id = @id
+  `);
+  for (const id of ids) {
+    const existing = db.prepare('SELECT id, cell FROM stock_records WHERE id = ?').get(id);
+    if (!existing) continue;
+    moves.push({ id, prevCell: existing.cell });
+    update.run({ id, cell: target, isService: cls.isService, row: cls.row, rack: cls.rack, level: cls.level });
+  }
+  if (!cls.isService) expandLayout(cls.row, cls.rack, cls.level);
+  if (moves.length) {
+    logActivity('bulk-move', `Перемещено ${moves.length} записей в ${target}`, { moves });
+  }
+  return { moved: moves.length };
+});
+
+const bulkDelete = db.transaction((ids) => {
+  const records = [];
+  for (const id of ids) {
+    const existing = db.prepare('SELECT * FROM stock_records WHERE id = ?').get(id);
+    if (!existing) continue;
+    records.push({
+      cell: existing.cell, article: existing.article, name: existing.name, qty: existing.qty,
+      mfg: existing.mfg, exp: existing.exp, te: existing.te
+    });
+    db.prepare('DELETE FROM stock_records WHERE id = ?').run(id);
+  }
+  if (records.length) {
+    logActivity('bulk-delete', `Удалено ${records.length} записей`, { records });
+  }
+  return { deleted: records.length };
+});
+
+// ---------- Undo last action ----------
+// Every undoable action is reversed by replaying the inverse through the same
+// public functions above — each of those calls also logs its own activity
+// entry, so an undo shows up in the feed too (and undoing an undo redoes the
+// original action, which is a reasonable and transparent side effect).
+const undoLastAction = db.transaction(() => {
+  const last = getLastActivity();
+  if (!last) throw new Error('Нет действий для отмены');
+  if (!last.undo_data) throw new Error('Это действие нельзя отменить');
+  const data = JSON.parse(last.undo_data);
+
+  switch (last.action) {
+    case 'create': deleteRecord(data.id); break;
+    case 'delete': createRecord(data.record); break;
+    case 'update': updateRecord(data.id, { cell: data.prevCell, qty: data.prevQty }); break;
+    case 'swap-rows': swapRows(data.rowA, data.rowB); break;
+    case 'swap-racks': swapRacks(data.row, data.rackA, data.rackB); break;
+    case 'rename-row': renameRow(data.newRow, data.oldRow); break;
+    case 'set-racks': setRacks(data.row, data.prevRacks); break;
+    case 'bulk-move': data.moves.forEach(m => updateRecord(m.id, { cell: m.prevCell })); break;
+    case 'bulk-delete': data.records.forEach(r => createRecord(r)); break;
+    default: throw new Error('Неизвестное действие: ' + last.action);
+  }
+
+  db.prepare('DELETE FROM activity_log WHERE id = ?').run(last.id);
+  return { action: last.action, summary: last.summary };
+});
+
 module.exports = {
   db, classifyCell, listRecords, replaceAll, updateRecord, createRecord, deleteRecord,
   swapRows, swapRacks, renameRow, setRacks, getMeta, setMeta, count, seedIfEmpty,
-  getLayout, ensureLayoutFromSeed, rebuildLayoutFromCurrent, setRackOrder
+  getLayout, ensureLayoutFromSeed, rebuildLayoutFromCurrent, setRackOrder,
+  bulkMove, bulkDelete, listActivity, undoLastAction,
+  seedAbcClasses, getAbcClasses
 };
