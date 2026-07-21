@@ -63,24 +63,16 @@ db.exec(`
 // object with just enough info to reverse the action — null means it can't
 // be undone (currently only bulk-import, since storing a full pre-import
 // snapshot for every upload would bloat the log for little practical value).
-// Entries older than ACTIVITY_RETENTION_DAYS are purged on every write, so the
-// log always holds a rolling window rather than growing forever.
-const ACTIVITY_RETENTION_DAYS = 14;
-function purgeOldActivity() {
-  db.prepare(`DELETE FROM activity_log WHERE ts < datetime('now', ?)`).run(`-${ACTIVITY_RETENTION_DAYS} days`);
-}
+// The log is capped so it can't grow forever.
 function logActivity(action, summary, undoData) {
   db.prepare('INSERT INTO activity_log (action, summary, undo_data) VALUES (?, ?, ?)')
     .run(action, summary, undoData ? JSON.stringify(undoData) : null);
-  purgeOldActivity();
+  db.prepare(`DELETE FROM activity_log WHERE id NOT IN (SELECT id FROM activity_log ORDER BY id DESC LIMIT 200)`).run();
 }
-// Also sweep once on startup, so entries older than the retention window
-// disappear even on days when nothing new gets logged.
-purgeOldActivity();
 
 function listActivity(limit) {
-  return db.prepare('SELECT id, ts, action, summary, (undo_data IS NOT NULL) AS undoable FROM activity_log WHERE ts >= datetime(\'now\', ?) ORDER BY id DESC LIMIT ?')
-    .all(`-${ACTIVITY_RETENTION_DAYS} days`, limit || 50);
+  return db.prepare('SELECT id, ts, action, summary, (undo_data IS NOT NULL) AS undoable FROM activity_log ORDER BY id DESC LIMIT ?')
+    .all(limit || 50);
 }
 
 function getLastActivity() {
@@ -260,7 +252,6 @@ const replaceAll = db.transaction((rows, sourceLabel) => {
   setMeta('source_label', sourceLabel || 'база данных');
   setMeta('imported_at', new Date().toISOString());
   setLayout(mergeLayouts(getLayout(), computeLayout(rows)));
-  logActivity('import', `Загружен файл «${sourceLabel || 'без имени'}» (${rows.length} строк, вся база заменена)`, null);
 });
 
 function updateRecord(id, patch) {

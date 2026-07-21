@@ -53,31 +53,6 @@ if (fs.existsSync(abcClassesPath)) {
 // ---- регистрируем уже существующие зоны (Карантин, Приёмка и т.п.) как управляемые ----
 db.ensureZonesFromData();
 
-// Некоторые выгрузки (например, из «1С: ОтчетОстатки») содержат перед
-// настоящей шапкой таблицы 1-2 служебные строки с названием отчёта и
-// организации — сама шапка ("Ячейка", "Артикул", ...) идёт не первой
-// строкой листа. Находим её, просматривая строки листа, вместо того чтобы
-// всегда считать заголовками первую строку.
-function sheetToRows(sheet) {
-  const grid = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
-  const isHeaderRow = (row) =>
-    row.some(c => String(c).trim().toLowerCase() === 'ячейка') &&
-    row.some(c => String(c).trim().toLowerCase().startsWith('артикул'));
-  const headerIdx = grid.findIndex(isHeaderRow);
-  if (headerIdx === -1) {
-    // шапка не найдена по ожидаемым названиям — отдаём как есть (первая
-    // строка = заголовки), чтобы сохранить прежнее поведение для файлов
-    // простой структуры
-    return XLSX.utils.sheet_to_json(sheet, { defval: '' });
-  }
-  const headers = grid[headerIdx].map(h => String(h));
-  return grid.slice(headerIdx + 1).map(row => {
-    const obj = {};
-    headers.forEach((h, i) => { obj[h] = row[i] !== undefined ? row[i] : ''; });
-    return obj;
-  });
-}
-
 // Приводим строки заголовков к нужным полям вне зависимости от порядка
 // колонок и небольших расхождений в написании ("Артикул " с пробелом и т.п.).
 function mapSheetRow(row) {
@@ -259,7 +234,7 @@ app.post('/api/records/bulk-delete', (req, res) => {
 
 // GET /api/activity — последние записи журнала
 app.get('/api/activity', (req, res) => {
-  const limit = Math.min(1000, parseInt(req.query.limit, 10) || 200);
+  const limit = Math.min(200, parseInt(req.query.limit, 10) || 50);
   res.json({ entries: db.listActivity(limit) });
 });
 
@@ -327,7 +302,7 @@ app.post('/api/import', upload.single('file'), (req, res) => {
   try {
     const wb = XLSX.read(req.file.buffer, { type: 'buffer', cellDates: true });
     const sheet = wb.Sheets[wb.SheetNames[0]];
-    const json = sheetToRows(sheet);
+    const json = XLSX.utils.sheet_to_json(sheet, { defval: '' });
     const rows = json.map(mapSheetRow).filter(r => r.cell !== '' && r.article !== '');
     if (!rows.length) return res.status(400).json({ error: 'файл не содержит распознаваемых строк' });
     // multer/busboy decode the multipart filename header as latin1 by default,

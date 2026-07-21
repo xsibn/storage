@@ -4,7 +4,6 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Адресное хранение склада</title>
-<script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
 <style>
   :root{
     --bg: #F5F6F8;
@@ -226,18 +225,6 @@
   #modal .mh button{background:none; border:none; font-size:20px; cursor:pointer; color:var(--ink-soft);}
   #modal .mb{padding:18px 20px; overflow-y:auto;}
   #modal .mf{padding:14px 20px; border-top:1px solid var(--line); display:flex; justify-content:flex-end; gap:8px;}
-
-  #activity-log-list{display:flex; flex-direction:column; gap:0; max-height:60vh; overflow-y:auto; border:1px solid var(--line); border-radius:8px;}
-  .activity-row{display:flex; gap:12px; padding:10px 12px; border-bottom:1px solid var(--line); font-size:13px; align-items:baseline;}
-  .activity-row:last-child{border-bottom:none;}
-  .activity-row .a-time{color:var(--ink-soft); white-space:nowrap; font-variant-numeric:tabular-nums; flex:0 0 auto;}
-  .activity-row .a-action{flex:0 0 auto; padding:1px 7px; border-radius:5px; font-size:11px; font-weight:600; white-space:nowrap; background:var(--accent-soft, #eef2ff); color:var(--accent, #4f46e5);}
-  .activity-row .a-summary{flex:1 1 auto; color:var(--ink);}
-  #activity-log-empty{padding:24px; text-align:center; color:var(--ink-soft); font-size:13px;}
-  #activity-log-hint{font-size:12px; color:var(--ink-soft); margin-bottom:10px;}
-  #barcode-reader{background:#111; min-height:220px;}
-  #barcode-reader video{width:100% !important; border-radius:8px;}
-  #barcode-reader img{display:none;}
   .form-grid{display:grid; grid-template-columns:1fr 1fr; gap:12px;}
   .form-grid .full{grid-column:1 / -1;}
   .form-field label{display:block; font-size:11px; color:var(--ink-soft); text-transform:uppercase; letter-spacing:.3px; margin-bottom:5px;}
@@ -359,8 +346,6 @@
     <span id="sync-status" style="font-size:11px; color:var(--ink-soft); white-space:nowrap;"></span>
     <button class="btn" id="sync-btn" title="Подтянуть последние данные с сервера">⟳ Синхронизировать</button>
     <button class="btn" id="undo-btn" title="Отменить последнее действие">↺ Отменить</button>
-    <button class="btn" id="activity-log-btn" title="Журнал изменений (хранится 14 дней)">📋 Журнал</button>
-    <button class="btn" id="scan-barcode-btn" title="Найти товар по штрих-коду через камеру">📷 Скан. штрих-кода</button>
     <label class="btn primary" for="file-input">Загрузить новые данные (.xlsx)</label>
     <input type="file" id="file-input" accept=".xlsx,.xls,.csv">
     <button class="btn" id="export-btn">Экспорт в Excel</button>
@@ -437,7 +422,7 @@
       <div class="panel">
         <h2>Логика размещения</h2>
         <p style="font-size:12.5px; color:var(--ink-soft); line-height:1.5; margin:0;">
-          Приоритет размещения: <b>1) класс ABC</b> (A — самая доступная позиция, ближе к 1-й ячейке маршрута; далее B, затем C — класс задаётся заранее по каждому артикулу, не пересчитывается по остаткам) → <b>2) категория товара</b> (соки с соками, вода с водой и т.д. — внутри класса ABC однородные группы не разбиваются) → <b>3) вес/объём единицы</b> (от тяжёлой упаковки к лёгкой). Сборка начинается с 1-й ячейки маршрута (ряд 01, минимальный стеллаж). Товар размещается на <b>1 ярусе</b> (пикинг), остаток каждого артикула — на ярусах выше того же стеллажа (пополнение).
+          Приоритет размещения: <b>1) класс ABC</b> (A — самая доступная позиция, ближе к началу маршрута пикинга; далее B, затем C — класс задаётся заранее по каждому артикулу, не пересчитывается по остаткам) → <b>2) материал упаковки</b> (ПЭТ с ПЭТ, жесть с жестью, стекло со стеклом и т.д. — внутри класса ABC однородные по материалу группы не разбиваются) → <b>3) ВГХ / вес-объём единицы</b> (одинаковый литраж/вес держится вместе, от тяжёлой/крупной упаковки к лёгкой). Маршрут начинается с дальнего конца ряда 6 (ячейка 06-26-01, у «начала пикинга») и далее «змейкой» проходит ряды 5→1 в обратном направлении на каждом развороте; ряды 7–12 не используются — это устаревшие записи от старого склада. Товар размещается на <b>1 ярусе</b> (пикинг), остаток каждого артикула — на ярусах выше того же стеллажа (пополнение).
         </p>
       </div>
 
@@ -449,10 +434,10 @@
 
       <div class="panel">
         <h2>Рекомендация по диапазону</h2>
-        <p style="font-size:12px; color:var(--ink-soft); margin:0 0 12px;">Выделите область склада (ряд + диапазон стеллажей) и категорию товара — расчёт покажет, как расставить именно эту категорию именно там: тяжёлые/класс A ближе к началу диапазона, пополнение на ярусах выше.</p>
+        <p style="font-size:12px; color:var(--ink-soft); margin:0 0 12px;">Выделите область склада (ряд + диапазон стеллажей) и материал упаковки — расчёт покажет, как расставить именно этот материал именно там: тяжёлые/класс A ближе к началу диапазона, пополнение на ярусах выше.</p>
         <div class="form-grid" style="margin-bottom:12px;">
           <div class="form-field"><label>Ряд</label><select id="range-row"></select></div>
-          <div class="form-field"><label>Категория товара</label><select id="range-category"></select></div>
+          <div class="form-field"><label>Материал упаковки</label><select id="range-category"></select></div>
           <div class="form-field"><label>Стеллаж от</label><select id="range-rack-from"></select></div>
           <div class="form-field"><label>Стеллаж до</label><select id="range-rack-to"></select></div>
         </div>
@@ -480,7 +465,7 @@
         <div class="grid-wrap" style="margin-top:12px;"><div class="rack-grid" id="reco-strip"></div></div>
         <div class="legend" id="category-legend"></div>
         <div class="legend" style="margin-top:6px;">
-          <span><i class="swatch" style="background:#8B5E34;"></i>цвет = категория товара; тёмный оттенок = тяжелее/крупнее → светлый = легче</span>
+          <span><i class="swatch" style="background:#8B5E34;"></i>цвет = материал упаковки; тёмный оттенок = тяжелее/крупнее → светлый = легче</span>
           <span><i class="swatch" style="background:rgba(139,94,52,.32);"></i>ярусы выше 1: пополнение того же артикула (резерв)</span>
           <span><i class="swatch" style="box-shadow:inset 0 0 0 2px var(--danger); background:var(--empty);"></i>обводка = класс A</span>
           <span><i class="swatch" style="background:var(--accent-soft);border:1px solid var(--accent);"></i>без рекомендации, но сейчас есть товар — кликабельно</span>
@@ -511,7 +496,7 @@
         <div class="table-scroll">
           <table>
             <thead><tr>
-              <th>№ (порядок размещения)</th><th>Артикул</th><th>Наименование</th><th>Категория</th><th>Объём/вес ед.</th>
+              <th>№ (порядок размещения)</th><th>Артикул</th><th>Наименование</th><th>Материал</th><th>Объём/вес ед.</th>
               <th>Остаток всего, шт</th><th>Доля объёма стока</th><th>ABC</th><th>Пикинг-адрес (ярус 1)</th><th>Пополнение (резерв)</th>
             </tr></thead>
             <tbody id="reco-body"></tbody>

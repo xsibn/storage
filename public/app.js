@@ -50,6 +50,36 @@
     'Газ CO2 / баллоны': '#334155',
     'Соки и нектары': '#16A34A'
   };
+  // Classify a product into its packaging MATERIAL, parsed from the standard
+  // code that follows the volume/weight at the start of the name (e.g.
+  // "0.5Х12 ПЭТ ...", "0.33Х12 ЖБ ...", "1Х12 ТП ..."). This is the primary
+  // grouping used for picking adjacency: same material must stand together
+  // (PET with PET, tin with tin, etc.) — see MATERIAL_COLORS below.
+  const MATERIAL_COLORS = {
+    'ПЭТ': '#2C5CE0',
+    'Жесть': '#94A3B8',
+    'Стекло': '#16A34A',
+    'Тетрапак': '#DB2777',
+    'Картон': '#B45309',
+    'Bag-in-Box': '#7C3AED',
+    'Весовой (без тары)': '#334155',
+    'Прочее': '#64748B'
+  };
+  function classifyMaterial(name){
+    if(!name) return 'Прочее';
+    const n = name.toUpperCase();
+    // weight-based goods (coffee sold by kg, no container material): "0.2 КГ ..."
+    if(/^\s*[\d.,]+\s*КГ\b/.test(n)) return 'Весовой (без тары)';
+    const has = (...codes)=> codes.some(c=> new RegExp('(^|[^А-Я])'+c+'([^А-Я]|$)').test(n));
+    if(has('ПЭТ','ПЕТ')) return 'ПЭТ';
+    if(has('ЖБ')) return 'Жесть';
+    if(has('СТН')) return 'Стекло';
+    if(has('ТП')) return 'Тетрапак';
+    if(has('ГМ','КМБ')) return 'Картон';
+    if(has('БИБ')) return 'Bag-in-Box';
+    return 'Прочее';
+  }
+
   function classifyCategory(name){
     if(!name) return 'Соки и нектары';
     const n = name.toUpperCase();
@@ -162,7 +192,6 @@
 
   // ---------- helpers ----------
   function fmtNum(n){ return n.toLocaleString('ru-RU'); }
-  function escHtml(s){ return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 
   function addressRecords(){ return state.records.filter(r=>!r.isService); }
   function serviceRecords(){ return state.records.filter(r=>r.isService); }
@@ -510,7 +539,6 @@
         <div class="name">${it.name}</div>
         <dl>
           <dt>Остаток</dt><dd>${fmtNum(it.qty)} шт</dd>
-          ${it.cell ? `<dt>Ячейка</dt><dd>${it.cell}</dd>` : ''}
           <dt>Дата изготовления</dt><dd>${it.mfg||'—'}</dd>
           <dt>Срок годности</dt><dd>${it.exp||'—'}</dd>
           ${it.te ? `<dt>ТЕ</dt><dd>${it.te}</dd>` : ''}
@@ -536,7 +564,6 @@
   }
   function closeModal(){
     document.getElementById('modal-backdrop').classList.remove('open');
-    stopBarcodeScanner();
   }
   document.getElementById('modal-close').addEventListener('click', closeModal);
   document.getElementById('modal-backdrop').addEventListener('click', (e)=>{
@@ -607,121 +634,6 @@
     renderPickerGrid();
   }
 
-
-  // ---------- BARCODE SCANNER (поиск товара по штрих-коду через камеру) ----------
-  let barcodeScanner = null;
-
-  async function stopBarcodeScanner(){
-    if(!barcodeScanner) return;
-    const s = barcodeScanner;
-    barcodeScanner = null;
-    try{ await s.stop(); }catch(e){ /* уже остановлен или не запускался */ }
-    try{ s.clear(); }catch(e){}
-  }
-
-  // Ищем совпадения по коду: сначала точное совпадение с артикулом/ТЕ/ячейкой,
-  // затем — на случай если код содержит служебные префиксы/суффиксы (GS1 и т.п.) —
-  // частичное вхождение.
-  function findRecordsByCode(code){
-    const c = String(code || '').trim();
-    if(!c) return [];
-    const lc = c.toLowerCase();
-    let matches = state.records.filter(r =>
-      r.article === c || r.cell === c || (r.te && r.te === c)
-    );
-    if(!matches.length){
-      matches = state.records.filter(r =>
-        r.article.toLowerCase() === lc || (r.te && r.te.toLowerCase() === lc)
-      );
-    }
-    if(!matches.length){
-      matches = state.records.filter(r =>
-        r.article.toLowerCase().includes(lc) || (r.te && r.te.toLowerCase().includes(lc))
-      );
-    }
-    return matches;
-  }
-
-  function handleScannedCode(rawCode){
-    const code = String(rawCode || '').trim();
-    if(!code) return;
-    const matches = findRecordsByCode(code);
-    if(!matches.length){
-      alert(`Товар со штрихкодом «${code}» не найден в текущих данных склада.`);
-      return;
-    }
-    // переключаемся на вкладку "Таблица данных" и подставляем код в поиск
-    document.querySelector('nav.tabs button[data-view="table"]').click();
-    tableTerm = code;
-    document.getElementById('table-search').value = code;
-    renderAll();
-    // и сразу открываем карточку найденного товара
-    openDrawer(`Найдено по коду «${code}»`, matches.map(r=>({
-      article: r.article, name: r.name, qty: r.qty, mfg: r.mfg, exp: r.exp,
-      te: r.te, cell: r.cell
-    })));
-  }
-
-  function openBarcodeScanner(){
-    const body = `
-      <div id="barcode-reader"></div>
-      <div id="barcode-status" style="margin-top:10px; font-size:12.5px; color:var(--ink-soft);">Наведите камеру на штрих-код товара…</div>
-      <div class="form-field" style="margin-top:14px;">
-        <label>Или введите код вручную</label>
-        <input type="text" id="barcode-manual-input" placeholder="Артикул, код ТЕ или ячейка…">
-      </div>
-    `;
-    const footer = `<button class="btn" id="barcode-manual-submit">Найти</button><button class="btn primary" id="barcode-cancel">Закрыть</button>`;
-    openModal('Поиск товара по штрих-коду', body, footer);
-
-    document.getElementById('barcode-cancel').addEventListener('click', closeModal);
-
-    const manualInput = document.getElementById('barcode-manual-input');
-    const submitManual = ()=>{
-      const val = manualInput.value.trim();
-      if(!val) return;
-      closeModal();
-      handleScannedCode(val);
-    };
-    document.getElementById('barcode-manual-submit').addEventListener('click', submitManual);
-    manualInput.addEventListener('keydown', (e)=>{ if(e.key==='Enter') submitManual(); });
-
-    if(typeof Html5Qrcode === 'undefined'){
-      document.getElementById('barcode-status').textContent = 'Сканер камеры недоступен (нет соединения с CDN) — введите код вручную.';
-      return;
-    }
-
-    barcodeScanner = new Html5Qrcode('barcode-reader', {
-      formatsToSupport: [
-        Html5QrcodeSupportedFormats.EAN_13, Html5QrcodeSupportedFormats.EAN_8,
-        Html5QrcodeSupportedFormats.CODE_128, Html5QrcodeSupportedFormats.CODE_39,
-        Html5QrcodeSupportedFormats.UPC_A, Html5QrcodeSupportedFormats.UPC_E,
-        Html5QrcodeSupportedFormats.ITF, Html5QrcodeSupportedFormats.QR_CODE
-      ],
-      verbose: false
-    });
-
-    let lastCode = null, lastTime = 0;
-    barcodeScanner.start(
-      { facingMode: 'environment' },
-      { fps: 10, qrbox: { width: 260, height: 160 } },
-      (decodedText)=>{
-        const now = Date.now();
-        if(decodedText === lastCode && now - lastTime < 1500) return; // антидребезг повторных кадров
-        lastCode = decodedText; lastTime = now;
-        const statusEl = document.getElementById('barcode-status');
-        if(statusEl) statusEl.textContent = `Считано: ${decodedText}`;
-        closeModal(); // остановит сканер (см. closeModal) и закроет окно
-        handleScannedCode(decodedText);
-      },
-      ()=>{ /* игнорируем неудачные попытки распознавания в очередном кадре */ }
-    ).catch(err=>{
-      const statusEl = document.getElementById('barcode-status');
-      if(statusEl) statusEl.textContent = 'Не удалось открыть камеру: ' + (err && err.message ? err.message : err) + '. Введите код вручную или проверьте разрешение на использование камеры.';
-    });
-  }
-
-  document.getElementById('scan-barcode-btn').addEventListener('click', openBarcodeScanner);
 
   let tableTerm = "";
   let tableFilter = "all";
@@ -796,48 +708,6 @@
       } finally { progressEnd(); }
     });
   });
-
-  // ---------- ЖУРНАЛ ИЗМЕНЕНИЙ (отдельное окно) ----------
-  const ACTIVITY_LABELS = {
-    'update': 'Правка', 'create': 'Добавление', 'delete': 'Удаление',
-    'swap-rows': 'Обмен рядами', 'rename-row': 'Переим. ряда', 'set-racks': 'Стеллажи',
-    'swap-racks': 'Обмен стеллажами', 'bulk-move': 'Массовый перенос', 'bulk-delete': 'Массовое удаление',
-    'create-zone': 'Новая зона', 'rename-zone': 'Переим. зоны', 'delete-zone': 'Удаление зоны',
-    'import': 'Загрузка файла'
-  };
-  function fmtActivityTime(ts){
-    // Сервер отдаёт время в UTC (SQLite datetime('now')); показываем локально.
-    const d = new Date(ts.replace(' ', 'T') + 'Z');
-    if(isNaN(d.getTime())) return ts;
-    return d.toLocaleString('ru-RU', { day:'2-digit', month:'2-digit', year:'2-digit', hour:'2-digit', minute:'2-digit' });
-  }
-  async function openActivityLog(){
-    openModal('Журнал изменений', '<div id="activity-log-hint">Хранится за последние 14 дней.</div><div id="activity-log-list"><div id="activity-log-empty">Загрузка…</div></div>', '<button class="btn" id="activity-log-close">Закрыть</button>');
-    document.getElementById('activity-log-close').addEventListener('click', closeModal);
-    try{
-      const res = await fetch(`${API_BASE}/api/activity?limit=1000`);
-      const payload = await res.json().catch(()=>({}));
-      if(!res.ok) throw new Error(payload.error || ('HTTP '+res.status));
-      const entries = payload.entries || [];
-      const listEl = document.getElementById('activity-log-list');
-      if(!listEl) return; // окно уже закрыли, пока грузились данные
-      if(!entries.length){
-        listEl.innerHTML = '<div id="activity-log-empty">За последние 14 дней изменений не было.</div>';
-        return;
-      }
-      listEl.innerHTML = entries.map(e => `
-        <div class="activity-row">
-          <span class="a-time">${fmtActivityTime(e.ts)}</span>
-          <span class="a-action">${escHtml(ACTIVITY_LABELS[e.action] || e.action)}</span>
-          <span class="a-summary">${escHtml(e.summary)}</span>
-        </div>
-      `).join('');
-    }catch(err){
-      const listEl = document.getElementById('activity-log-list');
-      if(listEl) listEl.innerHTML = `<div id="activity-log-empty">Не удалось загрузить журнал: ${err.message}</div>`;
-    }
-  }
-  document.getElementById('activity-log-btn').addEventListener('click', openActivityLog);
 
   // ---------- UNDO LAST ACTION ----------
   document.getElementById('undo-btn').addEventListener('click', async ()=>{
@@ -1253,6 +1123,10 @@
 
   let recoAisle = null;
   let recoSearchTerm = "";
+  // Only rows 01-06 physically exist; 07-12 are stale rows left in the DB from
+  // the old warehouse and must never be offered for new placements or ranges.
+  const ACTIVE_ROWS = ['06','05','04','03','02','01'];
+
   let recoCache = null; // {sorted:[...], posPool:[...]}
 
   function zpad(n){ return n<10 ? '0'+n : String(n); }
@@ -1286,30 +1160,46 @@
     const abcByArticle = {};
     abcSorted.forEach(a=>{ abcByArticle[a.article] = a; });
 
-    // group by merchandise category (juices with juices, water with water, etc.)
-    articles.forEach(a=>{ a.category = classifyCategory(a.name); });
-    const categoryVolume = {};
-    articles.forEach(a=>{ categoryVolume[a.category] = (categoryVolume[a.category]||0) + a.stockVolume; });
-    const categoryOrder = Object.entries(categoryVolume).sort((x,y)=>y[1]-x[1]).map(([k])=>k);
-    const categoryRank = {}; categoryOrder.forEach((c,i)=>categoryRank[c]=i);
+    // material = packaging material (ПЭТ, жесть, стекло, тетрапак, картон, BIB, весовой) —
+    // THIS is the grouping that must stay physically adjacent on the shelf.
+    // merchandise category (juices/water/soda/etc.) is kept only as an informational
+    // label shown in the UI — it no longer drives placement or adjacency.
+    articles.forEach(a=>{ a.category = classifyCategory(a.name); a.material = classifyMaterial(a.name); });
+    const materialVolume = {};
+    articles.forEach(a=>{ materialVolume[a.material] = (materialVolume[a.material]||0) + a.stockVolume; });
+    const materialOrder = Object.entries(materialVolume).sort((x,y)=>y[1]-x[1]).map(([k])=>k);
+    const materialRank = {}; materialOrder.forEach((c,i)=>materialRank[c]=i);
 
-    // Placement priority: 1) ABC class (A first — best/closest positions),
-    // 2) merchandise category (so same-kind products stay grouped together),
-    // 3) unit weight/volume heavy->light within the category (ergonomic stacking).
+    // Placement priority: 1) ABC class (A first — best/closest positions, right at
+    // the picking start), 2) packaging material (ПЭТ with ПЭТ, жесть with жесть, etc.
+    // — never mixed within the same run), 3) ВГХ / unit weight-volume (same size
+    // together, heavy->light as the ergonomic tie-break). Merchandise category is
+    // NOT part of the ordering anymore.
     const abcRank = {A:0, B:1, C:2};
     articles.sort((a,b)=>{
       const aAbc = abcByArticle[a.article].abcClass, bAbc = abcByArticle[b.article].abcClass;
       if(abcRank[aAbc] !== abcRank[bAbc]) return abcRank[aAbc]-abcRank[bAbc];
-      if(categoryRank[a.category] !== categoryRank[b.category]) return categoryRank[a.category]-categoryRank[b.category];
+      if(materialRank[a.material] !== materialRank[b.material]) return materialRank[a.material]-materialRank[b.material];
       const av = a.vol==null ? -Infinity : a.vol;
       const bv = b.vol==null ? -Infinity : b.vol;
-      return bv - av;
+      if(bv !== av) return bv - av; // ВГХ: heavier/larger unit first within same material
+      return b.qty - a.qty; // final stable tie-break
     });
 
-    // natural walking path starting at cell 1: aisle asc, rack asc, using distinct (row,rack) pairs from address data
-    const posSet = {};
-    addr.forEach(r=>{ posSet[r.row+'|'+r.rack] = {row:r.row, rack:r.rack}; });
-    const pool = Object.values(posSet).sort((a,b)=> a.row===b.row ? a.rack-b.rack : (a.row<b.row?-1:1) );
+    // Physical walking path ("змейка"): only rows 01–06 are real (07–12 are stale
+    // leftovers from the old warehouse in the DB and are never used for new
+    // placements). Picking starts at the far end of row 06 (cell 06-26-01, next to
+    // "начало пикинга"/"зона возврата" on the layout) and runs in descending rack
+    // order through row 06, then zig-zags back and forth through rows 05→01,
+    // reversing direction each row so the path never jumps across the warehouse.
+    const pool = [];
+    ACTIVE_ROWS.forEach((row, idx)=>{
+      const extent = aisleExtent(row);
+      if(!extent) return;
+      let racks = extent.racks.slice().sort((a,b)=>a-b);
+      if(idx % 2 === 0) racks = racks.reverse(); // even idx (rows 06,04,02): descending
+      racks.forEach(rack=> pool.push({row, rack}));
+    });
 
     const assigned = articles.map((a,idx)=>{
       const pos = pool[idx] || null;
@@ -1318,7 +1208,7 @@
         ...a,
         rank: idx+1,
         volShare: abc.volShare, cumShare: abc.cumShare, abcClass: abc.abcClass, stockVolume: abc.stockVolume,
-        categoryColor: CATEGORY_COLORS[a.category] || '#94A3B8',
+        materialColor: MATERIAL_COLORS[a.material] || '#64748B',
         pickAddress: pos ? `${pos.row}-${zpad(pos.rack)}-01` : null,
         replenish: pos ? `${pos.row}-${zpad(pos.rack)} · ярусы выше 01` : null,
         replenishRow: pos ? pos.row : null, replenishRack: pos ? pos.rack : null
@@ -1328,7 +1218,7 @@
     const abcTotals = {A:{n:0,vol:0}, B:{n:0,vol:0}, C:{n:0,vol:0}};
     assigned.forEach(a=>{ abcTotals[a.abcClass].n++; abcTotals[a.abcClass].vol += a.stockVolume; });
 
-    recoCache = {assigned, pool, abcTotals, grandVolume, categoryOrder};
+    recoCache = {assigned, pool, abcTotals, grandVolume, materialOrder};
     return recoCache;
   }
 
@@ -1432,13 +1322,13 @@
         const a = byRack[rk];
         if(a){
           const t = a.vol==null ? 1 : (maxUnitVol>0 ? 1 - Math.min(1, a.vol/maxUnitVol) : 0);
-          const base = shade(a.categoryColor, t);
+          const base = shade(a.materialColor, t);
           const isPickLevel = (lv==='01');
           const bg = isPickLevel ? base : withAlpha(base, 0.32);
           const matches = term && (a.article.toLowerCase().includes(term) || a.name.toLowerCase().includes(term));
           const dim = term && !matches ? 'opacity:.2;' : '';
           const ring = matches ? `box-shadow:0 0 0 2px var(--danger);` : (isPickLevel && abcRing[a.abcClass]!=='none' ? `box-shadow:inset 0 0 0 2px ${abcRing[a.abcClass]};` : '');
-          const label = isPickLevel ? `#${a.rank} · ПИКИНГ · ${a.article} · ${a.category}` : `Пополнение · ${a.article} · ${a.category} · резерв ${fmtNum(a.qty)} шт всего`;
+          const label = isPickLevel ? `#${a.rank} · ПИКИНГ · ${a.article} · ${a.material}` : `Пополнение · ${a.article} · ${a.material} · резерв ${fmtNum(a.qty)} шт всего`;
           html += `<div class="cell" style="background:${bg}; border-color:${bg}; ${dim}${ring}" data-rack="${rk}" data-level="${lv}" data-kind="reco" title="${label} · класс ${a.abcClass}"></div>`;
           return;
         }
@@ -1466,7 +1356,7 @@
           const a = byRack[rk];
           if(!a) return;
           const role = lv==='01' ? `Пикинг (очередь #${a.rank})` : 'Пополнение / резерв';
-          openDrawer(addr, [{article:a.article, name:a.name, qty:a.qty, mfg:'', exp:`${role} · ${a.category} · класс ABC: ${a.abcClass} (${a.volShare.toFixed(1)}% объёма стока)`}]);
+          openDrawer(addr, [{article:a.article, name:a.name, qty:a.qty, mfg:'', exp:`${role} · ${a.material} · ${a.category} · класс ABC: ${a.abcClass} (${a.volShare.toFixed(1)}% объёма стока)`}]);
         } else {
           const actual = actualByAddr[rk+'|'+lv];
           if(!actual) return;
@@ -1484,7 +1374,7 @@
       rows = rows.filter(r=> r.article.toLowerCase().includes(term) || r.name.toLowerCase().includes(term));
     }
     if(recoAbcFilter!=='all') rows = rows.filter(r=>r.abcClass===recoAbcFilter);
-    if(recoCategoryFilter!=='all') rows = rows.filter(r=>r.category===recoCategoryFilter);
+    if(recoMaterialFilter!=='all') rows = rows.filter(r=>r.material===recoMaterialFilter);
     document.getElementById('reco-count').textContent = `${fmtNum(rows.length)} артикулов`;
     const MAX = 400;
     const shown = rows.slice(0, MAX);
@@ -1494,7 +1384,7 @@
         <td>${r.rank}</td>
         <td class="article">${r.article}</td>
         <td>${r.name}</td>
-        <td><span style="display:inline-flex;align-items:center;gap:5px;"><i class="swatch" style="background:${r.categoryColor};"></i>${r.category}</span></td>
+        <td><span style="display:inline-flex;align-items:center;gap:5px;"><i class="swatch" style="background:${r.materialColor};"></i>${r.material}</span></td>
         <td>${r.vol!=null ? r.vol+' л/кг' : '—'}</td>
         <td>${fmtNum(r.qty)}</td>
         <td>${r.volShare.toFixed(1)}%</td>
@@ -1508,18 +1398,18 @@
   function renderRecoCategoryLegend(){
     if(!recoCache) computeRecommendation();
     const box = document.getElementById('category-legend');
-    box.innerHTML = recoCache.categoryOrder.map(c=>
-      `<span><i class="swatch" style="background:${CATEGORY_COLORS[c]||'#94A3B8'};"></i>${c}</span>`
+    box.innerHTML = recoCache.materialOrder.map(c=>
+      `<span><i class="swatch" style="background:${MATERIAL_COLORS[c]||'#64748B'};"></i>${c}</span>`
     ).join('');
     const filterSel = document.getElementById('reco-category-filter');
-    filterSel.innerHTML = `<option value="all">Все категории</option>` +
-      recoCache.categoryOrder.map(c=>`<option value="${c}">${c}</option>`).join('');
-    filterSel.value = recoCategoryFilter;
+    filterSel.innerHTML = `<option value="all">Все материалы</option>` +
+      recoCache.materialOrder.map(c=>`<option value="${c}">${c}</option>`).join('');
+    filterSel.value = recoMaterialFilter;
   }
 
 
   let recoAbcFilter = 'all';
-  let recoCategoryFilter = 'all';
+  let recoMaterialFilter = 'all';
 
   // Recommended physical separation for service-zone stock: each status becomes its
   // own dedicated zone (never mixed), ordered isolation-critical zones first (quarantine,
@@ -1579,11 +1469,11 @@
   function populateRangeForm(){
     const rowSel = document.getElementById('range-row');
     const catSel = document.getElementById('range-category');
-    const aisles = aisleList();
+    const aisles = aisleList().filter(a=>ACTIVE_ROWS.includes(a));
     const prevRow = rowSel.value;
     rowSel.innerHTML = aisles.map(a=>`<option value="${a}">Ряд ${a}</option>`).join('');
     if(aisles.includes(prevRow)) rowSel.value = prevRow;
-    const categories = recoCache && recoCache.categoryOrder.length ? recoCache.categoryOrder : Object.keys(CATEGORY_COLORS);
+    const categories = recoCache && recoCache.materialOrder.length ? recoCache.materialOrder : Object.keys(MATERIAL_COLORS);
     const prevCat = catSel.value;
     catSel.innerHTML = categories.map(c=>`<option value="${c}">${c}</option>`).join('');
     if(categories.includes(prevCat)) catSel.value = prevCat;
@@ -1602,11 +1492,11 @@
   }
   document.getElementById('range-row').addEventListener('change', updateRangeRackOptions);
 
-  function computeRangeRecommendation(row, rackFrom, rackTo, category){
+  function computeRangeRecommendation(row, rackFrom, rackTo, material){
     if(!recoCache) computeRecommendation();
     const abcRank = {A:0, B:1, C:2};
     const items = recoCache.assigned
-      .filter(a=>a.category===category)
+      .filter(a=>a.material===material)
       .slice()
       .sort((a,b)=>{
         if(abcRank[a.abcClass]!==abcRank[b.abcClass]) return abcRank[a.abcClass]-abcRank[b.abcClass];
@@ -1652,7 +1542,7 @@
         const a = byRack[rk];
         if(!a){ html += `<div class="cell ${rangeCls}"></div>`; return; }
         const t = a.vol==null ? 1 : (maxUnitVol>0 ? 1-Math.min(1,a.vol/maxUnitVol) : 0);
-        const base = shade(a.categoryColor, t);
+        const base = shade(a.materialColor, t);
         const isPick = lv==='01';
         const bg = isPick ? base : withAlpha(base, 0.32);
         const label = isPick ? `#${a.rangeRank} · ${a.article} · ${a.name}` : `Пополнение · ${a.article}`;
@@ -1680,13 +1570,13 @@
     const errEl = document.getElementById('range-error');
     errEl.classList.remove('show');
     const row = document.getElementById('range-row').value;
-    const category = document.getElementById('range-category').value;
+    const material = document.getElementById('range-category').value;
     const rackFrom = parseInt(document.getElementById('range-rack-from').value, 10);
     const rackTo = parseInt(document.getElementById('range-rack-to').value, 10);
-    if(!row || !category){ errEl.textContent = 'Выберите ряд и категорию.'; errEl.classList.add('show'); return; }
+    if(!row || !material){ errEl.textContent = 'Выберите ряд и материал.'; errEl.classList.add('show'); return; }
     if(!(rackFrom<=rackTo)){ errEl.textContent = '«Стеллаж от» должен быть не больше «до».'; errEl.classList.add('show'); return; }
-    const result = computeRangeRecommendation(row, rackFrom, rackTo, category);
-    if(!result.assigned.length){ errEl.textContent = `В категории «${category}» нет артикулов в текущем стоке.`; errEl.classList.add('show'); return; }
+    const result = computeRangeRecommendation(row, rackFrom, rackTo, material);
+    if(!result.assigned.length){ errEl.textContent = `В материале «${material}» нет артикулов в текущем стоке.`; errEl.classList.add('show'); return; }
     renderRangeResult(result);
   });
 
@@ -1697,7 +1587,7 @@
     recoAbcFilter = e.target.value; renderRecoTable();
   });
   document.getElementById('reco-category-filter').addEventListener('change', (e)=>{
-    recoCategoryFilter = e.target.value; renderRecoTable();
+    recoMaterialFilter = e.target.value; renderRecoTable();
   });
 
   // ---------- ZONES VIEW ----------
