@@ -226,6 +226,15 @@
   #modal .mh button{background:none; border:none; font-size:20px; cursor:pointer; color:var(--ink-soft);}
   #modal .mb{padding:18px 20px; overflow-y:auto;}
   #modal .mf{padding:14px 20px; border-top:1px solid var(--line); display:flex; justify-content:flex-end; gap:8px;}
+
+  #activity-log-list{display:flex; flex-direction:column; gap:0; max-height:60vh; overflow-y:auto; border:1px solid var(--line); border-radius:8px;}
+  .activity-row{display:flex; gap:12px; padding:10px 12px; border-bottom:1px solid var(--line); font-size:13px; align-items:baseline;}
+  .activity-row:last-child{border-bottom:none;}
+  .activity-row .a-time{color:var(--ink-soft); white-space:nowrap; font-variant-numeric:tabular-nums; flex:0 0 auto;}
+  .activity-row .a-action{flex:0 0 auto; padding:1px 7px; border-radius:5px; font-size:11px; font-weight:600; white-space:nowrap; background:var(--accent-soft, #eef2ff); color:var(--accent, #4f46e5);}
+  .activity-row .a-summary{flex:1 1 auto; color:var(--ink);}
+  #activity-log-empty{padding:24px; text-align:center; color:var(--ink-soft); font-size:13px;}
+  #activity-log-hint{font-size:12px; color:var(--ink-soft); margin-bottom:10px;}
   #barcode-reader{background:#111; min-height:220px;}
   #barcode-reader video{width:100% !important; border-radius:8px;}
   #barcode-reader img{display:none;}
@@ -350,6 +359,7 @@
     <span id="sync-status" style="font-size:11px; color:var(--ink-soft); white-space:nowrap;"></span>
     <button class="btn" id="sync-btn" title="Подтянуть последние данные с сервера">⟳ Синхронизировать</button>
     <button class="btn" id="undo-btn" title="Отменить последнее действие">↺ Отменить</button>
+    <button class="btn" id="activity-log-btn" title="Журнал изменений (хранится 14 дней)">📋 Журнал</button>
     <button class="btn" id="scan-barcode-btn" title="Найти товар по штрих-коду через камеру">📷 Скан. штрих-кода</button>
     <label class="btn primary" for="file-input">Загрузить новые данные (.xlsx)</label>
     <input type="file" id="file-input" accept=".xlsx,.xls,.csv">

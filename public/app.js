@@ -162,6 +162,7 @@
 
   // ---------- helpers ----------
   function fmtNum(n){ return n.toLocaleString('ru-RU'); }
+  function escHtml(s){ return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 
   function addressRecords(){ return state.records.filter(r=>!r.isService); }
   function serviceRecords(){ return state.records.filter(r=>r.isService); }
@@ -795,6 +796,48 @@
       } finally { progressEnd(); }
     });
   });
+
+  // ---------- ЖУРНАЛ ИЗМЕНЕНИЙ (отдельное окно) ----------
+  const ACTIVITY_LABELS = {
+    'update': 'Правка', 'create': 'Добавление', 'delete': 'Удаление',
+    'swap-rows': 'Обмен рядами', 'rename-row': 'Переим. ряда', 'set-racks': 'Стеллажи',
+    'swap-racks': 'Обмен стеллажами', 'bulk-move': 'Массовый перенос', 'bulk-delete': 'Массовое удаление',
+    'create-zone': 'Новая зона', 'rename-zone': 'Переим. зоны', 'delete-zone': 'Удаление зоны',
+    'import': 'Загрузка файла'
+  };
+  function fmtActivityTime(ts){
+    // Сервер отдаёт время в UTC (SQLite datetime('now')); показываем локально.
+    const d = new Date(ts.replace(' ', 'T') + 'Z');
+    if(isNaN(d.getTime())) return ts;
+    return d.toLocaleString('ru-RU', { day:'2-digit', month:'2-digit', year:'2-digit', hour:'2-digit', minute:'2-digit' });
+  }
+  async function openActivityLog(){
+    openModal('Журнал изменений', '<div id="activity-log-hint">Хранится за последние 14 дней.</div><div id="activity-log-list"><div id="activity-log-empty">Загрузка…</div></div>', '<button class="btn" id="activity-log-close">Закрыть</button>');
+    document.getElementById('activity-log-close').addEventListener('click', closeModal);
+    try{
+      const res = await fetch(`${API_BASE}/api/activity?limit=1000`);
+      const payload = await res.json().catch(()=>({}));
+      if(!res.ok) throw new Error(payload.error || ('HTTP '+res.status));
+      const entries = payload.entries || [];
+      const listEl = document.getElementById('activity-log-list');
+      if(!listEl) return; // окно уже закрыли, пока грузились данные
+      if(!entries.length){
+        listEl.innerHTML = '<div id="activity-log-empty">За последние 14 дней изменений не было.</div>';
+        return;
+      }
+      listEl.innerHTML = entries.map(e => `
+        <div class="activity-row">
+          <span class="a-time">${fmtActivityTime(e.ts)}</span>
+          <span class="a-action">${escHtml(ACTIVITY_LABELS[e.action] || e.action)}</span>
+          <span class="a-summary">${escHtml(e.summary)}</span>
+        </div>
+      `).join('');
+    }catch(err){
+      const listEl = document.getElementById('activity-log-list');
+      if(listEl) listEl.innerHTML = `<div id="activity-log-empty">Не удалось загрузить журнал: ${err.message}</div>`;
+    }
+  }
+  document.getElementById('activity-log-btn').addEventListener('click', openActivityLog);
 
   // ---------- UNDO LAST ACTION ----------
   document.getElementById('undo-btn').addEventListener('click', async ()=>{

@@ -259,7 +259,7 @@ app.post('/api/records/bulk-delete', (req, res) => {
 
 // GET /api/activity — последние записи журнала
 app.get('/api/activity', (req, res) => {
-  const limit = Math.min(200, parseInt(req.query.limit, 10) || 50);
+  const limit = Math.min(1000, parseInt(req.query.limit, 10) || 200);
   res.json({ entries: db.listActivity(limit) });
 });
 
