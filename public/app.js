@@ -509,6 +509,7 @@
         <div class="name">${it.name}</div>
         <dl>
           <dt>Остаток</dt><dd>${fmtNum(it.qty)} шт</dd>
+          ${it.cell ? `<dt>Ячейка</dt><dd>${it.cell}</dd>` : ''}
           <dt>Дата изготовления</dt><dd>${it.mfg||'—'}</dd>
           <dt>Срок годности</dt><dd>${it.exp||'—'}</dd>
           ${it.te ? `<dt>ТЕ</dt><dd>${it.te}</dd>` : ''}
@@ -534,6 +535,7 @@
   }
   function closeModal(){
     document.getElementById('modal-backdrop').classList.remove('open');
+    stopBarcodeScanner();
   }
   document.getElementById('modal-close').addEventListener('click', closeModal);
   document.getElementById('modal-backdrop').addEventListener('click', (e)=>{
@@ -604,6 +606,121 @@
     renderPickerGrid();
   }
 
+
+  // ---------- BARCODE SCANNER (поиск товара по штрих-коду через камеру) ----------
+  let barcodeScanner = null;
+
+  async function stopBarcodeScanner(){
+    if(!barcodeScanner) return;
+    const s = barcodeScanner;
+    barcodeScanner = null;
+    try{ await s.stop(); }catch(e){ /* уже остановлен или не запускался */ }
+    try{ s.clear(); }catch(e){}
+  }
+
+  // Ищем совпадения по коду: сначала точное совпадение с артикулом/ТЕ/ячейкой,
+  // затем — на случай если код содержит служебные префиксы/суффиксы (GS1 и т.п.) —
+  // частичное вхождение.
+  function findRecordsByCode(code){
+    const c = String(code || '').trim();
+    if(!c) return [];
+    const lc = c.toLowerCase();
+    let matches = state.records.filter(r =>
+      r.article === c || r.cell === c || (r.te && r.te === c)
+    );
+    if(!matches.length){
+      matches = state.records.filter(r =>
+        r.article.toLowerCase() === lc || (r.te && r.te.toLowerCase() === lc)
+      );
+    }
+    if(!matches.length){
+      matches = state.records.filter(r =>
+        r.article.toLowerCase().includes(lc) || (r.te && r.te.toLowerCase().includes(lc))
+      );
+    }
+    return matches;
+  }
+
+  function handleScannedCode(rawCode){
+    const code = String(rawCode || '').trim();
+    if(!code) return;
+    const matches = findRecordsByCode(code);
+    if(!matches.length){
+      alert(`Товар со штрихкодом «${code}» не найден в текущих данных склада.`);
+      return;
+    }
+    // переключаемся на вкладку "Таблица данных" и подставляем код в поиск
+    document.querySelector('nav.tabs button[data-view="table"]').click();
+    tableTerm = code;
+    document.getElementById('table-search').value = code;
+    renderAll();
+    // и сразу открываем карточку найденного товара
+    openDrawer(`Найдено по коду «${code}»`, matches.map(r=>({
+      article: r.article, name: r.name, qty: r.qty, mfg: r.mfg, exp: r.exp,
+      te: r.te, cell: r.cell
+    })));
+  }
+
+  function openBarcodeScanner(){
+    const body = `
+      <div id="barcode-reader"></div>
+      <div id="barcode-status" style="margin-top:10px; font-size:12.5px; color:var(--ink-soft);">Наведите камеру на штрих-код товара…</div>
+      <div class="form-field" style="margin-top:14px;">
+        <label>Или введите код вручную</label>
+        <input type="text" id="barcode-manual-input" placeholder="Артикул, код ТЕ или ячейка…">
+      </div>
+    `;
+    const footer = `<button class="btn" id="barcode-manual-submit">Найти</button><button class="btn primary" id="barcode-cancel">Закрыть</button>`;
+    openModal('Поиск товара по штрих-коду', body, footer);
+
+    document.getElementById('barcode-cancel').addEventListener('click', closeModal);
+
+    const manualInput = document.getElementById('barcode-manual-input');
+    const submitManual = ()=>{
+      const val = manualInput.value.trim();
+      if(!val) return;
+      closeModal();
+      handleScannedCode(val);
+    };
+    document.getElementById('barcode-manual-submit').addEventListener('click', submitManual);
+    manualInput.addEventListener('keydown', (e)=>{ if(e.key==='Enter') submitManual(); });
+
+    if(typeof Html5Qrcode === 'undefined'){
+      document.getElementById('barcode-status').textContent = 'Сканер камеры недоступен (нет соединения с CDN) — введите код вручную.';
+      return;
+    }
+
+    barcodeScanner = new Html5Qrcode('barcode-reader', {
+      formatsToSupport: [
+        Html5QrcodeSupportedFormats.EAN_13, Html5QrcodeSupportedFormats.EAN_8,
+        Html5QrcodeSupportedFormats.CODE_128, Html5QrcodeSupportedFormats.CODE_39,
+        Html5QrcodeSupportedFormats.UPC_A, Html5QrcodeSupportedFormats.UPC_E,
+        Html5QrcodeSupportedFormats.ITF, Html5QrcodeSupportedFormats.QR_CODE
+      ],
+      verbose: false
+    });
+
+    let lastCode = null, lastTime = 0;
+    barcodeScanner.start(
+      { facingMode: 'environment' },
+      { fps: 10, qrbox: { width: 260, height: 160 } },
+      (decodedText)=>{
+        const now = Date.now();
+        if(decodedText === lastCode && now - lastTime < 1500) return; // антидребезг повторных кадров
+        lastCode = decodedText; lastTime = now;
+        const statusEl = document.getElementById('barcode-status');
+        if(statusEl) statusEl.textContent = `Считано: ${decodedText}`;
+        closeModal(); // остановит сканер (см. closeModal) и закроет окно
+        handleScannedCode(decodedText);
+      },
+      ()=>{ /* игнорируем неудачные попытки распознавания в очередном кадре */ }
+    ).catch(err=>{
+      const statusEl = document.getElementById('barcode-status');
+      if(statusEl) statusEl.textContent = 'Не удалось открыть камеру: ' + (err && err.message ? err.message : err) + '. Введите код вручную или проверьте разрешение на использование камеры.';
+    });
+  }
+
+  document.getElementById('scan-barcode-btn').addEventListener('click', openBarcodeScanner);
 
   let tableTerm = "";
   let tableFilter = "all";

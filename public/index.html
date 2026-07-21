@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Адресное хранение склада</title>
+<script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
 <style>
   :root{
     --bg: #F5F6F8;
@@ -225,6 +226,9 @@
   #modal .mh button{background:none; border:none; font-size:20px; cursor:pointer; color:var(--ink-soft);}
   #modal .mb{padding:18px 20px; overflow-y:auto;}
   #modal .mf{padding:14px 20px; border-top:1px solid var(--line); display:flex; justify-content:flex-end; gap:8px;}
+  #barcode-reader{background:#111; min-height:220px;}
+  #barcode-reader video{width:100% !important; border-radius:8px;}
+  #barcode-reader img{display:none;}
   .form-grid{display:grid; grid-template-columns:1fr 1fr; gap:12px;}
   .form-grid .full{grid-column:1 / -1;}
   .form-field label{display:block; font-size:11px; color:var(--ink-soft); text-transform:uppercase; letter-spacing:.3px; margin-bottom:5px;}
@@ -346,6 +350,7 @@
     <span id="sync-status" style="font-size:11px; color:var(--ink-soft); white-space:nowrap;"></span>
     <button class="btn" id="sync-btn" title="Подтянуть последние данные с сервера">⟳ Синхронизировать</button>
     <button class="btn" id="undo-btn" title="Отменить последнее действие">↺ Отменить</button>
+    <button class="btn" id="scan-barcode-btn" title="Найти товар по штрих-коду через камеру">📷 Скан. штрих-кода</button>
     <label class="btn primary" for="file-input">Загрузить новые данные (.xlsx)</label>
     <input type="file" id="file-input" accept=".xlsx,.xls,.csv">
     <button class="btn" id="export-btn">Экспорт в Excel</button>
