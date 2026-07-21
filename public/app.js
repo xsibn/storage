@@ -1408,7 +1408,124 @@
     renderRecoScheme();
     renderRecoTable();
     renderServiceZoneReco();
+    populateRangeForm();
   }
+
+  // ---------- RANGE-SCOPED RECOMMENDATION ----------
+  // Pick an aisle + rack range + one category, and get a recommendation just
+  // for that slice of the warehouse (same ABC-then-weight ordering as the
+  // global recommendation, but scoped so it's actually usable for "I'm
+  // reorganizing this one section right now").
+  function populateRangeForm(){
+    const rowSel = document.getElementById('range-row');
+    const catSel = document.getElementById('range-category');
+    const aisles = aisleList();
+    const prevRow = rowSel.value;
+    rowSel.innerHTML = aisles.map(a=>`<option value="${a}">Ряд ${a}</option>`).join('');
+    if(aisles.includes(prevRow)) rowSel.value = prevRow;
+    const categories = recoCache && recoCache.categoryOrder.length ? recoCache.categoryOrder : Object.keys(CATEGORY_COLORS);
+    const prevCat = catSel.value;
+    catSel.innerHTML = categories.map(c=>`<option value="${c}">${c}</option>`).join('');
+    if(categories.includes(prevCat)) catSel.value = prevCat;
+    updateRangeRackOptions();
+  }
+
+  function updateRangeRackOptions(){
+    const row = document.getElementById('range-row').value;
+    const extent = aisleExtent(row);
+    const racks = extent ? extent.racks.slice().sort((a,b)=>a-b) : [];
+    const fromSel = document.getElementById('range-rack-from');
+    const toSel = document.getElementById('range-rack-to');
+    fromSel.innerHTML = racks.map(r=>`<option value="${r}">${r}</option>`).join('');
+    toSel.innerHTML = racks.map(r=>`<option value="${r}">${r}</option>`).join('');
+    if(racks.length) toSel.value = racks[racks.length-1];
+  }
+  document.getElementById('range-row').addEventListener('change', updateRangeRackOptions);
+
+  function computeRangeRecommendation(row, rackFrom, rackTo, category){
+    if(!recoCache) computeRecommendation();
+    const abcRank = {A:0, B:1, C:2};
+    const items = recoCache.assigned
+      .filter(a=>a.category===category)
+      .slice()
+      .sort((a,b)=>{
+        if(abcRank[a.abcClass]!==abcRank[b.abcClass]) return abcRank[a.abcClass]-abcRank[b.abcClass];
+        const av = a.vol==null?-Infinity:a.vol, bv = b.vol==null?-Infinity:b.vol;
+        return bv-av;
+      });
+    const extent = aisleExtent(row);
+    const orderedRacks = (extent ? extent.racks : []).filter(r=>r>=rackFrom && r<=rackTo);
+    const assigned = items.map((a,idx)=>{
+      const rack = orderedRacks[idx] != null ? orderedRacks[idx] : null;
+      return {
+        ...a, rangeRank: idx+1,
+        pickAddress: rack!=null ? `${row}-${zpad(rack)}-01` : null,
+        replenish: rack!=null ? `${row}-${zpad(rack)} · ярусы выше 01` : null,
+        rack
+      };
+    });
+    return { assigned, racks: orderedRacks, row, category };
+  }
+
+  function renderRangeResult(result){
+    document.getElementById('range-result').style.display = 'block';
+    const strip = document.getElementById('range-strip');
+    const extent = aisleExtent(result.row);
+    let levels = LEVEL_ORDER.filter(l=>extent.levels.includes(l));
+    if(!levels.includes('01')) levels = ['01', ...levels];
+    levels = levels.reverse();
+
+    const byRack = {};
+    result.assigned.forEach(a=>{ if(a.rack!=null) byRack[a.rack] = a; });
+    const maxUnitVol = result.assigned.length ? (result.assigned[0].vol==null?1:result.assigned[0].vol) : 1;
+    const racks = result.racks;
+
+    let html = `<div style="display:grid; grid-template-columns:34px repeat(${Math.max(racks.length,1)}, 22px); gap:3px;">`;
+    html += `<div></div>`;
+    racks.forEach(rk=> html += `<div class="rack-label">${rk}</div>`);
+    levels.forEach(lv=>{
+      html += `<div class="level-label">${lv}</div>`;
+      racks.forEach(rk=>{
+        const a = byRack[rk];
+        if(!a){ html += `<div class="cell"></div>`; return; }
+        const t = a.vol==null ? 1 : (maxUnitVol>0 ? 1-Math.min(1,a.vol/maxUnitVol) : 0);
+        const base = shade(a.categoryColor, t);
+        const isPick = lv==='01';
+        const bg = isPick ? base : withAlpha(base, 0.32);
+        const label = isPick ? `#${a.rangeRank} · ${a.article} · ${a.name}` : `Пополнение · ${a.article}`;
+        html += `<div class="cell" style="background:${bg}; border-color:${bg};" title="${label} · класс ${a.abcClass}"></div>`;
+      });
+    });
+    html += `</div>`;
+    strip.innerHTML = html;
+
+    document.getElementById('range-body').innerHTML = result.assigned.map(a=>`
+      <tr>
+        <td>${a.rangeRank}</td>
+        <td class="article">${a.article}</td>
+        <td>${a.name}</td>
+        <td>${a.abcClass}</td>
+        <td>${a.vol!=null ? a.vol+' л/кг' : '—'}</td>
+        <td>${fmtNum(a.qty)}</td>
+        <td class="cellcode">${a.pickAddress || '<span class="badge service">не хватило места</span>'}</td>
+        <td class="cellcode" style="color:var(--ink-soft);">${a.replenish || '—'}</td>
+      </tr>
+    `).join('');
+  }
+
+  document.getElementById('range-calc-btn').addEventListener('click', ()=>{
+    const errEl = document.getElementById('range-error');
+    errEl.classList.remove('show');
+    const row = document.getElementById('range-row').value;
+    const category = document.getElementById('range-category').value;
+    const rackFrom = parseInt(document.getElementById('range-rack-from').value, 10);
+    const rackTo = parseInt(document.getElementById('range-rack-to').value, 10);
+    if(!row || !category){ errEl.textContent = 'Выберите ряд и категорию.'; errEl.classList.add('show'); return; }
+    if(!(rackFrom<=rackTo)){ errEl.textContent = '«Стеллаж от» должен быть не больше «до».'; errEl.classList.add('show'); return; }
+    const result = computeRangeRecommendation(row, rackFrom, rackTo, category);
+    if(!result.assigned.length){ errEl.textContent = `В категории «${category}» нет артикулов в текущем стоке.`; errEl.classList.add('show'); return; }
+    renderRangeResult(result);
+  });
 
   document.getElementById('reco-search').addEventListener('input', (e)=>{
     recoSearchTerm = e.target.value; renderRecoScheme(); renderRecoTable();

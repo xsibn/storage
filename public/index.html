@@ -431,6 +431,32 @@
       </div>
 
       <div class="panel">
+        <h2>Рекомендация по диапазону</h2>
+        <p style="font-size:12px; color:var(--ink-soft); margin:0 0 12px;">Выделите область склада (ряд + диапазон стеллажей) и категорию товара — расчёт покажет, как расставить именно эту категорию именно там: тяжёлые/класс A ближе к началу диапазона, пополнение на ярусах выше.</p>
+        <div class="form-grid" style="margin-bottom:12px;">
+          <div class="form-field"><label>Ряд</label><select id="range-row"></select></div>
+          <div class="form-field"><label>Категория товара</label><select id="range-category"></select></div>
+          <div class="form-field"><label>Стеллаж от</label><select id="range-rack-from"></select></div>
+          <div class="form-field"><label>Стеллаж до</label><select id="range-rack-to"></select></div>
+        </div>
+        <button class="btn primary" id="range-calc-btn">Рассчитать рекомендацию</button>
+        <div class="form-error" id="range-error"></div>
+        <div id="range-result" style="display:none; margin-top:16px;">
+          <div class="grid-wrap"><div class="rack-grid" id="range-strip"></div></div>
+          <div class="legend" style="margin-top:8px;">
+            <span><i class="swatch" style="background:#8B5E34;"></i>ярус 1: тёмный = тяжелее → светлый = легче</span>
+            <span><i class="swatch" style="background:rgba(139,94,52,.32);"></i>ярусы выше: пополнение</span>
+          </div>
+          <div class="table-scroll" style="margin-top:12px; max-height:360px;">
+            <table>
+              <thead><tr><th>№</th><th>Артикул</th><th>Наименование</th><th>ABC</th><th>Объём/вес</th><th>Остаток</th><th>Ячейка (ярус 1)</th><th>Пополнение</th></tr></thead>
+              <tbody id="range-body"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <div class="panel">
         <h2>Ряд / проход — схема пикинга (ярус 1) и пополнения (ярусы выше)</h2>
         <div class="aisles" id="reco-aisle-chips"></div>
         <div class="grid-wrap" style="margin-top:12px;"><div class="rack-grid" id="reco-strip"></div></div>
