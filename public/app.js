@@ -1471,6 +1471,8 @@
     document.getElementById('range-result').style.display = 'block';
     const strip = document.getElementById('range-strip');
     const extent = aisleExtent(result.row);
+    const allRacks = extent.racks; // whole row, in its own display order — gives context for the highlight
+    const inRangeSet = new Set(result.racks);
     let levels = LEVEL_ORDER.filter(l=>extent.levels.includes(l));
     if(!levels.includes('01')) levels = ['01', ...levels];
     levels = levels.reverse();
@@ -1478,22 +1480,23 @@
     const byRack = {};
     result.assigned.forEach(a=>{ if(a.rack!=null) byRack[a.rack] = a; });
     const maxUnitVol = result.assigned.length ? (result.assigned[0].vol==null?1:result.assigned[0].vol) : 1;
-    const racks = result.racks;
 
-    let html = `<div style="display:grid; grid-template-columns:34px repeat(${Math.max(racks.length,1)}, 22px); gap:3px;">`;
+    let html = `<div style="display:grid; grid-template-columns:34px repeat(${Math.max(allRacks.length,1)}, 22px); gap:3px;">`;
     html += `<div></div>`;
-    racks.forEach(rk=> html += `<div class="rack-label">${rk}</div>`);
+    allRacks.forEach(rk=> html += `<div class="rack-label ${inRangeSet.has(rk)?'range-highlight-label':''}">${rk}</div>`);
     levels.forEach(lv=>{
       html += `<div class="level-label">${lv}</div>`;
-      racks.forEach(rk=>{
+      allRacks.forEach(rk=>{
+        const inRange = inRangeSet.has(rk);
+        const rangeCls = inRange ? 'range-highlight' : '';
         const a = byRack[rk];
-        if(!a){ html += `<div class="cell"></div>`; return; }
+        if(!a){ html += `<div class="cell ${rangeCls}"></div>`; return; }
         const t = a.vol==null ? 1 : (maxUnitVol>0 ? 1-Math.min(1,a.vol/maxUnitVol) : 0);
         const base = shade(a.categoryColor, t);
         const isPick = lv==='01';
         const bg = isPick ? base : withAlpha(base, 0.32);
         const label = isPick ? `#${a.rangeRank} · ${a.article} · ${a.name}` : `Пополнение · ${a.article}`;
-        html += `<div class="cell" style="background:${bg}; border-color:${bg};" title="${label} · класс ${a.abcClass}"></div>`;
+        html += `<div class="cell ${rangeCls}" style="background:${bg}; border-color:${bg};" title="${label} · класс ${a.abcClass}"></div>`;
       });
     });
     html += `</div>`;
