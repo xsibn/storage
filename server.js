@@ -50,6 +50,9 @@ if (fs.existsSync(abcClassesPath)) {
   }
 }
 
+// ---- регистрируем уже существующие зоны (Карантин, Приёмка и т.п.) как управляемые ----
+db.ensureZonesFromData();
+
 // Приводим строки заголовков к нужным полям вне зависимости от порядка
 // колонок и небольших расхождений в написании ("Артикул " с пробелом и т.п.).
 function mapSheetRow(row) {
@@ -92,7 +95,8 @@ app.get('/api/records', (req, res) => {
       importedAt: db.getMeta('imported_at'),
       count: records.length,
       layout,
-      abcClasses: db.getAbcClasses()
+      abcClasses: db.getAbcClasses(),
+      zones: db.listZones()
     }
   });
 });
@@ -152,6 +156,93 @@ app.put('/api/layout/:row/racks', (req, res) => {
   try {
     const updated = db.setRacks(row, racks);
     res.json({ ok: true, row, racks: updated.racks });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+// ---------- Служебные зоны ----------
+
+// POST /api/zones — создать новую зону
+app.post('/api/zones', (req, res) => {
+  const { name, isolate } = req.body || {};
+  try {
+    const zone = db.createZone(name, !!isolate);
+    res.status(201).json({ ok: true, zone });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+// PATCH /api/zones/:name — переименовать и/или переключить изоляцию
+app.patch('/api/zones/:name', (req, res) => {
+  const name = req.params.name;
+  const { newName, isolate } = req.body || {};
+  try {
+    let current = name;
+    if (newName !== undefined && newName !== name) {
+      db.renameZone(name, newName);
+      current = String(newName).trim();
+    }
+    if (isolate !== undefined) db.setZoneIsolate(current, !!isolate);
+    res.json({ ok: true, name: current });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+// DELETE /api/zones/:name — удалить зону (пустую; ?force=true — вместе с содержимым)
+app.delete('/api/zones/:name', (req, res) => {
+  const name = req.params.name;
+  const force = req.query.force === 'true' || (req.body && req.body.force === true);
+  try {
+    const result = db.deleteZone(name, force);
+    res.json({ ok: true, ...result });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+// ---------- Массовые операции (мультивыбор в таблице / перенос ряда-стеллажа-ячейки в зону) ----------
+
+// POST /api/records/bulk-move — переместить несколько записей разом (в т.ч. в служебную зону)
+app.post('/api/records/bulk-move', (req, res) => {
+  const { ids, cell } = req.body || {};
+  if (!Array.isArray(ids) || !ids.length) return res.status(400).json({ error: '"ids" должен быть непустым массивом' });
+  if (!cell || !String(cell).trim()) return res.status(400).json({ error: '"cell" обязателен' });
+  try {
+    const result = db.bulkMove(ids.map(n => parseInt(n, 10)).filter(Number.isInteger), cell);
+    res.json({ ok: true, ...result });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+// POST /api/records/bulk-delete — удалить несколько записей разом
+app.post('/api/records/bulk-delete', (req, res) => {
+  const { ids } = req.body || {};
+  if (!Array.isArray(ids) || !ids.length) return res.status(400).json({ error: '"ids" должен быть непустым массивом' });
+  try {
+    const result = db.bulkDelete(ids.map(n => parseInt(n, 10)).filter(Number.isInteger));
+    res.json({ ok: true, ...result });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+// ---------- Журнал изменений ----------
+
+// GET /api/activity — последние записи журнала
+app.get('/api/activity', (req, res) => {
+  const limit = Math.min(200, parseInt(req.query.limit, 10) || 50);
+  res.json({ entries: db.listActivity(limit) });
+});
+
+// POST /api/activity/undo — отменить последнее действие
+app.post('/api/activity/undo', (req, res) => {
+  try {
+    const result = db.undoLastAction();
+    res.json({ ok: true, ...result });
   } catch (err) {
     res.status(400).json({ error: err.message });
   }

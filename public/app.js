@@ -8,7 +8,8 @@
     sourceLabel: "подключение…",
     lastSync: null,
     layout: {},    // {row: {minRack, maxRack, levels}} — full known warehouse structure
-    abcClasses: {} // {article: 'A'|'B'|'C'} — fixed classification, not computed
+    abcClasses: {}, // {article: 'A'|'B'|'C'} — fixed classification, not computed
+    zones: []      // [{name, isolate, records, qty, articles}] — authoritative zone list from server
   };
 
   const CELL_RE = /^(\d{2})-(\d{2})-([A-Za-zА-Яа-я0-9]+)$/;
@@ -143,6 +144,7 @@
     state.sourceLabel = data.meta.source || 'база данных';
     state.layout = data.meta.layout || {};
     state.abcClasses = data.meta.abcClasses || {};
+    state.zones = data.meta.zones || [];
     state.lastSync = new Date();
   }
 
@@ -605,6 +607,93 @@
 
   let tableTerm = "";
   let tableFilter = "all";
+  const selectedIds = new Set();
+
+  function updateBulkToolbar(){
+    const bar = document.getElementById('bulk-toolbar');
+    if(selectedIds.size>0){
+      bar.style.display = 'flex';
+      document.getElementById('bulk-count').textContent = `Выбрано: ${selectedIds.size}`;
+    } else {
+      bar.style.display = 'none';
+    }
+  }
+
+  document.getElementById('bulk-clear-btn').addEventListener('click', ()=>{
+    selectedIds.clear(); renderTable();
+  });
+
+  document.getElementById('bulk-delete-btn').addEventListener('click', async ()=>{
+    const ids = Array.from(selectedIds);
+    if(!ids.length) return;
+    if(!confirm(`Удалить ${ids.length} выбранных записей?`)) return;
+    progressStart(`Удаление ${ids.length} записей…`);
+    try{
+      const res = await fetch(`${API_BASE}/api/records/bulk-delete`, {
+        method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ ids })
+      });
+      const payload = await res.json().catch(()=>({}));
+      if(!res.ok) throw new Error(payload.error || ('HTTP '+res.status));
+      selectedIds.clear();
+      await fetchRecords(); renderAll();
+      setSyncStatus(`удалено ${payload.deleted} записей · ` + new Date().toLocaleTimeString('ru-RU'));
+    }catch(err){
+      alert('Не удалось удалить: ' + err.message);
+    } finally { progressEnd(); }
+  });
+
+  document.getElementById('bulk-move-btn').addEventListener('click', ()=>{
+    const ids = Array.from(selectedIds);
+    if(!ids.length) return;
+    const body = `
+      <div class="form-field with-pin">
+        <div><label>Новая ячейка или служебная зона</label><input id="bulk-move-target" type="text" placeholder="напр. 01-12-02 или Карантин"></div>
+        <button class="pin-btn" id="bulk-move-pick" style="height:34px;">📍</button>
+      </div>
+      <div class="form-error" id="bulk-move-error"></div>
+    `;
+    const footer = `<button class="btn" id="bulk-move-cancel">Отмена</button><button class="btn primary" id="bulk-move-submit">Переместить</button>`;
+    openModal(`Переместить ${ids.length} записей`, body, footer);
+    document.getElementById('bulk-move-cancel').addEventListener('click', closeModal);
+    document.getElementById('bulk-move-pick').addEventListener('click', ()=>{
+      openCellPicker((addr)=>{ document.getElementById('bulk-move-target').value = addr; }, '');
+    });
+    document.getElementById('bulk-move-submit').addEventListener('click', async ()=>{
+      const errEl = document.getElementById('bulk-move-error');
+      const target = document.getElementById('bulk-move-target').value.trim();
+      if(!target){ errEl.textContent='Укажите ячейку или зону.'; errEl.classList.add('show'); return; }
+      progressStart(`Перемещение ${ids.length} записей…`);
+      try{
+        const res = await fetch(`${API_BASE}/api/records/bulk-move`, {
+          method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ ids, cell: target })
+        });
+        const payload = await res.json().catch(()=>({}));
+        if(!res.ok) throw new Error(payload.error || ('HTTP '+res.status));
+        closeModal();
+        selectedIds.clear();
+        await fetchRecords(); renderAll();
+        setSyncStatus(`перемещено ${payload.moved} записей в ${target} · ` + new Date().toLocaleTimeString('ru-RU'));
+      }catch(err){
+        errEl.textContent = err.message; errEl.classList.add('show');
+      } finally { progressEnd(); }
+    });
+  });
+
+  // ---------- UNDO LAST ACTION ----------
+  document.getElementById('undo-btn').addEventListener('click', async ()=>{
+    progressStart('Отмена последнего действия…');
+    try{
+      const res = await fetch(`${API_BASE}/api/activity/undo`, { method:'POST' });
+      const payload = await res.json().catch(()=>({}));
+      if(!res.ok) throw new Error(payload.error || ('HTTP '+res.status));
+      await fetchRecords(); renderAll();
+      setSyncStatus(`отменено: ${payload.summary} · ` + new Date().toLocaleTimeString('ru-RU'));
+    }catch(err){
+      setSyncStatus('нечего отменять', true);
+      alert('Не удалось отменить: ' + err.message);
+    } finally { progressEnd(); }
+  });
+
 
   function renderTable(){
     let rows = state.records;
@@ -622,6 +711,7 @@
     const shown = rows.slice(0, MAX);
     body.innerHTML = shown.map(r=>`
       <tr data-id="${r.id}">
+        <td><input type="checkbox" class="row-select" data-id="${r.id}" ${selectedIds.has(r.id)?'checked':''}></td>
         <td class="cellcode">
           <div style="display:flex; gap:5px; align-items:center;">
             <input class="edit-input cellinput" data-field="cell" value="${r.cell}">
@@ -637,7 +727,22 @@
         <td>${r.isService ? '<span class="badge service">служебная</span>' : '<span class="badge ok">адресная</span>'}</td>
         <td><button class="pin-btn row-delete-btn" title="Удалить запись">🗑</button></td>
       </tr>
-    `).join('') + (rows.length>MAX ? `<tr><td colspan="9" style="text-align:center;color:var(--ink-soft);padding:14px;">Показаны первые ${MAX} из ${fmtNum(rows.length)} — уточните поиск, чтобы увидеть остальные</td></tr>` : '');
+    `).join('') + (rows.length>MAX ? `<tr><td colspan="10" style="text-align:center;color:var(--ink-soft);padding:14px;">Показаны первые ${MAX} из ${fmtNum(rows.length)} — уточните поиск, чтобы увидеть остальные</td></tr>` : '');
+
+    body.querySelectorAll('.row-select').forEach(cb=>{
+      cb.addEventListener('change', ()=>{
+        const id = parseInt(cb.dataset.id,10);
+        if(cb.checked) selectedIds.add(id); else selectedIds.delete(id);
+        updateBulkToolbar();
+      });
+    });
+    const selectAll = document.getElementById('table-select-all');
+    selectAll.checked = shown.length>0 && shown.every(r=>selectedIds.has(r.id));
+    selectAll.onchange = ()=>{
+      shown.forEach(r=> selectAll.checked ? selectedIds.add(r.id) : selectedIds.delete(r.id));
+      renderTable();
+    };
+    updateBulkToolbar();
 
     body.querySelectorAll('.map-pick-btn').forEach(btn=>{
       btn.addEventListener('click', ()=>{
@@ -663,6 +768,7 @@
         try{
           const res = await fetch(`${API_BASE}/api/records/${id}`, { method:'DELETE' });
           if(!res.ok) throw new Error('HTTP '+res.status);
+          selectedIds.delete(id);
           await fetchRecords();
           renderAll();
           setSyncStatus('запись удалена · ' + new Date().toLocaleTimeString('ru-RU'));
@@ -1317,30 +1423,241 @@
   // ---------- ZONES VIEW ----------
   function renderZones(){
     const svc = serviceRecords();
-    const groups = {};
-    svc.forEach(r=>{
-      (groups[r.cell] = groups[r.cell] || []).push(r);
-    });
+    const itemsByZone = {};
+    svc.forEach(r=>{ (itemsByZone[r.cell] = itemsByZone[r.cell] || []).push(r); });
+
     const box = document.getElementById('zones-grid');
-    const names = Object.keys(groups).sort((a,b)=>groups[b].length-groups[a].length);
-    box.innerHTML = names.map(name=>{
-      const items = groups[name];
-      const qty = items.reduce((s,i)=>s+i.qty,0);
-      const arts = new Set(items.map(i=>i.article)).size;
-      return `<div class="zone-card" data-zone="${name}">
-        <div class="name">${name}</div>
-        <div class="row"><span>Строк</span><b>${fmtNum(items.length)}</b></div>
-        <div class="row"><span>Артикулов</span><b>${fmtNum(arts)}</b></div>
-        <div class="row"><span>Всего, шт</span><b>${fmtNum(qty)}</b></div>
-      </div>`;
-    }).join('');
+    const zones = state.zones.length ? state.zones : Object.keys(itemsByZone).map(name=>({name, isolate:0, records:itemsByZone[name].length, qty:itemsByZone[name].reduce((s,i)=>s+i.qty,0), articles:new Set(itemsByZone[name].map(i=>i.article)).size}));
+
+    box.innerHTML = zones.map(z=>`
+      <div class="zone-card" data-zone="${z.name}" style="${z.isolate?'border-color:var(--danger);':''}">
+        <div class="zc-actions">
+          <button class="zc-edit" data-zone="${z.name}" title="Переименовать / изоляция">✏</button>
+          <button class="zc-del" data-zone="${z.name}" title="Удалить зону">🗑</button>
+        </div>
+        <div class="name" style="${z.isolate?'color:var(--danger);':''}">${z.name}${z.isolate?' · изолир.':''}</div>
+        <div class="row"><span>Строк</span><b>${fmtNum(z.records)}</b></div>
+        <div class="row"><span>Артикулов</span><b>${fmtNum(z.articles)}</b></div>
+        <div class="row"><span>Всего, шт</span><b>${fmtNum(z.qty)}</b></div>
+      </div>
+    `).join('') || `<div class="empty-note">Зон пока нет — нажмите «+ Добавить зону»</div>`;
+
     box.querySelectorAll('.zone-card').forEach(card=>{
-      card.addEventListener('click', ()=>{
-        const items = groups[card.dataset.zone];
+      card.addEventListener('click', (e)=>{
+        if(e.target.closest('.zc-actions')) return;
+        const items = itemsByZone[card.dataset.zone] || [];
         openDrawer(card.dataset.zone, items.slice(0,50));
       });
     });
+    box.querySelectorAll('.zc-edit').forEach(btn=>{
+      btn.addEventListener('click', (e)=>{ e.stopPropagation(); openZoneEditForm(btn.dataset.zone); });
+    });
+    box.querySelectorAll('.zc-del').forEach(btn=>{
+      btn.addEventListener('click', async (e)=>{
+        e.stopPropagation();
+        const name = btn.dataset.zone;
+        const z = zones.find(x=>x.name===name);
+        let force = false;
+        if(z && z.records>0){
+          if(!confirm(`В зоне «${name}» ещё ${z.records} записей (${fmtNum(z.qty)} шт). Удалить зону вместе со всем содержимым?`)) return;
+          force = true;
+        } else if(!confirm(`Удалить пустую зону «${name}»?`)){
+          return;
+        }
+        progressStart('Удаление зоны…');
+        try{
+          const res = await fetch(`${API_BASE}/api/zones/${encodeURIComponent(name)}?force=${force}`, {method:'DELETE'});
+          const payload = await res.json().catch(()=>({}));
+          if(!res.ok) throw new Error(payload.error || ('HTTP '+res.status));
+          await fetchRecords(); renderAll();
+          setSyncStatus(`зона «${name}» удалена · ` + new Date().toLocaleTimeString('ru-RU'));
+        }catch(err){
+          alert('Не удалось удалить зону: ' + err.message);
+        } finally { progressEnd(); }
+      });
+    });
   }
+
+  // ---------- ADD / EDIT ZONE ----------
+  function openAddZoneForm(){
+    const body = `
+      <div class="form-field" style="margin-bottom:12px;">
+        <label>Название зоны</label>
+        <input id="zone-name-input" type="text" placeholder="напр. Возврат поставщику">
+      </div>
+      <label style="display:flex; align-items:center; gap:8px; font-size:13px; cursor:pointer;">
+        <input id="zone-isolate-input" type="checkbox"> Изолированная зона (как Карантин, Брак)
+      </label>
+      <div class="form-error" id="zone-error"></div>
+    `;
+    const footer = `<button class="btn" id="zone-cancel">Отмена</button><button class="btn primary" id="zone-save">Создать</button>`;
+    openModal('Новая служебная зона', body, footer);
+    document.getElementById('zone-cancel').addEventListener('click', closeModal);
+    document.getElementById('zone-save').addEventListener('click', async ()=>{
+      const errEl = document.getElementById('zone-error');
+      const name = document.getElementById('zone-name-input').value.trim();
+      const isolate = document.getElementById('zone-isolate-input').checked;
+      if(!name){ errEl.textContent='Укажите название.'; errEl.classList.add('show'); return; }
+      progressStart('Создание зоны…');
+      try{
+        const res = await fetch(`${API_BASE}/api/zones`, {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({name, isolate})});
+        const payload = await res.json().catch(()=>({}));
+        if(!res.ok) throw new Error(payload.error || ('HTTP '+res.status));
+        closeModal();
+        await fetchRecords(); renderAll();
+        setSyncStatus(`зона «${name}» создана · ` + new Date().toLocaleTimeString('ru-RU'));
+      }catch(err){
+        errEl.textContent = err.message; errEl.classList.add('show');
+      } finally { progressEnd(); }
+    });
+  }
+
+  function openZoneEditForm(zoneName){
+    const z = state.zones.find(x=>x.name===zoneName) || {name:zoneName, isolate:0};
+    const body = `
+      <div class="form-field" style="margin-bottom:12px;">
+        <label>Название зоны</label>
+        <input id="zone-rename-input" type="text" value="${z.name}">
+      </div>
+      <label style="display:flex; align-items:center; gap:8px; font-size:13px; cursor:pointer;">
+        <input id="zone-isolate-edit" type="checkbox" ${z.isolate?'checked':''}> Изолированная зона (как Карантин, Брак)
+      </label>
+      <div class="form-error" id="zone-error"></div>
+    `;
+    const footer = `<button class="btn" id="zone-cancel">Отмена</button><button class="btn primary" id="zone-save">Сохранить</button>`;
+    openModal(`Зона «${zoneName}»`, body, footer);
+    document.getElementById('zone-cancel').addEventListener('click', closeModal);
+    document.getElementById('zone-save').addEventListener('click', async ()=>{
+      const errEl = document.getElementById('zone-error');
+      const newName = document.getElementById('zone-rename-input').value.trim();
+      const isolate = document.getElementById('zone-isolate-edit').checked;
+      if(!newName){ errEl.textContent='Укажите название.'; errEl.classList.add('show'); return; }
+      progressStart('Сохранение зоны…');
+      try{
+        const res = await fetch(`${API_BASE}/api/zones/${encodeURIComponent(zoneName)}`, {
+          method:'PATCH', headers:{'Content-Type':'application/json'},
+          body: JSON.stringify({ newName: newName!==zoneName?newName:undefined, isolate })
+        });
+        const payload = await res.json().catch(()=>({}));
+        if(!res.ok) throw new Error(payload.error || ('HTTP '+res.status));
+        closeModal();
+        await fetchRecords(); renderAll();
+        setSyncStatus(`зона обновлена · ` + new Date().toLocaleTimeString('ru-RU'));
+      }catch(err){
+        errEl.textContent = err.message; errEl.classList.add('show');
+      } finally { progressEnd(); }
+    });
+  }
+
+  document.getElementById('add-zone-btn').addEventListener('click', openAddZoneForm);
+
+  // ---------- MOVE ROW/RACK/CELL INTO A ZONE ----------
+  function openMoveToZoneForm(){
+    if(!state.zones.length){ alert('Сначала создайте хотя бы одну зону.'); return; }
+    let srcType = 'row';
+    let pickedCell = '';
+
+    function fieldsHtml(){
+      const aisles = aisleList();
+      if(srcType==='row'){
+        return `<div class="form-field"><label>Ряд</label>
+          <select id="mz-row">${aisles.map(a=>`<option value="${a}">Ряд ${a}</option>`).join('')}</select>
+        </div>`;
+      }
+      if(srcType==='rack'){
+        const row = aisles[0];
+        const extent = row ? aisleExtent(row) : null;
+        const racks = extent ? extent.racks : [];
+        return `<div class="form-grid">
+          <div class="form-field"><label>Ряд</label>
+            <select id="mz-row">${aisles.map(a=>`<option value="${a}">Ряд ${a}</option>`).join('')}</select>
+          </div>
+          <div class="form-field"><label>Стеллаж</label>
+            <select id="mz-rack">${racks.map(r=>`<option value="${r}">${r}</option>`).join('')}</select>
+          </div>
+        </div>`;
+      }
+      return `<div class="form-field with-pin">
+        <div><label>Ячейка</label><input id="mz-cell" type="text" placeholder="напр. 01-12-02" value="${pickedCell}"></div>
+        <button class="pin-btn" id="mz-cell-pick" style="height:34px;">📍</button>
+      </div>`;
+    }
+
+    function renderBody(){
+      const body = `
+        <div class="form-field" style="margin-bottom:14px;">
+          <label>Что переносим</label>
+          <select id="mz-type">
+            <option value="row" ${srcType==='row'?'selected':''}>Весь ряд</option>
+            <option value="rack" ${srcType==='rack'?'selected':''}>Стеллаж</option>
+            <option value="cell" ${srcType==='cell'?'selected':''}>Одну ячейку</option>
+          </select>
+        </div>
+        <div id="mz-fields" style="margin-bottom:14px;">${fieldsHtml()}</div>
+        <div class="form-field">
+          <label>Куда (зона)</label>
+          <select id="mz-zone">${state.zones.map(z=>`<option value="${z.name}">${z.name}</option>`).join('')}</select>
+        </div>
+        <div class="form-error" id="mz-error"></div>
+      `;
+      const footer = `<button class="btn" id="mz-cancel">Отмена</button><button class="btn primary" id="mz-submit">Перенести</button>`;
+      openModal('Перенести в служебную зону', body, footer);
+
+      document.getElementById('mz-type').addEventListener('change', (e)=>{ srcType = e.target.value; renderBody(); });
+      document.getElementById('mz-cancel').addEventListener('click', closeModal);
+      if(srcType==='row'){
+        document.getElementById('mz-row').addEventListener('change', ()=>{}); // no-op, just keep selection
+      }
+      if(srcType==='rack'){
+        const rowSel = document.getElementById('mz-row');
+        rowSel.addEventListener('change', ()=>{
+          const extent = aisleExtent(rowSel.value);
+          document.getElementById('mz-rack').innerHTML = (extent?extent.racks:[]).map(r=>`<option value="${r}">${r}</option>`).join('');
+        });
+      }
+      if(srcType==='cell'){
+        document.getElementById('mz-cell-pick').addEventListener('click', ()=>{
+          openCellPicker((addr)=>{ pickedCell = addr; renderBody(); }, pickedCell);
+        });
+      }
+
+      document.getElementById('mz-submit').addEventListener('click', async ()=>{
+        const errEl = document.getElementById('mz-error');
+        const zone = document.getElementById('mz-zone').value;
+        let ids = [];
+        if(srcType==='row'){
+          const row = document.getElementById('mz-row').value;
+          ids = addressRecords().filter(r=>r.row===row).map(r=>r.id);
+        } else if(srcType==='rack'){
+          const row = document.getElementById('mz-row').value;
+          const rack = parseInt(document.getElementById('mz-rack').value,10);
+          ids = addressRecords().filter(r=>r.row===row && r.rack===rack).map(r=>r.id);
+        } else {
+          const cell = document.getElementById('mz-cell').value.trim();
+          ids = state.records.filter(r=>r.cell===cell).map(r=>r.id);
+        }
+        if(!ids.length){ errEl.textContent='В выбранном месте сейчас нет товара — переносить нечего.'; errEl.classList.add('show'); return; }
+        progressStart(`Перенос ${ids.length} записей в «${zone}»…`);
+        try{
+          const res = await fetch(`${API_BASE}/api/records/bulk-move`, {
+            method:'POST', headers:{'Content-Type':'application/json'},
+            body: JSON.stringify({ ids, cell: zone })
+          });
+          const payload = await res.json().catch(()=>({}));
+          if(!res.ok) throw new Error(payload.error || ('HTTP '+res.status));
+          closeModal();
+          await fetchRecords(); renderAll();
+          setSyncStatus(`перенесено ${payload.moved} записей в «${zone}» · ` + new Date().toLocaleTimeString('ru-RU'));
+        }catch(err){
+          errEl.textContent = err.message; errEl.classList.add('show');
+        } finally { progressEnd(); }
+      });
+    }
+
+    renderBody();
+  }
+
+  document.getElementById('move-to-zone-btn').addEventListener('click', openMoveToZoneForm);
 
   // ---------- TABS ----------
   document.querySelectorAll('nav.tabs button').forEach(btn=>{

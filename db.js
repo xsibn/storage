@@ -51,6 +51,12 @@ db.exec(`
     article TEXT PRIMARY KEY,
     class   TEXT NOT NULL
   );
+
+  CREATE TABLE IF NOT EXISTS service_zones (
+    name       TEXT PRIMARY KEY,
+    isolate    INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
 `);
 
 // Every mutating operation calls this. undoData is a small JSON-serialisable
@@ -535,7 +541,78 @@ const bulkDelete = db.transaction((ids) => {
   return { deleted: records.length };
 });
 
-// ---------- Undo last action ----------
+// ---------- Service zones (Карантин, Брак, Приёмка, etc.) as a managed entity ----------
+// Previously a "zone" was just whatever distinct non-address string showed up
+// in the cell column — there was no way to create one ahead of stock arriving,
+// or to rename/delete one cleanly. This table makes zones first-class.
+
+// Registers any zone name that's already in use (from an import, or from
+// before this table existed) so nothing already on the floor goes missing.
+function ensureZonesFromData() {
+  const rows = db.prepare('SELECT DISTINCT cell FROM stock_records WHERE is_service = 1').all();
+  const insert = db.prepare('INSERT OR IGNORE INTO service_zones (name) VALUES (?)');
+  const tx = db.transaction((names) => { for (const n of names) insert.run(n); });
+  tx(rows.map(r => r.cell));
+}
+
+function listZones() {
+  return db.prepare(`
+    SELECT z.name, z.isolate, z.created_at,
+           COUNT(r.id) AS records, COALESCE(SUM(r.qty), 0) AS qty,
+           COUNT(DISTINCT r.article) AS articles
+    FROM service_zones z
+    LEFT JOIN stock_records r ON r.cell = z.name AND r.is_service = 1
+    GROUP BY z.name
+    ORDER BY qty DESC, z.name
+  `).all();
+}
+
+function createZone(name, isolate) {
+  const n = String(name || '').trim();
+  if (!n) throw new Error('укажите название зоны');
+  if (classifyCell(n).isService === false) throw new Error('такое название выглядит как обычный адрес ячейки (РЯД-СТЕЛЛАЖ-ЯРУС) — зоне нужно другое имя');
+  const existing = db.prepare('SELECT name FROM service_zones WHERE name = ?').get(n);
+  if (existing) throw new Error(`зона «${n}» уже существует`);
+  db.prepare('INSERT INTO service_zones (name, isolate) VALUES (?, ?)').run(n, isolate ? 1 : 0);
+  logActivity('create-zone', `Создана служебная зона «${n}»`, null);
+  return { name: n, isolate: !!isolate };
+}
+
+const renameZone = db.transaction((oldName, newName) => {
+  const n = String(newName || '').trim();
+  if (oldName === n) return { moved: 0 };
+  if (!n) throw new Error('укажите новое название зоны');
+  if (!db.prepare('SELECT name FROM service_zones WHERE name = ?').get(oldName)) throw new Error(`зона «${oldName}» не найдена`);
+  if (db.prepare('SELECT name FROM service_zones WHERE name = ?').get(n)) throw new Error(`зона «${n}» уже существует`);
+
+  const info = db.prepare('UPDATE stock_records SET cell = ?, updated_at = datetime(\'now\') WHERE cell = ? AND is_service = 1').run(n, oldName);
+  db.prepare('UPDATE service_zones SET name = ? WHERE name = ?').run(n, oldName);
+
+  logActivity('rename-zone', `Зона «${oldName}» переименована в «${n}» (${info.changes} записей)`, { oldName, newName: n });
+  return { moved: info.changes };
+});
+
+function setZoneIsolate(name, isolate) {
+  const res = db.prepare('UPDATE service_zones SET isolate = ? WHERE name = ?').run(isolate ? 1 : 0, name);
+  if (!res.changes) throw new Error(`зона «${name}» не найдена`);
+  return { name, isolate: !!isolate };
+}
+
+const deleteZone = db.transaction((name, force) => {
+  if (!db.prepare('SELECT name FROM service_zones WHERE name = ?').get(name)) throw new Error(`зона «${name}» не найдена`);
+  const inZone = db.prepare('SELECT COUNT(*) AS n FROM stock_records WHERE cell = ? AND is_service = 1').get(name).n;
+  if (inZone > 0 && !force) {
+    throw new Error(`в зоне «${name}» ещё ${inZone} записей — удалите/перенесите их или подтвердите удаление вместе с содержимым`);
+  }
+  if (inZone > 0 && force) {
+    db.prepare('DELETE FROM stock_records WHERE cell = ? AND is_service = 1').run(name);
+  }
+  db.prepare('DELETE FROM service_zones WHERE name = ?').run(name);
+  logActivity('delete-zone', `Удалена зона «${name}»${inZone ? ` вместе с ${inZone} записями` : ''}`, null);
+  return { removedRecords: inZone };
+});
+
+
 // Every undoable action is reversed by replaying the inverse through the same
 // public functions above — each of those calls also logs its own activity
 // entry, so an undo shows up in the feed too (and undoing an undo redoes the
@@ -553,6 +630,7 @@ const undoLastAction = db.transaction(() => {
     case 'swap-rows': swapRows(data.rowA, data.rowB); break;
     case 'swap-racks': swapRacks(data.row, data.rackA, data.rackB); break;
     case 'rename-row': renameRow(data.newRow, data.oldRow); break;
+    case 'rename-zone': renameZone(data.newName, data.oldName); break;
     case 'set-racks': setRacks(data.row, data.prevRacks); break;
     case 'bulk-move': data.moves.forEach(m => updateRecord(m.id, { cell: m.prevCell })); break;
     case 'bulk-delete': data.records.forEach(r => createRecord(r)); break;
@@ -568,5 +646,6 @@ module.exports = {
   swapRows, swapRacks, renameRow, setRacks, getMeta, setMeta, count, seedIfEmpty,
   getLayout, ensureLayoutFromSeed, rebuildLayoutFromCurrent, setRackOrder,
   bulkMove, bulkDelete, listActivity, undoLastAction,
-  seedAbcClasses, getAbcClasses
+  seedAbcClasses, getAbcClasses,
+  ensureZonesFromData, listZones, createZone, renameZone, setZoneIsolate, deleteZone
 };
