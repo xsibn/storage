@@ -1286,6 +1286,10 @@
   // Only rows 01-06 physically exist; 07-12 are stale rows left in the DB from
   // the old warehouse and must never be offered for new placements or ranges.
   const ACTIVE_ROWS = ['06','05','04','03','02','01'];
+  // Picking-face footprint per ABC class: A-class articles are fast movers and
+  // get 3 rack columns of pick face, B gets 2, C gets 1 — wider face = fewer
+  // trips to replenish that slot during a shift.
+  const ABC_COLS = {A:3, B:2, C:1};
 
   // Within each active row, only this rack range is the actual STORAGE zone used
   // for picking/replenishment. Racks outside this range (in the same row) belong
@@ -1383,17 +1387,23 @@
       racks.forEach(rack=> pool.push({row, rack}));
     });
 
+    let poolPtr = 0;
     const assigned = articles.map((a,idx)=>{
-      const pos = pool[idx] || null;
       const abc = abcByArticle[a.article];
+      const width = ABC_COLS[abc.abcClass] || 1;
+      const positions = [];
+      for(let i=0; i<width && poolPtr<pool.length; i++, poolPtr++) positions.push(pool[poolPtr]);
+      const pos = positions[0] || null;
       return {
         ...a,
         rank: idx+1,
         volShare: abc.volShare, cumShare: abc.cumShare, abcClass: abc.abcClass, stockVolume: abc.stockVolume,
         materialColor: MATERIAL_COLORS[a.material] || '#64748B',
         pickAddress: pos ? `${pos.row}-${zpad(pos.rack)}-01` : null,
+        pickAddresses: positions.map(p=>`${p.row}-${zpad(p.rack)}-01`),
         replenish: pos ? `${pos.row}-${zpad(pos.rack)} · ярусы выше 01` : null,
-        replenishRow: pos ? pos.row : null, replenishRack: pos ? pos.rack : null
+        replenishRow: pos ? pos.row : null, replenishRack: pos ? pos.rack : null,
+        positions // every {row,rack} column this article's pick face occupies (width per ABC class)
       };
     });
 
@@ -1431,6 +1441,7 @@
         <div class="name" style="color:${colors[k]};">Класс ${k}</div>
         <div class="row"><span>Артикулов</span><b>${fmtNum(t[k].n)}</b></div>
         <div class="row"><span>Доля объёма стока</span><b>${share.toFixed(1)}%</b></div>
+        <div class="row"><span>Колонок на пик-лицо</span><b>${ABC_COLS[k]}</b></div>
       </div>`;
     }).join('');
     box.querySelectorAll('.zone-card[data-abc]').forEach(card=>{
@@ -1481,7 +1492,9 @@
     const assigned = recoCache.assigned;
     const maxUnitVol = assigned.length ? (assigned[0].vol==null?1:assigned[0].vol) : 1;
     const byRack = {}; // rack -> assigned article (pick face owner for this aisle+rack)
-    assigned.forEach(a=>{ if(a.replenishRow===recoAisle) byRack[a.replenishRack] = a; });
+    assigned.forEach(a=>{
+      (a.positions||[]).forEach(p=>{ if(p.row===recoAisle) byRack[p.rack] = a; });
+    });
 
     // fallback: what is actually stored at a given address today, for cells that
     // received no picking recommendation (more physical slots than articles to place)
@@ -1687,13 +1700,17 @@
       });
     const extent = aisleExtent(row);
     const orderedRacks = (extent ? extent.racks : []).filter(r=>r>=rackFrom && r<=rackTo);
+    let rackPtr = 0;
     const assigned = items.map((a,idx)=>{
-      const rack = orderedRacks[idx] != null ? orderedRacks[idx] : null;
+      const width = ABC_COLS[a.abcClass] || 1;
+      const racks = [];
+      for(let i=0; i<width && rackPtr<orderedRacks.length; i++, rackPtr++) racks.push(orderedRacks[rackPtr]);
+      const rack = racks[0] != null ? racks[0] : null;
       return {
         ...a, rangeRank: idx+1,
         pickAddress: rack!=null ? `${row}-${zpad(rack)}-01` : null,
         replenish: rack!=null ? `${row}-${zpad(rack)} · ярусы выше 01` : null,
-        rack
+        rack, racks
       };
     });
     return { assigned, racks: orderedRacks, row, category };
@@ -1710,7 +1727,7 @@
     levels = levels.reverse();
 
     const byRack = {};
-    result.assigned.forEach(a=>{ if(a.rack!=null) byRack[a.rack] = a; });
+    result.assigned.forEach(a=>{ (a.racks||[]).forEach(rk=>{ byRack[rk] = a; }); });
     const maxUnitVol = result.assigned.length ? (result.assigned[0].vol==null?1:result.assigned[0].vol) : 1;
 
     let html = `<div style="display:grid; grid-template-columns:34px repeat(${Math.max(allRacks.length,1)}, 22px); gap:3px;">`;
@@ -2032,23 +2049,8 @@
     tableFilter = e.target.value; renderTable();
   });
 
-  // ---------- DB ACTIONS DROPDOWN (import + export grouped together) ----------
-  const dbDropdown = document.getElementById('db-actions-dropdown');
-  document.getElementById('db-actions-toggle').addEventListener('click', (e)=>{
-    e.stopPropagation();
-    dbDropdown.classList.toggle('open');
-  });
-  document.addEventListener('click', (e)=>{
-    if(dbDropdown.classList.contains('open') && !dbDropdown.contains(e.target)){
-      dbDropdown.classList.remove('open');
-    }
-  });
-  document.getElementById('export-btn').addEventListener('click', ()=> dbDropdown.classList.remove('open'));
-  // note: file-input's own change handler closes the menu once a file is picked (see below)
-
   // ---------- FILE UPLOAD (sent to the server — replaces the DB for everyone) ----------
   document.getElementById('file-input').addEventListener('change', async (e)=>{
-    dbDropdown.classList.remove('open');
     const file = e.target.files[0];
     if(!file) return;
     setSyncStatus('загрузка файла на сервер…');

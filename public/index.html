@@ -7,7 +7,7 @@
 <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
 <style>
   :root{
-    --bg: #E9ECF2;
+    --bg: #F5F6F8;
     --panel: #FFFFFF;
     --ink: #1C2430;
     --ink-soft: #5B6472;
@@ -26,17 +26,21 @@
   }
   *{box-sizing:border-box;}
   body{
-    margin:0; font-family:var(--sans); background:var(--bg); color:var(--ink);
+    margin:0; font-family:var(--sans); color:var(--ink);
     font-size:14px; -webkit-font-smoothing:antialiased;
+    background:
+      radial-gradient(1200px 500px at 100% -10%, rgba(44,92,224,.06), transparent),
+      radial-gradient(900px 400px at -10% 10%, rgba(44,92,224,.05), transparent),
+      var(--bg);
   }
-  #app{display:flex; flex-direction:column; min-height:100vh; gap:14px; padding:14px 20px 20px;}
+  #app{display:flex; flex-direction:column; min-height:100vh;}
 
   /* Header */
   header{
-    background:var(--panel); border:1px solid var(--line); border-radius:12px;
-    box-shadow:0 1px 3px rgba(16,24,40,.05), 0 1px 2px rgba(16,24,40,.06);
+    background:var(--panel); border-bottom:1px solid var(--line);
     padding:14px 20px; display:flex; align-items:center; gap:20px; flex-wrap:wrap;
-    max-width:1400px; width:100%; margin:0 auto; box-sizing:border-box;
+    box-shadow:0 1px 0 rgba(20,24,32,.03), 0 4px 14px rgba(20,24,32,.04);
+    position:sticky; top:0; z-index:40;
   }
   header h1{
     font-size:16px; font-weight:700; margin:0; letter-spacing:.2px; white-space:nowrap;
@@ -45,62 +49,52 @@
     font-family:var(--mono); font-size:11px; color:var(--accent); background:var(--accent-soft);
     padding:2px 6px; border-radius:4px; margin-left:8px; vertical-align:middle;
   }
-  .stats{display:flex; gap:0; margin-left:auto;}
+  .stats{display:flex; gap:8px; margin-left:auto;}
   .stat{
-    padding:2px 18px; border-left:1px solid var(--line); text-align:right;
+    padding:6px 16px; text-align:right; background:var(--bg); border:1px solid var(--line);
+    border-radius:9px;
   }
-  .stat:first-child{border-left:none;}
-  .stat .num{font-family:var(--mono); font-size:17px; font-weight:700; display:block; line-height:1.2;}
+  .stat .num{font-family:var(--mono); font-size:17px; font-weight:700; display:block; line-height:1.2; color:var(--ink);}
   .stat .lbl{font-size:10.5px; color:var(--ink-soft); text-transform:uppercase; letter-spacing:.4px;}
 
   .btn{
     font-family:var(--sans); font-size:12.5px; font-weight:600; padding:8px 14px;
-    border-radius:7px; border:1px solid var(--line); background:var(--panel); color:var(--ink);
-    cursor:pointer; white-space:nowrap; transition:.12s;
+    border-radius:8px; border:1px solid var(--line); background:var(--panel); color:var(--ink);
+    cursor:pointer; white-space:nowrap; transition:.15s ease; box-shadow:0 1px 2px rgba(20,24,32,.04);
   }
-  .btn:hover{border-color:var(--accent); color:var(--accent);}
+  .btn:hover{border-color:var(--accent); color:var(--accent); box-shadow:0 3px 10px rgba(44,92,224,.12); transform:translateY(-1px);}
+  .btn:active{transform:translateY(0); box-shadow:none;}
   .btn.primary{background:var(--ink); color:#fff; border-color:var(--ink);}
-  .btn.primary:hover{background:var(--accent); border-color:var(--accent); color:#fff;}
+  .btn.primary:hover{background:var(--accent); border-color:var(--accent); color:#fff; box-shadow:0 4px 14px rgba(44,92,224,.28);}
   input[type=file]{display:none;}
-
-  .dropdown{position:relative; display:inline-block;}
-  .dropdown-menu{
-    display:none; position:absolute; right:0; top:calc(100% + 6px); z-index:20;
-    background:var(--panel); border:1px solid var(--line); border-radius:9px;
-    box-shadow:0 8px 24px rgba(0,0,0,.12); min-width:200px; padding:6px; overflow:hidden;
-  }
-  .dropdown.open .dropdown-menu{display:block;}
-  .dropdown-menu button, .dropdown-menu label{
-    display:flex; align-items:center; gap:8px; width:100%; padding:9px 10px;
-    border:none; background:none; text-align:left; font-family:var(--sans);
-    font-size:13px; color:var(--ink); border-radius:6px; cursor:pointer; box-sizing:border-box;
-  }
-  .dropdown-menu button:hover, .dropdown-menu label:hover{background:var(--bg);}
-  .dropdown-menu .menu-sep{height:1px; background:var(--line); margin:5px 2px;}
 
   /* Tabs */
   nav.tabs{
-    background:var(--panel); border:1px solid var(--line); border-radius:12px;
-    box-shadow:0 1px 3px rgba(16,24,40,.05), 0 1px 2px rgba(16,24,40,.06);
-    padding:0 12px; display:flex; gap:4px; overflow-x:auto;
-    max-width:1400px; width:100%; margin:0 auto; box-sizing:border-box;
+    background:var(--panel); border-bottom:1px solid var(--line); padding:10px 20px;
+    display:flex; gap:6px;
   }
   nav.tabs button{
-    font-family:var(--sans); font-size:13px; font-weight:600; padding:12px 16px;
-    background:none; border:none; border-bottom:2px solid transparent; color:var(--ink-soft);
-    cursor:pointer; white-space:nowrap;
+    font-family:var(--sans); font-size:13px; font-weight:600; padding:9px 16px;
+    background:var(--bg); border:1px solid transparent; border-radius:8px; color:var(--ink-soft);
+    cursor:pointer; transition:.15s ease;
   }
-  nav.tabs button.active{color:var(--accent); border-bottom-color:var(--accent); background:var(--accent-soft); border-radius:8px 8px 0 0;}
+  nav.tabs button:hover{color:var(--ink); border-color:var(--line);}
+  nav.tabs button.active{color:#fff; background:var(--accent); box-shadow:0 3px 10px rgba(44,92,224,.25);}
 
-  main{flex:1; display:flex; flex-direction:column; gap:16px; max-width:1400px; width:100%; margin:0 auto;}
+  main{flex:1; padding:22px 20px; display:flex; flex-direction:column; gap:18px; max-width:1400px; width:100%; margin:0 auto;}
   .view{display:none;}
-  .view.active{display:flex; flex-direction:column; gap:16px;}
+  .view.active{display:flex; flex-direction:column; gap:18px;}
 
   .panel{
     background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:18px;
-    box-shadow:0 1px 3px rgba(16,24,40,.05), 0 1px 2px rgba(16,24,40,.06);
+    box-shadow:0 1px 2px rgba(20,24,32,.03), 0 6px 20px rgba(20,24,32,.045);
+    transition:box-shadow .18s ease, border-color .18s ease;
   }
-  .panel h2{font-size:13px; margin:0 0 12px; text-transform:uppercase; letter-spacing:.4px; color:var(--ink-soft);}
+  .panel:hover{box-shadow:0 2px 4px rgba(20,24,32,.04), 0 10px 28px rgba(20,24,32,.07);}
+  .panel h2{
+    font-size:13px; margin:0 0 12px; text-transform:uppercase; letter-spacing:.4px; color:var(--ink-soft);
+    padding-left:10px; border-left:3px solid var(--accent); line-height:1.3;
+  }
 
   /* Toolbar row */
   .toolbar{display:flex; gap:10px; align-items:center; flex-wrap:wrap;}
@@ -114,14 +108,6 @@
   .search::before{
     content:"⌕"; position:absolute; left:11px; top:50%; transform:translateY(-50%); color:var(--ink-soft); font-size:15px;
   }
-  .search input{ padding-right:36px; }
-  .search .scan-inline-btn{
-    position:absolute; right:4px; top:50%; transform:translateY(-50%);
-    width:28px; height:28px; border:none; background:none; cursor:pointer;
-    font-size:15px; display:flex; align-items:center; justify-content:center;
-    border-radius:6px; color:var(--ink-soft);
-  }
-  .search .scan-inline-btn:hover{ background:var(--bg); color:var(--ink); }
   select{
     padding:8px 10px; border:1px solid var(--line); border-radius:7px; background:var(--panel);
     font-family:var(--sans); font-size:13px; color:var(--ink);
@@ -195,12 +181,12 @@
   .badge.multi{background:var(--multi-soft); color:var(--multi);}
 
   /* Service zones */
-  .zones-grid{display:grid; grid-template-columns:repeat(auto-fill, minmax(200px,1fr)); gap:10px;}
+  .zones-grid{display:grid; grid-template-columns:repeat(auto-fill, minmax(200px,1fr)); gap:12px;}
   .zone-card{
-    border:1px solid var(--line); border-radius:8px; padding:12px; background:var(--bg); cursor:pointer;
-    position:relative;
+    border:1px solid var(--line); border-radius:9px; padding:12px; background:var(--bg); cursor:pointer;
+    position:relative; transition:.15s ease; box-shadow:0 1px 2px rgba(20,24,32,.03);
   }
-  .zone-card:hover{border-color:var(--service);}
+  .zone-card:hover{border-color:var(--service); box-shadow:0 6px 16px rgba(20,24,32,.08); transform:translateY(-2px);}
   .zone-card .name{font-weight:700; font-size:13px; margin-bottom:6px; padding-right:44px;}
   .zone-card .row{display:flex; justify-content:space-between; font-size:11.5px; color:var(--ink-soft);}
   .zone-card .row b{color:var(--ink); font-family:var(--mono);}
@@ -227,7 +213,7 @@
   #drawer .dh h3{margin:0; font-family:var(--mono); font-size:16px;}
   #drawer .dh button{background:none; border:none; font-size:20px; cursor:pointer; color:var(--ink-soft);}
   #drawer .db{padding:16px 18px; overflow-y:auto; flex:1; display:flex; flex-direction:column; gap:12px;}
-  .rec-card{border:1px solid var(--line); border-radius:8px; padding:12px; background:var(--bg);}
+  .rec-card{border:1px solid var(--line); border-radius:9px; padding:12px; background:var(--bg); box-shadow:0 1px 2px rgba(20,24,32,.03);}
   .rec-card .art{font-family:var(--mono); font-weight:700; font-size:13px; color:var(--accent);}
   .rec-card .name{font-size:12.5px; margin:4px 0 8px;}
   .rec-card dl{display:grid; grid-template-columns:auto 1fr; gap:3px 8px; font-size:11.5px; margin:0;}
@@ -291,11 +277,7 @@
   .order-chip.drag-over{outline:2px dashed var(--accent); outline-offset:1px;}
 
   .empty-note{color:var(--ink-soft); font-size:12.5px; padding:24px; text-align:center;}
-  footer.upload-hint{
-    font-size:11px; color:var(--ink-soft); padding:12px 20px; text-align:center;
-    background:var(--panel); border:1px solid var(--line); border-radius:12px;
-    max-width:1400px; width:100%; margin:0 auto; box-sizing:border-box;
-  }
+  footer.upload-hint{font-size:11px; color:var(--ink-soft); padding:10px 20px;}
 
   /* Top progress bar for sync/upload/export/save operations */
   #progress-wrap{position:fixed; top:0; left:0; width:100%; height:3px; z-index:200; background:transparent; pointer-events:none;}
@@ -323,8 +305,7 @@
 
   /* ============ RESPONSIVE (tablet / phone) ============ */
   @media (max-width: 860px){
-    #app{padding:10px 12px 16px; gap:10px;}
-    header{padding:10px 12px; gap:8px 12px; border-radius:10px;}
+    header{padding:10px 12px; gap:8px 12px;}
     header h1{font-size:14px; flex:1 1 auto;}
     .stats{margin-left:0; order:3; width:100%; justify-content:space-between; border-top:1px solid var(--line); padding-top:8px;}
     .stat{padding:2px 6px;}
@@ -333,12 +314,12 @@
     #sync-status{display:none;}
     header .btn{padding:8px 10px; font-size:12px;}
 
-    nav.tabs{overflow-x:auto; -webkit-overflow-scrolling:touch; padding:0 12px; scrollbar-width:none; border-radius:10px;}
+    nav.tabs{overflow-x:auto; -webkit-overflow-scrolling:touch; padding:0 12px; scrollbar-width:none;}
     nav.tabs::-webkit-scrollbar{display:none;}
     nav.tabs button{padding:11px 12px; white-space:nowrap; flex-shrink:0; font-size:12.5px;}
 
-    main{gap:12px;}
-    .panel{padding:12px; border-radius:10px;}
+    main{padding:12px; gap:12px;}
+    .panel{padding:12px;}
 
     .toolbar{gap:8px;}
     .search{min-width:0; flex:1 1 100%;}
@@ -395,14 +376,10 @@
     <button class="btn" id="sync-btn" title="Подтянуть последние данные с сервера">⟳ Синхронизировать</button>
     <button class="btn" id="undo-btn" title="Отменить последнее действие">↺ Отменить</button>
     <button class="btn" id="activity-log-btn" title="Журнал изменений (хранится 14 дней)">📋 Журнал</button>
-    <div class="dropdown" id="db-actions-dropdown">
-      <button class="btn primary" id="db-actions-toggle">База данных ▾</button>
-      <div class="dropdown-menu" id="db-actions-menu">
-        <label for="file-input">⬆ Загрузить новые данные (.xlsx)</label>
-        <input type="file" id="file-input" accept=".xlsx,.xls,.csv">
-        <button id="export-btn">⬇ Экспорт в Excel</button>
-      </div>
-    </div>
+    <button class="btn" id="scan-barcode-btn" title="Найти товар по штрих-коду через камеру">📷 Скан. штрих-кода</button>
+    <label class="btn primary" for="file-input">Загрузить новые данные (.xlsx)</label>
+    <input type="file" id="file-input" accept=".xlsx,.xls,.csv">
+    <button class="btn" id="export-btn">Экспорт в Excel</button>
   </header>
 
   <nav class="tabs">
@@ -441,10 +418,7 @@
     <section class="view" id="view-table">
       <div class="panel">
         <div class="toolbar">
-          <div class="search">
-            <input type="text" id="table-search" placeholder="Поиск по артикулу, наименованию, ячейке или ТЕ…">
-            <button class="scan-inline-btn" id="scan-barcode-btn" type="button" title="Найти товар по штрих-коду через камеру">📷</button>
-          </div>
+          <div class="search"><input type="text" id="table-search" placeholder="Поиск по артикулу, наименованию, ячейке или ТЕ…"></div>
           <select id="table-filter">
             <option value="all">Все записи</option>
             <option value="address">Только адресные ячейки</option>
@@ -479,7 +453,7 @@
       <div class="panel">
         <h2>Логика размещения</h2>
         <p style="font-size:12.5px; color:var(--ink-soft); line-height:1.5; margin:0;">
-          Приоритет размещения: <b>1) класс ABC</b> (A — самая доступная позиция, ближе к началу маршрута пикинга; далее B, затем C — класс задаётся заранее по каждому артикулу, не пересчитывается по остаткам) → <b>2) материал упаковки</b> (ПЭТ с ПЭТ, жесть с жестью, стекло со стеклом и т.д. — внутри класса ABC однородные по материалу группы не разбиваются) → <b>3) ВГХ / вес-объём единицы</b> (одинаковый литраж/вес держится вместе, от тяжёлой/крупной упаковки к лёгкой). Маршрут начинается с дальнего конца ряда 6 (стеллаж 28, у «начала пикинга») и идёт по возрастанию до стеллажа 66, дальше «змейкой» через ряды 5→1 с чередованием направления на каждом развороте; ряды 7–12 не используются — это устаревшие записи от старого склада. Товар размещается на <b>1 ярусе</b> (пикинг), остаток каждого артикула — на ярусах выше того же стеллажа (пополнение).
+          Приоритет размещения: <b>1) класс ABC</b> (A — самая доступная позиция, ближе к началу маршрута пикинга; далее B, затем C — класс задаётся заранее по каждому артикулу, не пересчитывается по остаткам) → <b>2) материал упаковки</b> (ПЭТ с ПЭТ, жесть с жестью, стекло со стеклом и т.д. — внутри класса ABC однородные по материалу группы не разбиваются) → <b>3) ВГХ / вес-объём единицы</b> (одинаковый литраж/вес держится вместе, от тяжёлой/крупной упаковки к лёгкой). Маршрут начинается с дальнего конца ряда 6 (стеллаж 28, у «начала пикинга») и идёт по возрастанию до стеллажа 66, дальше «змейкой» через ряды 5→1 с чередованием направления на каждом развороте; ряды 7–12 не используются — это устаревшие записи от старого склада. Товар размещается на <b>1 ярусе</b> (пикинг), остаток каждого артикула — на ярусах выше того же стеллажа (пополнение). <b>Ширина пик-лица по классу:</b> артикул класса A занимает 3 стеллажа (колонки) подряд по маршруту, класс B — 2 стеллажа, класс C — 1 стеллаж; чем быстрее оборот, тем шире фронт отбора и реже пополнение с верхних ярусов.
         </p>
       </div>
 
@@ -577,13 +551,7 @@
 
   </main>
 
-  <footer class="upload-hint">
-    <div>Данные хранятся в базе на сервере — все, кто открывает сайт, видят одно и то же. Правки в таблице сохраняются сразу на сервере. «Загрузить новые данные» полностью заменяет сток в базе новым файлом (видно всем). Кнопка «Синхронизировать» подтягивает последние изменения, если их внёс кто-то другой.</div>
-    <a class="btn" href="https://github.com/xsibn/storage" target="_blank" rel="noopener" style="display:inline-flex; align-items:center; gap:7px; margin-top:12px; text-decoration:none; width:fit-content;">
-      <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8z"/></svg>
-      GitHub
-    </a>
-  </footer>
+  <footer class="upload-hint">Данные хранятся в базе на сервере — все, кто открывает сайт, видят одно и то же. Правки в таблице сохраняются сразу на сервере. «Загрузить новые данные» полностью заменяет сток в базе новым файлом (видно всем). Кнопка «Синхронизировать» подтягивает последние изменения, если их внёс кто-то другой.</footer>
 
   <div id="drawer-backdrop"></div>
   <div id="drawer">
