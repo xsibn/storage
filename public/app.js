@@ -1188,16 +1188,18 @@
 
     // Physical walking path ("змейка"): only rows 01–06 are real (07–12 are stale
     // leftovers from the old warehouse in the DB and are never used for new
-    // placements). Picking starts at the far end of row 06 (cell 06-26-01, next to
-    // "начало пикинга"/"зона возврата" on the layout) and runs in descending rack
-    // order through row 06, then zig-zags back and forth through rows 05→01,
-    // reversing direction each row so the path never jumps across the warehouse.
+    // placements). Picking starts at the far end of row 06 (lowest rack in that
+    // row, e.g. 06-28-01, next to "начало пикинга"/"зона возврата" on the layout)
+    // and runs in ASCENDING rack order through row 06 (28→66, confirmed), then
+    // zig-zags back and forth through rows 05→01, reversing direction each row
+    // (05 descending, 04 ascending, 03 descending, 02 ascending, 01 descending)
+    // so the path never jumps across the warehouse.
     const pool = [];
     ACTIVE_ROWS.forEach((row, idx)=>{
       const extent = aisleExtent(row);
       if(!extent) return;
       let racks = extent.racks.slice().sort((a,b)=>a-b);
-      if(idx % 2 === 0) racks = racks.reverse(); // even idx (rows 06,04,02): descending
+      if(idx % 2 === 1) racks = racks.reverse(); // odd idx (rows 05,03,01): descending
       racks.forEach(rack=> pool.push({row, rack}));
     });
 
