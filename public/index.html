@@ -7,7 +7,7 @@
 <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
 <style>
   :root{
-    --bg: #F5F6F8;
+    --bg: #E9ECF2;
     --panel: #FFFFFF;
     --ink: #1C2430;
     --ink-soft: #5B6472;
@@ -29,12 +29,14 @@
     margin:0; font-family:var(--sans); background:var(--bg); color:var(--ink);
     font-size:14px; -webkit-font-smoothing:antialiased;
   }
-  #app{display:flex; flex-direction:column; min-height:100vh;}
+  #app{display:flex; flex-direction:column; min-height:100vh; gap:14px; padding:14px 20px 20px;}
 
   /* Header */
   header{
-    background:var(--panel); border-bottom:1px solid var(--line);
+    background:var(--panel); border:1px solid var(--line); border-radius:12px;
+    box-shadow:0 1px 3px rgba(16,24,40,.05), 0 1px 2px rgba(16,24,40,.06);
     padding:14px 20px; display:flex; align-items:center; gap:20px; flex-wrap:wrap;
+    max-width:1400px; width:100%; margin:0 auto; box-sizing:border-box;
   }
   header h1{
     font-size:16px; font-weight:700; margin:0; letter-spacing:.2px; white-space:nowrap;
@@ -78,21 +80,26 @@
 
   /* Tabs */
   nav.tabs{
-    background:var(--panel); border-bottom:1px solid var(--line); padding:0 20px;
-    display:flex; gap:4px;
+    background:var(--panel); border:1px solid var(--line); border-radius:12px;
+    box-shadow:0 1px 3px rgba(16,24,40,.05), 0 1px 2px rgba(16,24,40,.06);
+    padding:0 12px; display:flex; gap:4px; overflow-x:auto;
+    max-width:1400px; width:100%; margin:0 auto; box-sizing:border-box;
   }
   nav.tabs button{
     font-family:var(--sans); font-size:13px; font-weight:600; padding:12px 16px;
     background:none; border:none; border-bottom:2px solid transparent; color:var(--ink-soft);
-    cursor:pointer;
+    cursor:pointer; white-space:nowrap;
   }
-  nav.tabs button.active{color:var(--accent); border-bottom-color:var(--accent);}
+  nav.tabs button.active{color:var(--accent); border-bottom-color:var(--accent); background:var(--accent-soft); border-radius:8px 8px 0 0;}
 
-  main{flex:1; padding:18px 20px; display:flex; flex-direction:column; gap:16px; max-width:1400px; width:100%; margin:0 auto;}
+  main{flex:1; display:flex; flex-direction:column; gap:16px; max-width:1400px; width:100%; margin:0 auto;}
   .view{display:none;}
   .view.active{display:flex; flex-direction:column; gap:16px;}
 
-  .panel{background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:16px;}
+  .panel{
+    background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:18px;
+    box-shadow:0 1px 3px rgba(16,24,40,.05), 0 1px 2px rgba(16,24,40,.06);
+  }
   .panel h2{font-size:13px; margin:0 0 12px; text-transform:uppercase; letter-spacing:.4px; color:var(--ink-soft);}
 
   /* Toolbar row */
@@ -284,7 +291,11 @@
   .order-chip.drag-over{outline:2px dashed var(--accent); outline-offset:1px;}
 
   .empty-note{color:var(--ink-soft); font-size:12.5px; padding:24px; text-align:center;}
-  footer.upload-hint{font-size:11px; color:var(--ink-soft); padding:10px 20px;}
+  footer.upload-hint{
+    font-size:11px; color:var(--ink-soft); padding:12px 20px; text-align:center;
+    background:var(--panel); border:1px solid var(--line); border-radius:12px;
+    max-width:1400px; width:100%; margin:0 auto; box-sizing:border-box;
+  }
 
   /* Top progress bar for sync/upload/export/save operations */
   #progress-wrap{position:fixed; top:0; left:0; width:100%; height:3px; z-index:200; background:transparent; pointer-events:none;}
@@ -312,7 +323,8 @@
 
   /* ============ RESPONSIVE (tablet / phone) ============ */
   @media (max-width: 860px){
-    header{padding:10px 12px; gap:8px 12px;}
+    #app{padding:10px 12px 16px; gap:10px;}
+    header{padding:10px 12px; gap:8px 12px; border-radius:10px;}
     header h1{font-size:14px; flex:1 1 auto;}
     .stats{margin-left:0; order:3; width:100%; justify-content:space-between; border-top:1px solid var(--line); padding-top:8px;}
     .stat{padding:2px 6px;}
@@ -321,12 +333,12 @@
     #sync-status{display:none;}
     header .btn{padding:8px 10px; font-size:12px;}
 
-    nav.tabs{overflow-x:auto; -webkit-overflow-scrolling:touch; padding:0 12px; scrollbar-width:none;}
+    nav.tabs{overflow-x:auto; -webkit-overflow-scrolling:touch; padding:0 12px; scrollbar-width:none; border-radius:10px;}
     nav.tabs::-webkit-scrollbar{display:none;}
     nav.tabs button{padding:11px 12px; white-space:nowrap; flex-shrink:0; font-size:12.5px;}
 
-    main{padding:12px; gap:12px;}
-    .panel{padding:12px;}
+    main{gap:12px;}
+    .panel{padding:12px; border-radius:10px;}
 
     .toolbar{gap:8px;}
     .search{min-width:0; flex:1 1 100%;}
