@@ -393,6 +393,32 @@ body{
 }
 .dropdown-content label:hover, .dropdown-content div:hover { background-color: var(--bg); }
 .dropdown:hover .dropdown-content { display: block; }
+
+  /* Input & Select Theming Fix */
+  input[type="text"], input[type="number"], select, textarea {
+    background-color: var(--panel);
+    color: var(--ink);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    padding: 8px 12px;
+    font-family: inherit;
+    font-size: 13px;
+  }
+  
+  [data-theme="dark"] input[type="text"], 
+  [data-theme="dark"] input[type="number"], 
+  [data-theme="dark"] select, 
+  [data-theme="dark"] textarea {
+    background-color: var(--empty);
+    color: var(--ink);
+    border: 1px solid var(--line);
+  }
+  
+  [data-theme="dark"] input::placeholder, 
+  [data-theme="dark"] textarea::placeholder {
+    color: var(--ink-soft);
+  }
+
 </style>
 </head>
 <body>
@@ -403,7 +429,6 @@ body{
   <header>
     <h1>Адресное хранение <span class="tag" id="src-tag">подключение…</span></h1>
     <div class="stats" id="stats"></div>
-    <button class="btn" id="theme-toggle-btn" title="Переключить тему">🌙</button>
     <span id="sync-status" style="font-size:11px; color:var(--ink-soft); white-space:nowrap;"></span>
     <button class="btn" id="sync-btn" title="Подтянуть последние данные с сервера">⟳ Синхронизировать</button>
     <button class="btn" id="undo-btn" title="Отменить последнее действие">↺ Отменить</button>
