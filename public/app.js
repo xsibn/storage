@@ -2032,8 +2032,23 @@
     tableFilter = e.target.value; renderTable();
   });
 
+  // ---------- DB ACTIONS DROPDOWN (import + export grouped together) ----------
+  const dbDropdown = document.getElementById('db-actions-dropdown');
+  document.getElementById('db-actions-toggle').addEventListener('click', (e)=>{
+    e.stopPropagation();
+    dbDropdown.classList.toggle('open');
+  });
+  document.addEventListener('click', (e)=>{
+    if(dbDropdown.classList.contains('open') && !dbDropdown.contains(e.target)){
+      dbDropdown.classList.remove('open');
+    }
+  });
+  document.getElementById('export-btn').addEventListener('click', ()=> dbDropdown.classList.remove('open'));
+  // note: file-input's own change handler closes the menu once a file is picked (see below)
+
   // ---------- FILE UPLOAD (sent to the server — replaces the DB for everyone) ----------
   document.getElementById('file-input').addEventListener('change', async (e)=>{
+    dbDropdown.classList.remove('open');
     const file = e.target.files[0];
     if(!file) return;
     setSyncStatus('загрузка файла на сервер…');

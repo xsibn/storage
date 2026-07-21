@@ -61,6 +61,21 @@
   .btn.primary:hover{background:var(--accent); border-color:var(--accent); color:#fff;}
   input[type=file]{display:none;}
 
+  .dropdown{position:relative; display:inline-block;}
+  .dropdown-menu{
+    display:none; position:absolute; right:0; top:calc(100% + 6px); z-index:20;
+    background:var(--panel); border:1px solid var(--line); border-radius:9px;
+    box-shadow:0 8px 24px rgba(0,0,0,.12); min-width:200px; padding:6px; overflow:hidden;
+  }
+  .dropdown.open .dropdown-menu{display:block;}
+  .dropdown-menu button, .dropdown-menu label{
+    display:flex; align-items:center; gap:8px; width:100%; padding:9px 10px;
+    border:none; background:none; text-align:left; font-family:var(--sans);
+    font-size:13px; color:var(--ink); border-radius:6px; cursor:pointer; box-sizing:border-box;
+  }
+  .dropdown-menu button:hover, .dropdown-menu label:hover{background:var(--bg);}
+  .dropdown-menu .menu-sep{height:1px; background:var(--line); margin:5px 2px;}
+
   /* Tabs */
   nav.tabs{
     background:var(--panel); border-bottom:1px solid var(--line); padding:0 20px;
@@ -92,6 +107,14 @@
   .search::before{
     content:"⌕"; position:absolute; left:11px; top:50%; transform:translateY(-50%); color:var(--ink-soft); font-size:15px;
   }
+  .search input{ padding-right:36px; }
+  .search .scan-inline-btn{
+    position:absolute; right:4px; top:50%; transform:translateY(-50%);
+    width:28px; height:28px; border:none; background:none; cursor:pointer;
+    font-size:15px; display:flex; align-items:center; justify-content:center;
+    border-radius:6px; color:var(--ink-soft);
+  }
+  .search .scan-inline-btn:hover{ background:var(--bg); color:var(--ink); }
   select{
     padding:8px 10px; border:1px solid var(--line); border-radius:7px; background:var(--panel);
     font-family:var(--sans); font-size:13px; color:var(--ink);
@@ -360,10 +383,14 @@
     <button class="btn" id="sync-btn" title="Подтянуть последние данные с сервера">⟳ Синхронизировать</button>
     <button class="btn" id="undo-btn" title="Отменить последнее действие">↺ Отменить</button>
     <button class="btn" id="activity-log-btn" title="Журнал изменений (хранится 14 дней)">📋 Журнал</button>
-    <button class="btn" id="scan-barcode-btn" title="Найти товар по штрих-коду через камеру">📷 Скан. штрих-кода</button>
-    <label class="btn primary" for="file-input">Загрузить новые данные (.xlsx)</label>
-    <input type="file" id="file-input" accept=".xlsx,.xls,.csv">
-    <button class="btn" id="export-btn">Экспорт в Excel</button>
+    <div class="dropdown" id="db-actions-dropdown">
+      <button class="btn primary" id="db-actions-toggle">База данных ▾</button>
+      <div class="dropdown-menu" id="db-actions-menu">
+        <label for="file-input">⬆ Загрузить новые данные (.xlsx)</label>
+        <input type="file" id="file-input" accept=".xlsx,.xls,.csv">
+        <button id="export-btn">⬇ Экспорт в Excel</button>
+      </div>
+    </div>
   </header>
 
   <nav class="tabs">
@@ -402,7 +429,10 @@
     <section class="view" id="view-table">
       <div class="panel">
         <div class="toolbar">
-          <div class="search"><input type="text" id="table-search" placeholder="Поиск по артикулу, наименованию, ячейке или ТЕ…"></div>
+          <div class="search">
+            <input type="text" id="table-search" placeholder="Поиск по артикулу, наименованию, ячейке или ТЕ…">
+            <button class="scan-inline-btn" id="scan-barcode-btn" type="button" title="Найти товар по штрих-коду через камеру">📷</button>
+          </div>
           <select id="table-filter">
             <option value="all">Все записи</option>
             <option value="address">Только адресные ячейки</option>
@@ -535,7 +565,13 @@
 
   </main>
 
-  <footer class="upload-hint">Данные хранятся в базе на сервере — все, кто открывает сайт, видят одно и то же. Правки в таблице сохраняются сразу на сервере. «Загрузить новые данные» полностью заменяет сток в базе новым файлом (видно всем). Кнопка «Синхронизировать» подтягивает последние изменения, если их внёс кто-то другой.</footer>
+  <footer class="upload-hint">
+    <div>Данные хранятся в базе на сервере — все, кто открывает сайт, видят одно и то же. Правки в таблице сохраняются сразу на сервере. «Загрузить новые данные» полностью заменяет сток в базе новым файлом (видно всем). Кнопка «Синхронизировать» подтягивает последние изменения, если их внёс кто-то другой.</div>
+    <a class="btn" href="https://github.com/xsibn/storage" target="_blank" rel="noopener" style="display:inline-flex; align-items:center; gap:7px; margin-top:12px; text-decoration:none; width:fit-content;">
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8z"/></svg>
+      GitHub
+    </a>
+  </footer>
 
   <div id="drawer-backdrop"></div>
   <div id="drawer">
