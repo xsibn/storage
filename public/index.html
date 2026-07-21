@@ -376,7 +376,7 @@
     <button class="btn" id="sync-btn" title="Подтянуть последние данные с сервера">⟳ Синхронизировать</button>
     <button class="btn" id="undo-btn" title="Отменить последнее действие">↺ Отменить</button>
     <button class="btn" id="activity-log-btn" title="Журнал изменений (хранится 14 дней)">📋 Журнал</button>
-    <button class="btn" id="scan-barcode-btn" title="Найти товар по штрих-коду через камеру">📷 Скан. штрих-кода</button>
+    
     <label class="btn primary" for="file-input">Загрузить новые данные (.xlsx)</label>
     <input type="file" id="file-input" accept=".xlsx,.xls,.csv">
     <button class="btn" id="export-btn">Экспорт в Excel</button>
@@ -419,6 +419,7 @@
       <div class="panel">
         <div class="toolbar">
           <div class="search"><input type="text" id="table-search" placeholder="Поиск по артикулу, наименованию, ячейке или ТЕ…"></div>
+        <button class="btn" id="scan-barcode-btn" title="Найти товар по штрих-коду через камеру"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align: text-bottom; margin-right: 4px;"><path d="M3 5v4"/><path d="M3 15v4"/><path d="M21 5v4"/><path d="M21 15v4"/><path d="M7 5v14"/><path d="M10 5v14"/><path d="M14 5v14"/><path d="M17 5v14"/></svg>Скан. штрих-кода</button>
           <select id="table-filter">
             <option value="all">Все записи</option>
             <option value="address">Только адресные ячейки</option>
