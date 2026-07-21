@@ -1353,19 +1353,21 @@
     const materialOrder = Object.entries(materialVolume).sort((x,y)=>y[1]-x[1]).map(([k])=>k);
     const materialRank = {}; materialOrder.forEach((c,i)=>materialRank[c]=i);
 
-    // Placement priority: 1) ABC class (A first — best/closest positions, right at
-    // the picking start), 2) packaging material (ПЭТ with ПЭТ, жесть with жесть, etc.
-    // — never mixed within the same run), 3) ВГХ / unit weight-volume (same size
-    // together, heavy->light as the ergonomic tie-break). Merchandise category is
-    // NOT part of the ordering anymore.
+    // Placement priority: 1) packaging material (ПЭТ with ПЭТ, жесть с жестью, стекло
+    // со стеклом и т.д. — a material's run is NEVER split apart by class; this must
+    // win first or class boundaries fragment a material across the warehouse),
+    // 2) ABC class within that material's own run (A first — closest to the start
+    // of ITS run, then B, then C), 3) ВГХ / unit weight-volume (same size together,
+    // heavy->light as the ergonomic tie-break within the same material+class).
+    // Merchandise category is NOT part of the ordering.
     const abcRank = {A:0, B:1, C:2};
     articles.sort((a,b)=>{
+      if(materialRank[a.material] !== materialRank[b.material]) return materialRank[a.material]-materialRank[b.material];
       const aAbc = abcByArticle[a.article].abcClass, bAbc = abcByArticle[b.article].abcClass;
       if(abcRank[aAbc] !== abcRank[bAbc]) return abcRank[aAbc]-abcRank[bAbc];
-      if(materialRank[a.material] !== materialRank[b.material]) return materialRank[a.material]-materialRank[b.material];
       const av = a.vol==null ? -Infinity : a.vol;
       const bv = b.vol==null ? -Infinity : b.vol;
-      if(bv !== av) return bv - av; // ВГХ: heavier/larger unit first within same material
+      if(bv !== av) return bv - av; // ВГХ: heavier/larger unit first within same material+class
       return b.qty - a.qty; // final stable tie-break
     });
 
