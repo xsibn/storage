@@ -1127,6 +1127,25 @@
   // the old warehouse and must never be offered for new placements or ranges.
   const ACTIVE_ROWS = ['06','05','04','03','02','01'];
 
+  // Within each active row, only this rack range is the actual STORAGE zone used
+  // for picking/replenishment. Racks outside this range (in the same row) belong
+  // to other zones (staging, return, etc.) and must never be offered for new
+  // placements or ranges — confirmed by warehouse layout.
+  const STORAGE_RANGE = {
+    '06': [28, 66],
+    '05': [25, 66],
+    '04': [25, 84],
+    '03': [19, 66],
+    '02': [19, 66],
+    '01': [13, 66]
+  };
+  function racksInStorageZone(row, racks){
+    const range = STORAGE_RANGE[row];
+    if(!range) return racks;
+    const [lo, hi] = range;
+    return racks.filter(r=> r>=lo && r<=hi);
+  }
+
   let recoCache = null; // {sorted:[...], posPool:[...]}
 
   function zpad(n){ return n<10 ? '0'+n : String(n); }
@@ -1199,6 +1218,7 @@
       const extent = aisleExtent(row);
       if(!extent) return;
       let racks = extent.racks.slice().sort((a,b)=>a-b);
+      racks = racksInStorageZone(row, racks);
       if(idx % 2 === 1) racks = racks.reverse(); // odd idx (rows 05,03,01): descending
       racks.forEach(rack=> pool.push({row, rack}));
     });
@@ -1485,7 +1505,7 @@
   function updateRangeRackOptions(){
     const row = document.getElementById('range-row').value;
     const extent = aisleExtent(row);
-    const racks = extent ? extent.racks.slice().sort((a,b)=>a-b) : [];
+    const racks = extent ? racksInStorageZone(row, extent.racks.slice().sort((a,b)=>a-b)) : [];
     const fromSel = document.getElementById('range-rack-from');
     const toSel = document.getElementById('range-rack-to');
     fromSel.innerHTML = racks.map(r=>`<option value="${r}">${r}</option>`).join('');
