@@ -362,6 +362,20 @@
   @media (hover: none) and (pointer: coarse){
     .cell[draggable="true"], .aisle-chip[draggable="true"], .rack-label[draggable="true"]{cursor:pointer;}
   }
+
+/* Dropdown Menu */
+.dropdown { position: relative; display: inline-block; }
+.dropdown-content {
+  display: none; position: absolute; right: 0; background-color: #fff;
+  min-width: 160px; box-shadow: 0 4px 12px rgba(0,0,0,0.15); border-radius: 8px;
+  z-index: 1000; border: 1px solid var(--line); overflow: hidden; margin-top: 4px;
+}
+.dropdown-content label, .dropdown-content div {
+  color: var(--ink); padding: 12px 16px; text-decoration: none; display: block;
+  font-size: 13px; cursor: pointer; transition: background 0.2s;
+}
+.dropdown-content label:hover, .dropdown-content div:hover { background-color: var(--bg); }
+.dropdown:hover .dropdown-content { display: block; }
 </style>
 </head>
 <body>
@@ -377,9 +391,14 @@
     <button class="btn" id="undo-btn" title="Отменить последнее действие">↺ Отменить</button>
     <button class="btn" id="activity-log-btn" title="Журнал изменений (хранится 14 дней)">📋 Журнал</button>
     
-    <label class="btn primary" for="file-input">Загрузить новые данные (.xlsx)</label>
-    <input type="file" id="file-input" accept=".xlsx,.xls,.csv">
-    <button class="btn" id="export-btn">Экспорт в Excel</button>
+    <div class="dropdown">
+      <button class="btn primary" style="padding: 8px 12px;">Данные ▾</button>
+      <div class="dropdown-content">
+        <label for="file-input">📥 Импорт (.xlsx)</label>
+        <input type="file" id="file-input" accept=".xlsx,.xls,.csv" style="display:none;">
+        <div id="export-btn">📤 Экспорт в Excel</div>
+      </div>
+    </div>
   </header>
 
   <nav class="tabs">
