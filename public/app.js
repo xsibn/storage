@@ -1286,10 +1286,6 @@
   // Only rows 01-06 physically exist; 07-12 are stale rows left in the DB from
   // the old warehouse and must never be offered for new placements or ranges.
   const ACTIVE_ROWS = ['06','05','04','03','02','01'];
-  // Picking-face footprint per ABC class: A-class articles are fast movers and
-  // get 3 rack columns of pick face, B gets 2, C gets 1 — wider face = fewer
-  // trips to replenish that slot during a shift.
-  const ABC_COLS = {A:3, B:2, C:1};
 
   // Within each active row, only this rack range is the actual STORAGE zone used
   // for picking/replenishment. Racks outside this range (in the same row) belong
@@ -1309,6 +1305,11 @@
     const [lo, hi] = range;
     return racks.filter(r=> r>=lo && r<=hi);
   }
+
+  // Picking-face footprint per ABC class: A-class articles are fast movers and
+  // get 3 rack columns of pick face, B gets 2, C gets 1 — wider face = fewer
+  // trips to replenish that slot during a shift.
+  const ABC_COLS = {A:3, B:2, C:1};
 
   let recoCache = null; // {sorted:[...], posPool:[...]}
 
@@ -1353,21 +1354,20 @@
     const materialOrder = Object.entries(materialVolume).sort((x,y)=>y[1]-x[1]).map(([k])=>k);
     const materialRank = {}; materialOrder.forEach((c,i)=>materialRank[c]=i);
 
-    // Placement priority: 1) packaging material (ПЭТ with ПЭТ, жесть с жестью, стекло
-    // со стеклом и т.д. — a material's run is NEVER split apart by class; this must
-    // win first or class boundaries fragment a material across the warehouse),
-    // 2) ABC class within that material's own run (A first — closest to the start
-    // of ITS run, then B, then C), 3) ВГХ / unit weight-volume (same size together,
-    // heavy->light as the ergonomic tie-break within the same material+class).
+    // Placement priority: 1) packaging material (ПЭТ with ПЭТ, жесть with жесть,
+    // etc. — this is the PRIMARY grouping, never mixed within a run), 2) ВГХ /
+    // unit volume-weight within that same material (same litrage/weight grouped
+    // together, heavier/larger first), 3) ABC class within that material+volume
+    // group (A first — closest to the start of ITS run, then B, then C).
     // Merchandise category is NOT part of the ordering.
     const abcRank = {A:0, B:1, C:2};
     articles.sort((a,b)=>{
       if(materialRank[a.material] !== materialRank[b.material]) return materialRank[a.material]-materialRank[b.material];
-      const aAbc = abcByArticle[a.article].abcClass, bAbc = abcByArticle[b.article].abcClass;
-      if(abcRank[aAbc] !== abcRank[bAbc]) return abcRank[aAbc]-abcRank[bAbc];
       const av = a.vol==null ? -Infinity : a.vol;
       const bv = b.vol==null ? -Infinity : b.vol;
-      if(bv !== av) return bv - av; // ВГХ: heavier/larger unit first within same material+class
+      if(bv !== av) return bv - av; // ВГХ: heavier/larger unit first within same material
+      const aAbc = abcByArticle[a.article].abcClass, bAbc = abcByArticle[b.article].abcClass;
+      if(abcRank[aAbc] !== abcRank[bAbc]) return abcRank[aAbc]-abcRank[bAbc];
       return b.qty - a.qty; // final stable tie-break
     });
 
@@ -1553,7 +1553,7 @@
           const a = byRack[rk];
           if(!a) return;
           const role = lv==='01' ? `Пикинг (очередь #${a.rank})` : 'Пополнение / резерв';
-          openDrawer(addr, [{article:a.article, name:a.name, qty:a.qty, mfg:'', exp:`${role} · ${a.material} · ${a.category} · класс ABC: ${a.abcClass} (${a.volShare.toFixed(1)}% объёма стока)`}]);
+          openDrawer(addr, [{article:a.article, name:a.name, qty:a.qty, mfg:'', exp:`${role} · ${a.material} · ${a.category} · класс ABC: ${a.abcClass} (${a.volShare.toFixed(1)}% объёма стока) · колонок на пик-лицо: ${(a.positions||[]).length || 1}`}]);
         } else {
           const actual = actualByAddr[rk+'|'+lv];
           if(!actual) return;
@@ -1696,9 +1696,9 @@
       .filter(a=>a.material===material)
       .slice()
       .sort((a,b)=>{
-        if(abcRank[a.abcClass]!==abcRank[b.abcClass]) return abcRank[a.abcClass]-abcRank[b.abcClass];
         const av = a.vol==null?-Infinity:a.vol, bv = b.vol==null?-Infinity:b.vol;
-        return bv-av;
+        if(bv !== av) return bv-av;
+        return abcRank[a.abcClass]-abcRank[b.abcClass];
       });
     const extent = aisleExtent(row);
     const orderedRacks = (extent ? extent.racks : []).filter(r=>r>=rackFrom && r<=rackTo);
@@ -1711,11 +1711,12 @@
       return {
         ...a, rangeRank: idx+1,
         pickAddress: rack!=null ? `${row}-${zpad(rack)}-01` : null,
+        pickAddresses: racks.map(rk=>`${row}-${zpad(rk)}-01`),
         replenish: rack!=null ? `${row}-${zpad(rack)} · ярусы выше 01` : null,
         rack, racks
       };
     });
-    return { assigned, racks: orderedRacks, row, category };
+    return { assigned, racks: orderedRacks, row, material };
   }
 
   function renderRangeResult(result){
@@ -1729,7 +1730,7 @@
     levels = levels.reverse();
 
     const byRack = {};
-    result.assigned.forEach(a=>{ (a.racks||[]).forEach(rk=>{ byRack[rk] = a; }); });
+    result.assigned.forEach(a=>{ (a.racks||[a.rack]).forEach(rk=>{ if(rk!=null) byRack[rk] = a; }); });
     const maxUnitVol = result.assigned.length ? (result.assigned[0].vol==null?1:result.assigned[0].vol) : 1;
 
     let html = `<div style="display:grid; grid-template-columns:34px repeat(${Math.max(allRacks.length,1)}, 22px); gap:3px;">`;
@@ -2051,8 +2052,23 @@
     tableFilter = e.target.value; renderTable();
   });
 
+  // ---------- DB ACTIONS DROPDOWN (import + export grouped together) ----------
+  const dbDropdown = document.getElementById('db-actions-dropdown');
+  document.getElementById('db-actions-toggle').addEventListener('click', (e)=>{
+    e.stopPropagation();
+    dbDropdown.classList.toggle('open');
+  });
+  document.addEventListener('click', (e)=>{
+    if(dbDropdown.classList.contains('open') && !dbDropdown.contains(e.target)){
+      dbDropdown.classList.remove('open');
+    }
+  });
+  document.getElementById('export-btn').addEventListener('click', ()=> dbDropdown.classList.remove('open'));
+  // note: file-input's own change handler closes the menu once a file is picked (see below)
+
   // ---------- FILE UPLOAD (sent to the server — replaces the DB for everyone) ----------
   document.getElementById('file-input').addEventListener('change', async (e)=>{
+    dbDropdown.classList.remove('open');
     const file = e.target.files[0];
     if(!file) return;
     setSyncStatus('загрузка файла на сервер…');
@@ -2164,28 +2180,3 @@
   })();
 })();
 
-
-
-// Theme Toggle Logic
-const themeToggleBtn = document.getElementById('theme-toggle-btn');
-const currentTheme = localStorage.getItem('theme') || 'light';
-
-if (currentTheme === 'dark') {
-    document.documentElement.setAttribute('data-theme', 'dark');
-    if(themeToggleBtn) themeToggleBtn.textContent = '☀️';
-}
-
-if(themeToggleBtn) {
-    themeToggleBtn.addEventListener('click', () => {
-        const theme = document.documentElement.getAttribute('data-theme');
-        if (theme === 'dark') {
-            document.documentElement.removeAttribute('data-theme');
-            localStorage.setItem('theme', 'light');
-            themeToggleBtn.textContent = '🌙';
-        } else {
-            document.documentElement.setAttribute('data-theme', 'dark');
-            localStorage.setItem('theme', 'dark');
-            themeToggleBtn.textContent = '☀️';
-        }
-    });
-}
