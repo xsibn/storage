@@ -1356,19 +1356,18 @@
 
     // Placement priority: 1) packaging material (ПЭТ с ПЭТ, жесть с жестью, стекло
     // со стеклом и т.д. — материал никогда не разбивается классом ABC, весь его
-    // пробег на маршруте идёт одним непрерывным блоком), 2) класс ABC внутри
-    // этого материала (A — ходовые товары, ближе к началу пробега именно этого
-    // материала, далее B, затем C), 3) ВГХ / вес-объём единицы (тяжёлое/крупное
-    // вперёд, только как эргономический тай-брейк внутри одного материала+класса).
+    // пробег на маршруте идёт одним непрерывным блоком), 2) ВГХ / вес-объём единицы
+    // (тяжёлое/крупное вперёд) внутри этого материала, 3) класс ABC (A — ходовые
+    // товары — как финальный тай-брейк внутри одного материала+объёма).
     // Merchandise category is NOT part of the ordering.
     const abcRank = {A:0, B:1, C:2};
     articles.sort((a,b)=>{
       if(materialRank[a.material] !== materialRank[b.material]) return materialRank[a.material]-materialRank[b.material];
-      const aAbc = abcByArticle[a.article].abcClass, bAbc = abcByArticle[b.article].abcClass;
-      if(abcRank[aAbc] !== abcRank[bAbc]) return abcRank[aAbc]-abcRank[bAbc]; // ходовые товары (A) — первыми
       const av = a.vol==null ? -Infinity : a.vol;
       const bv = b.vol==null ? -Infinity : b.vol;
-      if(bv !== av) return bv - av; // ВГХ: heavier/larger unit first within same material+class
+      if(bv !== av) return bv - av; // ВГХ: heavier/larger unit first within same material
+      const aAbc = abcByArticle[a.article].abcClass, bAbc = abcByArticle[b.article].abcClass;
+      if(abcRank[aAbc] !== abcRank[bAbc]) return abcRank[aAbc]-abcRank[bAbc]; // ходовые товары (A) — первыми
       return b.qty - a.qty; // final stable tie-break
     });
 
@@ -1661,7 +1660,7 @@
 
   // ---------- RANGE-SCOPED RECOMMENDATION ----------
   // Pick an aisle + rack range + one category, and get a recommendation just
-  // for that slice of the warehouse (same ABC-then-weight ordering as the
+  // for that slice of the warehouse (same weight-then-ABC ordering as the
   // global recommendation, but scoped so it's actually usable for "I'm
   // reorganizing this one section right now").
   function populateRangeForm(){
@@ -1697,9 +1696,9 @@
       .filter(a=>a.material===material)
       .slice()
       .sort((a,b)=>{
-        if(abcRank[a.abcClass] !== abcRank[b.abcClass]) return abcRank[a.abcClass]-abcRank[b.abcClass]; // ходовые товары (A) — первыми
         const av = a.vol==null?-Infinity:a.vol, bv = b.vol==null?-Infinity:b.vol;
-        return bv-av;
+        if(bv !== av) return bv-av; // ВГХ: heavier/larger unit first
+        return abcRank[a.abcClass]-abcRank[b.abcClass]; // ходовые товары (A) — тай-брейк
       });
     const extent = aisleExtent(row);
     const orderedRacks = (extent ? extent.racks : []).filter(r=>r>=rackFrom && r<=rackTo);
