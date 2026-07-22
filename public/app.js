@@ -1354,20 +1354,21 @@
     const materialOrder = Object.entries(materialVolume).sort((x,y)=>y[1]-x[1]).map(([k])=>k);
     const materialRank = {}; materialOrder.forEach((c,i)=>materialRank[c]=i);
 
-    // Placement priority: 1) packaging material (ПЭТ with ПЭТ, жесть with жесть,
-    // etc. — this is the PRIMARY grouping, never mixed within a run), 2) ВГХ /
-    // unit volume-weight within that same material (same litrage/weight grouped
-    // together, heavier/larger first), 3) ABC class within that material+volume
-    // group (A first — closest to the start of ITS run, then B, then C).
+    // Placement priority: 1) packaging material (ПЭТ с ПЭТ, жесть с жестью, стекло
+    // со стеклом и т.д. — материал никогда не разбивается классом ABC, весь его
+    // пробег на маршруте идёт одним непрерывным блоком), 2) класс ABC внутри
+    // этого материала (A — ходовые товары, ближе к началу пробега именно этого
+    // материала, далее B, затем C), 3) ВГХ / вес-объём единицы (тяжёлое/крупное
+    // вперёд, только как эргономический тай-брейк внутри одного материала+класса).
     // Merchandise category is NOT part of the ordering.
     const abcRank = {A:0, B:1, C:2};
     articles.sort((a,b)=>{
       if(materialRank[a.material] !== materialRank[b.material]) return materialRank[a.material]-materialRank[b.material];
+      const aAbc = abcByArticle[a.article].abcClass, bAbc = abcByArticle[b.article].abcClass;
+      if(abcRank[aAbc] !== abcRank[bAbc]) return abcRank[aAbc]-abcRank[bAbc]; // ходовые товары (A) — первыми
       const av = a.vol==null ? -Infinity : a.vol;
       const bv = b.vol==null ? -Infinity : b.vol;
-      if(bv !== av) return bv - av; // ВГХ: heavier/larger unit first within same material
-      const aAbc = abcByArticle[a.article].abcClass, bAbc = abcByArticle[b.article].abcClass;
-      if(abcRank[aAbc] !== abcRank[bAbc]) return abcRank[aAbc]-abcRank[bAbc];
+      if(bv !== av) return bv - av; // ВГХ: heavier/larger unit first within same material+class
       return b.qty - a.qty; // final stable tie-break
     });
 
@@ -1696,9 +1697,9 @@
       .filter(a=>a.material===material)
       .slice()
       .sort((a,b)=>{
+        if(abcRank[a.abcClass] !== abcRank[b.abcClass]) return abcRank[a.abcClass]-abcRank[b.abcClass]; // ходовые товары (A) — первыми
         const av = a.vol==null?-Infinity:a.vol, bv = b.vol==null?-Infinity:b.vol;
-        if(bv !== av) return bv-av;
-        return abcRank[a.abcClass]-abcRank[b.abcClass];
+        return bv-av;
       });
     const extent = aisleExtent(row);
     const orderedRacks = (extent ? extent.racks : []).filter(r=>r>=rackFrom && r<=rackTo);
@@ -2179,4 +2180,28 @@
     await syncFromServer(true);
   })();
 })();
+
+// Theme Toggle Logic
+const themeToggleBtn = document.getElementById('theme-toggle-btn');
+const currentTheme = localStorage.getItem('theme') || 'light';
+
+if (currentTheme === 'dark') {
+    document.documentElement.setAttribute('data-theme', 'dark');
+    if(themeToggleBtn) themeToggleBtn.textContent = '☀️';
+}
+
+if(themeToggleBtn) {
+    themeToggleBtn.addEventListener('click', () => {
+        const theme = document.documentElement.getAttribute('data-theme');
+        if (theme === 'dark') {
+            document.documentElement.removeAttribute('data-theme');
+            localStorage.setItem('theme', 'light');
+            themeToggleBtn.textContent = '🌙';
+        } else {
+            document.documentElement.setAttribute('data-theme', 'dark');
+            localStorage.setItem('theme', 'dark');
+            themeToggleBtn.textContent = '☀️';
+        }
+    });
+}
 
