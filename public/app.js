@@ -1356,18 +1356,39 @@
 
     // Placement priority: 1) packaging material (ПЭТ с ПЭТ, жесть с жестью, стекло
     // со стеклом и т.д. — материал никогда не разбивается классом ABC, весь его
-    // пробег на маршруте идёт одним непрерывным блоком), 2) ВГХ / вес-объём единицы
-    // (тяжёлое/крупное вперёд) внутри этого материала, 3) класс ABC (A — ходовые
-    // товары — как финальный тай-брейк внутри одного материала+объёма).
-    // Merchandise category is NOT part of the ordering.
+    // пробег на маршруте идёт одним непрерывным блоком), 2) фасовка / объём
+    // единицы — 2л стоит с 2л, 1.5л с 1.5л и т.д., эта группа тоже не
+    // разбивается, 3) продаваемость / оборачиваемость — класс ABC определяет
+    // порядок И между самими группами объёма (какая фасовка идёт раньше по
+    // пробегу), И между товарами внутри одной группы объёма (A — ходовые
+    // товары первыми, далее B, затем C). Порядок групп объёма НЕ зависит от
+    // количества литров — только от того, насколько ходовой в среднем товар
+    // в этой фасовке. Merchandise category is NOT part of the ordering.
     const abcRank = {A:0, B:1, C:2};
+    const volKey = a => a.vol==null ? '\u2205' : a.vol.toFixed(2);
+    const volGroupStats = {}; // material+volKey -> {minAbcRank, countA, qty}
+    articles.forEach(a=>{
+      const k = a.material+'|'+volKey(a);
+      const abc = abcByArticle[a.article].abcClass;
+      if(!volGroupStats[k]) volGroupStats[k] = {minAbcRank:3, countA:0, qty:0};
+      const st = volGroupStats[k];
+      st.minAbcRank = Math.min(st.minAbcRank, abcRank[abc]);
+      if(abc==='A') st.countA++;
+      st.qty += a.qty;
+    });
     articles.sort((a,b)=>{
       if(materialRank[a.material] !== materialRank[b.material]) return materialRank[a.material]-materialRank[b.material];
-      const av = a.vol==null ? -Infinity : a.vol;
-      const bv = b.vol==null ? -Infinity : b.vol;
-      if(bv !== av) return bv - av; // ВГХ: heavier/larger unit first within same material
+      const ka = a.material+'|'+volKey(a), kb = b.material+'|'+volKey(b);
+      if(ka !== kb){
+        const sa = volGroupStats[ka], sb = volGroupStats[kb];
+        if(sa.minAbcRank !== sb.minAbcRank) return sa.minAbcRank-sb.minAbcRank; // фасовка с более ходовым товаром — раньше
+        if(sb.countA !== sa.countA) return sb.countA-sa.countA;
+        if(sb.qty !== sa.qty) return sb.qty-sa.qty;
+        const av = a.vol==null ? -Infinity : a.vol, bv = b.vol==null ? -Infinity : b.vol;
+        return bv - av; // last-resort tie-break between equally-selling volume groups
+      }
       const aAbc = abcByArticle[a.article].abcClass, bAbc = abcByArticle[b.article].abcClass;
-      if(abcRank[aAbc] !== abcRank[bAbc]) return abcRank[aAbc]-abcRank[bAbc]; // ходовые товары (A) — первыми
+      if(abcRank[aAbc] !== abcRank[bAbc]) return abcRank[aAbc]-abcRank[bAbc]; // ходовые товары (A) — первыми внутри одной фасовки
       return b.qty - a.qty; // final stable tie-break
     });
 
@@ -1660,7 +1681,7 @@
 
   // ---------- RANGE-SCOPED RECOMMENDATION ----------
   // Pick an aisle + rack range + one category, and get a recommendation just
-  // for that slice of the warehouse (same weight-then-ABC ordering as the
+  // for that slice of the warehouse (same volume-group-then-ABC ordering as the
   // global recommendation, but scoped so it's actually usable for "I'm
   // reorganizing this one section right now").
   function populateRangeForm(){
@@ -1692,13 +1713,31 @@
   function computeRangeRecommendation(row, rackFrom, rackTo, material){
     if(!recoCache) computeRecommendation();
     const abcRank = {A:0, B:1, C:2};
-    const items = recoCache.assigned
-      .filter(a=>a.material===material)
+    const volKey = a => a.vol==null ? '\u2205' : a.vol.toFixed(2);
+    const pool = recoCache.assigned.filter(a=>a.material===material);
+    const volGroupStats = {};
+    pool.forEach(a=>{
+      const k = volKey(a);
+      if(!volGroupStats[k]) volGroupStats[k] = {minAbcRank:3, countA:0, qty:0};
+      const st = volGroupStats[k];
+      st.minAbcRank = Math.min(st.minAbcRank, abcRank[a.abcClass]);
+      if(a.abcClass==='A') st.countA++;
+      st.qty += a.qty;
+    });
+    const items = pool
       .slice()
       .sort((a,b)=>{
-        const av = a.vol==null?-Infinity:a.vol, bv = b.vol==null?-Infinity:b.vol;
-        if(bv !== av) return bv-av; // ВГХ: heavier/larger unit first
-        return abcRank[a.abcClass]-abcRank[b.abcClass]; // ходовые товары (A) — тай-брейк
+        const ka = volKey(a), kb = volKey(b);
+        if(ka !== kb){
+          const sa = volGroupStats[ka], sb = volGroupStats[kb];
+          if(sa.minAbcRank !== sb.minAbcRank) return sa.minAbcRank-sb.minAbcRank; // фасовка с более ходовым товаром — раньше
+          if(sb.countA !== sa.countA) return sb.countA-sa.countA;
+          if(sb.qty !== sa.qty) return sb.qty-sa.qty;
+          const av = a.vol==null?-Infinity:a.vol, bv = b.vol==null?-Infinity:b.vol;
+          return bv-av;
+        }
+        if(abcRank[a.abcClass] !== abcRank[b.abcClass]) return abcRank[a.abcClass]-abcRank[b.abcClass]; // ходовые товары (A) — первыми внутри одной фасовки
+        return b.qty-a.qty;
       });
     const extent = aisleExtent(row);
     const orderedRacks = (extent ? extent.racks : []).filter(r=>r>=rackFrom && r<=rackTo);
