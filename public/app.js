@@ -170,6 +170,5 @@ document.addEventListener('DOMContentLoaded', () => {
         handleScannedCode(e.target.value);
       }
     });
-    if(!isEditing && !drawerOpen) syncFromServer(false);
   }
 });
