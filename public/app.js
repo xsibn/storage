@@ -1286,10 +1286,6 @@
   // Only rows 01-06 physically exist; 07-12 are stale rows left in the DB from
   // the old warehouse and must never be offered for new placements or ranges.
   const ACTIVE_ROWS = ['06','05','04','03','02','01'];
-  // Picking-face footprint per ABC class: A-class articles are fast movers and
-  // get 3 rack columns of pick face, B gets 2, C gets 1 — wider face = fewer
-  // trips to replenish that slot during a shift.
-  const ABC_COLS = {A:3, B:2, C:1};
 
   // Within each active row, only this rack range is the actual STORAGE zone used
   // for picking/replenishment. Racks outside this range (in the same row) belong
@@ -1309,6 +1305,11 @@
     const [lo, hi] = range;
     return racks.filter(r=> r>=lo && r<=hi);
   }
+
+  // Picking-face footprint per ABC class: A-class articles are fast movers and
+  // get 3 rack columns of pick face, B gets 2, C gets 1 — wider face = fewer
+  // trips to replenish that slot during a shift.
+  const ABC_COLS = {A:3, B:2, C:1};
 
   let recoCache = null; // {sorted:[...], posPool:[...]}
 
@@ -1353,21 +1354,41 @@
     const materialOrder = Object.entries(materialVolume).sort((x,y)=>y[1]-x[1]).map(([k])=>k);
     const materialRank = {}; materialOrder.forEach((c,i)=>materialRank[c]=i);
 
-    // Placement priority: 1) packaging material (ПЭТ with ПЭТ, жесть с жестью, стекло
-    // со стеклом и т.д. — a material's run is NEVER split apart by class; this must
-    // win first or class boundaries fragment a material across the warehouse),
-    // 2) ABC class within that material's own run (A first — closest to the start
-    // of ITS run, then B, then C), 3) ВГХ / unit weight-volume (same size together,
-    // heavy->light as the ergonomic tie-break within the same material+class).
-    // Merchandise category is NOT part of the ordering.
+    // Placement priority: 1) packaging material (ПЭТ с ПЭТ, жесть с жестью, стекло
+    // со стеклом и т.д. — материал никогда не разбивается классом ABC, весь его
+    // пробег на маршруте идёт одним непрерывным блоком), 2) фасовка / объём
+    // единицы — 2л стоит с 2л, 1.5л с 1.5л и т.д., эта группа тоже не
+    // разбивается, 3) продаваемость / оборачиваемость — класс ABC определяет
+    // порядок И между самими группами объёма (какая фасовка идёт раньше по
+    // пробегу), И между товарами внутри одной группы объёма (A — ходовые
+    // товары первыми, далее B, затем C). Порядок групп объёма НЕ зависит от
+    // количества литров — только от того, насколько ходовой в среднем товар
+    // в этой фасовке. Merchandise category is NOT part of the ordering.
     const abcRank = {A:0, B:1, C:2};
+    const volKey = a => a.vol==null ? '\u2205' : a.vol.toFixed(2);
+    const volGroupStats = {}; // material+volKey -> {minAbcRank, countA, qty}
+    articles.forEach(a=>{
+      const k = a.material+'|'+volKey(a);
+      const abc = abcByArticle[a.article].abcClass;
+      if(!volGroupStats[k]) volGroupStats[k] = {minAbcRank:3, countA:0, qty:0};
+      const st = volGroupStats[k];
+      st.minAbcRank = Math.min(st.minAbcRank, abcRank[abc]);
+      if(abc==='A') st.countA++;
+      st.qty += a.qty;
+    });
     articles.sort((a,b)=>{
       if(materialRank[a.material] !== materialRank[b.material]) return materialRank[a.material]-materialRank[b.material];
+      const ka = a.material+'|'+volKey(a), kb = b.material+'|'+volKey(b);
+      if(ka !== kb){
+        const sa = volGroupStats[ka], sb = volGroupStats[kb];
+        if(sa.minAbcRank !== sb.minAbcRank) return sa.minAbcRank-sb.minAbcRank; // фасовка с более ходовым товаром — раньше
+        if(sb.countA !== sa.countA) return sb.countA-sa.countA;
+        if(sb.qty !== sa.qty) return sb.qty-sa.qty;
+        const av = a.vol==null ? -Infinity : a.vol, bv = b.vol==null ? -Infinity : b.vol;
+        return bv - av; // last-resort tie-break between equally-selling volume groups
+      }
       const aAbc = abcByArticle[a.article].abcClass, bAbc = abcByArticle[b.article].abcClass;
-      if(abcRank[aAbc] !== abcRank[bAbc]) return abcRank[aAbc]-abcRank[bAbc];
-      const av = a.vol==null ? -Infinity : a.vol;
-      const bv = b.vol==null ? -Infinity : b.vol;
-      if(bv !== av) return bv - av; // ВГХ: heavier/larger unit first within same material+class
+      if(abcRank[aAbc] !== abcRank[bAbc]) return abcRank[aAbc]-abcRank[bAbc]; // ходовые товары (A) — первыми внутри одной фасовки
       return b.qty - a.qty; // final stable tie-break
     });
 
@@ -1553,7 +1574,7 @@
           const a = byRack[rk];
           if(!a) return;
           const role = lv==='01' ? `Пикинг (очередь #${a.rank})` : 'Пополнение / резерв';
-          openDrawer(addr, [{article:a.article, name:a.name, qty:a.qty, mfg:'', exp:`${role} · ${a.material} · ${a.category} · класс ABC: ${a.abcClass} (${a.volShare.toFixed(1)}% объёма стока)`}]);
+          openDrawer(addr, [{article:a.article, name:a.name, qty:a.qty, mfg:'', exp:`${role} · ${a.material} · ${a.category} · класс ABC: ${a.abcClass} (${a.volShare.toFixed(1)}% объёма стока) · колонок на пик-лицо: ${(a.positions||[]).length || 1}`}]);
         } else {
           const actual = actualByAddr[rk+'|'+lv];
           if(!actual) return;
@@ -1660,7 +1681,7 @@
 
   // ---------- RANGE-SCOPED RECOMMENDATION ----------
   // Pick an aisle + rack range + one category, and get a recommendation just
-  // for that slice of the warehouse (same ABC-then-weight ordering as the
+  // for that slice of the warehouse (same volume-group-then-ABC ordering as the
   // global recommendation, but scoped so it's actually usable for "I'm
   // reorganizing this one section right now").
   function populateRangeForm(){
@@ -1692,13 +1713,31 @@
   function computeRangeRecommendation(row, rackFrom, rackTo, material){
     if(!recoCache) computeRecommendation();
     const abcRank = {A:0, B:1, C:2};
-    const items = recoCache.assigned
-      .filter(a=>a.material===material)
+    const volKey = a => a.vol==null ? '\u2205' : a.vol.toFixed(2);
+    const pool = recoCache.assigned.filter(a=>a.material===material);
+    const volGroupStats = {};
+    pool.forEach(a=>{
+      const k = volKey(a);
+      if(!volGroupStats[k]) volGroupStats[k] = {minAbcRank:3, countA:0, qty:0};
+      const st = volGroupStats[k];
+      st.minAbcRank = Math.min(st.minAbcRank, abcRank[a.abcClass]);
+      if(a.abcClass==='A') st.countA++;
+      st.qty += a.qty;
+    });
+    const items = pool
       .slice()
       .sort((a,b)=>{
-        if(abcRank[a.abcClass]!==abcRank[b.abcClass]) return abcRank[a.abcClass]-abcRank[b.abcClass];
-        const av = a.vol==null?-Infinity:a.vol, bv = b.vol==null?-Infinity:b.vol;
-        return bv-av;
+        const ka = volKey(a), kb = volKey(b);
+        if(ka !== kb){
+          const sa = volGroupStats[ka], sb = volGroupStats[kb];
+          if(sa.minAbcRank !== sb.minAbcRank) return sa.minAbcRank-sb.minAbcRank; // фасовка с более ходовым товаром — раньше
+          if(sb.countA !== sa.countA) return sb.countA-sa.countA;
+          if(sb.qty !== sa.qty) return sb.qty-sa.qty;
+          const av = a.vol==null?-Infinity:a.vol, bv = b.vol==null?-Infinity:b.vol;
+          return bv-av;
+        }
+        if(abcRank[a.abcClass] !== abcRank[b.abcClass]) return abcRank[a.abcClass]-abcRank[b.abcClass]; // ходовые товары (A) — первыми внутри одной фасовки
+        return b.qty-a.qty;
       });
     const extent = aisleExtent(row);
     const orderedRacks = (extent ? extent.racks : []).filter(r=>r>=rackFrom && r<=rackTo);
@@ -1711,11 +1750,12 @@
       return {
         ...a, rangeRank: idx+1,
         pickAddress: rack!=null ? `${row}-${zpad(rack)}-01` : null,
+        pickAddresses: racks.map(rk=>`${row}-${zpad(rk)}-01`),
         replenish: rack!=null ? `${row}-${zpad(rack)} · ярусы выше 01` : null,
         rack, racks
       };
     });
-    return { assigned, racks: orderedRacks, row, category };
+    return { assigned, racks: orderedRacks, row, material };
   }
 
   function renderRangeResult(result){
@@ -1729,7 +1769,7 @@
     levels = levels.reverse();
 
     const byRack = {};
-    result.assigned.forEach(a=>{ (a.racks||[]).forEach(rk=>{ byRack[rk] = a; }); });
+    result.assigned.forEach(a=>{ (a.racks||[a.rack]).forEach(rk=>{ if(rk!=null) byRack[rk] = a; }); });
     const maxUnitVol = result.assigned.length ? (result.assigned[0].vol==null?1:result.assigned[0].vol) : 1;
 
     let html = `<div style="display:grid; grid-template-columns:34px repeat(${Math.max(allRacks.length,1)}, 22px); gap:3px;">`;
@@ -2051,8 +2091,23 @@
     tableFilter = e.target.value; renderTable();
   });
 
+  // ---------- DB ACTIONS DROPDOWN (import + export grouped together) ----------
+  const dbDropdown = document.getElementById('db-actions-dropdown');
+  document.getElementById('db-actions-toggle').addEventListener('click', (e)=>{
+    e.stopPropagation();
+    dbDropdown.classList.toggle('open');
+  });
+  document.addEventListener('click', (e)=>{
+    if(dbDropdown.classList.contains('open') && !dbDropdown.contains(e.target)){
+      dbDropdown.classList.remove('open');
+    }
+  });
+  document.getElementById('export-btn').addEventListener('click', ()=> dbDropdown.classList.remove('open'));
+  // note: file-input's own change handler closes the menu once a file is picked (see below)
+
   // ---------- FILE UPLOAD (sent to the server — replaces the DB for everyone) ----------
   document.getElementById('file-input').addEventListener('change', async (e)=>{
+    dbDropdown.classList.remove('open');
     const file = e.target.files[0];
     if(!file) return;
     setSyncStatus('загрузка файла на сервер…');
@@ -2164,8 +2219,6 @@
   })();
 })();
 
-
-
 // Theme Toggle Logic
 const themeToggleBtn = document.getElementById('theme-toggle-btn');
 const currentTheme = localStorage.getItem('theme') || 'light';
@@ -2190,79 +2243,3 @@ if(themeToggleBtn) {
     });
 }
 
-
-// ==========================================
-// Логика сканирования и фокусировки на схеме склада
-// ==========================================
-document.addEventListener('DOMContentLoaded', () => {
-    const scanMapBtn = document.getElementById('btn-scan-map');
-    
-    if (scanMapBtn) {
-        scanMapBtn.addEventListener('click', () => {
-            if (typeof openScannerModal === 'function') {
-                openScannerModal(onMapBarcodeScanned);
-            } else if (typeof startCameraScan === 'function') {
-                startCameraScan(onMapBarcodeScanned);
-            } else {
-                const code = prompt('Введите или считайте штрихкод товара/ячейки:');
-                if (code) onMapBarcodeScanned(code.trim());
-            }
-        });
-    }
-});
-
-function onMapBarcodeScanned(scannedCode) {
-    if (!scannedCode) return;
-
-    // Поиск товара
-    const product = window.products ? window.products.find(p => 
-        String(p.barcode) === String(scannedCode) || 
-        String(p.article) === String(scannedCode)
-    ) : null;
-
-    let targetCellName = null;
-
-    if (product) {
-        targetCellName = product.cell; 
-    } else {
-        targetCellName = scannedCode;
-    }
-
-    if (!targetCellName) {
-        alert('Товар или ячейка не найдены');
-        return;
-    }
-
-    // Переключение на вкладку "Схема склада"
-    const mapTabBtn = document.querySelector('[data-view="map"]');
-    if (mapTabBtn) mapTabBtn.click();
-
-    setTimeout(() => {
-        const cells = Array.from(document.querySelectorAll('.cell'));
-        let cellElement = document.querySelector(`[data-cell="${targetCellName}"]`) ||
-                          document.getElementById(`cell-${targetCellName}`);
-        
-        if (!cellElement) {
-             cellElement = cells.find(el => el.textContent.includes(targetCellName));
-        }
-
-        if (cellElement) {
-            cellElement.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'center' });
-            document.querySelectorAll('.cell-focused').forEach(el => el.classList.remove('cell-focused'));
-            cellElement.classList.add('cell-focused');
-
-            if (typeof selectCell === 'function') {
-                selectCell(targetCellName);
-            } else if (typeof renderCellDetails === 'function') {
-                renderCellDetails(targetCellName);
-            }
-
-            if (product) {
-                // Если есть функция уведомлений
-                if(typeof showNotification === 'function') showNotification(`Найден товар в ячейке ${targetCellName}`, 'success');
-            }
-        } else {
-            alert(`Ячейка "${targetCellName}" не найдена на схеме склада`);
-        }
-    }, 150);
-}
