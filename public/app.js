@@ -438,7 +438,16 @@
           else { const src = tapSourceAisleSel; tapSourceAisleSel = null; await swapAisles(src, a); }
           return;
         }
-        currentAisle = btn.dataset.aisle; renderAisleChips(); renderGrid();
+        const aisle = btn.dataset.aisle;
+        const term = mapFilterTerm.trim();
+        if(term){
+          // Если в поиске что-то введено — переходим не просто на ряд, а сразу
+          // к совпавшим в нём ячейкам (та же подсветка, что и при переходе из
+          // общего поиска или сканера).
+          const matches = findAddressMatches(term).filter(r => r.row === aisle);
+          if(matches.length){ pulseAddressesOnMap(matches); return; }
+        }
+        currentAisle = aisle; renderAisleChips(); renderGrid();
       });
 
       btn.addEventListener('dragstart', (e)=>{
