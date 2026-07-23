@@ -409,11 +409,25 @@
     const aisles = aisleList();
     if(!currentAisle || !aisles.includes(currentAisle)) currentAisle = aisles[0];
     const box = document.getElementById('aisle-chips');
+    // Пока в поиске по схеме что-то введено — считаем, сколько ячеек каждого
+    // ряда совпадает с запросом, и показываем это счётчиком рядом с рядом,
+    // чтобы было видно, в каких рядах ещё встречается артикул.
+    const term = mapFilterTerm.trim().toLowerCase();
+    let matchesByRow = null;
+    if(term){
+      matchesByRow = {};
+      findAddressMatches(term).forEach(r=>{
+        (matchesByRow[r.row] = matchesByRow[r.row] || new Set()).add(r.cell);
+      });
+    }
     box.innerHTML = aisles.map(a=>{
       const n = addressRecords().filter(r=>r.row===a);
       const cells = new Set(n.map(r=>r.cell)).size;
       const sel = moveMode && a===tapSourceAisleSel ? 'tap-selected' : '';
-      return `<button class="aisle-chip ${a===currentAisle?'active':''} ${sel}" draggable="true" data-aisle="${a}" title="Перетащите на другой ряд, чтобы поменять их местами целиком">Ряд ${a}<span class="n">· ${cells}</span></button>`;
+      const matchCount = matchesByRow && matchesByRow[a] ? matchesByRow[a].size : 0;
+      const matchCls = matchCount ? 'has-match' : '';
+      const badge = matchCount ? `<span class="match-badge" title="Совпадений с поиском: ${matchCount}">${matchCount}</span>` : '';
+      return `<button class="aisle-chip ${a===currentAisle?'active':''} ${sel} ${matchCls}" draggable="true" data-aisle="${a}" title="Перетащите на другой ряд, чтобы поменять их местами целиком">Ряд ${a}<span class="n">· ${cells}</span>${badge}</button>`;
     }).join('');
     box.querySelectorAll('.aisle-chip').forEach(btn=>{
       btn.addEventListener('click', async ()=>{
@@ -2374,7 +2388,7 @@
 
   // ---------- SEARCH BINDINGS ----------
   document.getElementById('map-search').addEventListener('input', (e)=>{
-    mapFilterTerm = e.target.value; renderGrid();
+    mapFilterTerm = e.target.value; renderGrid(); renderAisleChips();
     // Введённый (в т.ч. набранный сканером как "клавиатура") код, точно
     // совпавший с артикулом, ячейкой или ТЕ, сразу переносит на нужный ряд
     // и подсвечивает ячейку — не дожидаясь Enter.

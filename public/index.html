@@ -180,6 +180,12 @@
   .aisle-chip[draggable="true"]{cursor:grab;}
   .aisle-chip.drag-source{opacity:.35;}
   .aisle-chip.drag-over{outline:2px dashed var(--accent); outline-offset:2px; background:var(--accent-soft); color:var(--ink);}
+  .aisle-chip.has-match{border-color:var(--danger);}
+  .aisle-chip .match-badge{
+    display:inline-flex; align-items:center; justify-content:center; min-width:16px; height:16px; padding:0 4px;
+    margin-left:6px; border-radius:8px; background:var(--danger); color:#fff; font-size:10px; font-weight:700;
+    vertical-align:middle;
+  }
 
   /* Grid map */
   .grid-wrap{overflow-x:auto; padding-bottom:10px;}
