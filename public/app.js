@@ -220,17 +220,64 @@
     return true;
   }
 
+  // A handheld scanner (ТСД) just "types" the raw decoded string into whatever
+  // field has focus and sends Enter — unlike the camera scanner, it doesn't
+  // tell us which symbology it read. Different symbologies can encode the
+  // exact same article under different-looking strings:
+  //  - UPC-A (12 digits) is the same number as EAN-13 with a leading zero
+  //  - GTIN-14 (14 digits, used by ITF-14/some GS1 labels) is EAN-13 with two
+  //    leading zeros, or is itself zero-padded
+  //  - GS1-128 / GS1 DataBar scans often carry an AI prefix, e.g. "(01)" or
+  //    raw "01" before the 14-digit GTIN, sometimes with an AIM symbology ID
+  //    like "]C1" glued on the front by the scanner's driver
+  // so a single strict `===` against the stored article silently misses scans
+  // that decode "correctly" but in a different (still valid) representation.
+  // This expands one scanned string into every equivalent form worth trying.
+  function barcodeCandidates(raw){
+    let s = String(raw || '');
+    s = s.replace(/^\]\w\d/, '');   // strip AIM symbology identifier, e.g. "]C1", "]E0"
+    s = s.replace(/[\x1D\x1C\x1E]/g, ''); // strip GS1 FNC1/segment separators some drivers emit
+    const trimmed = s.trim();
+    const candidates = new Set();
+    if(trimmed) candidates.add(trimmed);
+
+    // GS1 Application Identifier 01 = GTIN-14, sometimes wrapped in parens
+    const aiMatch = trimmed.match(/\(?01\)?(\d{14})/);
+    if(aiMatch) candidates.add(aiMatch[1]);
+
+    const digitsOnly = trimmed.replace(/\D/g, '');
+    if(digitsOnly) candidates.add(digitsOnly);
+
+    Array.from(candidates).forEach(code=>{
+      if(!/^\d+$/.test(code)) return;
+      // GTIN-14 <-> EAN-13 <-> UPC-A: each strips one more leading zero
+      if(code.length === 14 && code.startsWith('0')) candidates.add(code.slice(1));
+      if(code.length === 13 && code.startsWith('0')) candidates.add(code.slice(1));
+      // going the other way: pad a shorter code up in case the article is
+      // stored in its longer zero-padded form
+      if(code.length === 12) candidates.add('0'+code);
+      if(code.length === 13) candidates.add('0'+code);
+    });
+    return Array.from(candidates);
+  }
+
   // Match a typed/scanned code against address cells only (schema search), same
-  // priority as findRecordsByCode below: exact article/cell/ТЕ first, then a
+  // priority as findRecordsByCode below: exact article/cell/ТЕ first (tried
+  // against every EAN/UPC/GS1 variant of the scanned code), then a
   // case-insensitive exact match, then a loose "contains" fallback.
   function findAddressMatches(term){
     const c = String(term || '').trim();
     if(!c) return [];
+    const candidates = barcodeCandidates(c);
+    const lcCandidates = candidates.map(x=>x.toLowerCase());
     const lc = c.toLowerCase();
-    let matches = addressRecords().filter(r => r.article === c || r.cell === c || (r.te && r.te === c));
+    let matches = addressRecords().filter(r =>
+      candidates.includes(r.article) || candidates.includes(r.cell) || (r.te && candidates.includes(r.te))
+    );
     if(!matches.length){
       matches = addressRecords().filter(r =>
-        r.article.toLowerCase() === lc || r.cell.toLowerCase() === lc || (r.te && r.te.toLowerCase() === lc)
+        lcCandidates.includes(r.article.toLowerCase()) || lcCandidates.includes(r.cell.toLowerCase()) ||
+        (r.te && lcCandidates.includes(r.te.toLowerCase()))
       );
     }
     if(!matches.length){
@@ -241,6 +288,7 @@
     }
     return matches;
   }
+
 
   // Called from the map's own search box (typing an exact code, or pressing
   // Enter) and from the barcode scanner when it's opened from the map view —
@@ -722,19 +770,22 @@
     try{ s.clear(); }catch(e){}
   }
 
-  // Ищем совпадения по коду: сначала точное совпадение с артикулом/ТЕ/ячейкой,
-  // затем — на случай если код содержит служебные префиксы/суффиксы (GS1 и т.п.) —
-  // частичное вхождение.
+  // Ищем совпадения по коду: сначала точное совпадение с артикулом/ТЕ/ячейкой
+  // (пробуя все EAN/UPC/GS1-варианты отсканированного кода — см.
+  // barcodeCandidates), затем — на случай если код содержит служебные
+  // префиксы/суффиксы (GS1 и т.п.) — частичное вхождение.
   function findRecordsByCode(code){
     const c = String(code || '').trim();
     if(!c) return [];
+    const candidates = barcodeCandidates(c);
+    const lcCandidates = candidates.map(x=>x.toLowerCase());
     const lc = c.toLowerCase();
     let matches = state.records.filter(r =>
-      r.article === c || r.cell === c || (r.te && r.te === c)
+      candidates.includes(r.article) || candidates.includes(r.cell) || (r.te && candidates.includes(r.te))
     );
     if(!matches.length){
       matches = state.records.filter(r =>
-        r.article.toLowerCase() === lc || (r.te && r.te.toLowerCase() === lc)
+        lcCandidates.includes(r.article.toLowerCase()) || (r.te && lcCandidates.includes(r.te.toLowerCase()))
       );
     }
     if(!matches.length){
