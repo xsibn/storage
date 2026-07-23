@@ -1429,7 +1429,7 @@
       if(abc==='A') st.countA++;
       st.qty += a.qty;
     });
-    articles.sort((a,b)=>{
+    function placementComparator(a,b){
       if(materialRank[a.material] !== materialRank[b.material]) return materialRank[a.material]-materialRank[b.material];
       const ka = a.material+'|'+volKey(a), kb = b.material+'|'+volKey(b);
       if(ka !== kb){
@@ -1443,45 +1443,79 @@
       const aAbc = abcByArticle[a.article].abcClass, bAbc = abcByArticle[b.article].abcClass;
       if(abcRank[aAbc] !== abcRank[bAbc]) return abcRank[aAbc]-abcRank[bAbc]; // ходовые товары (A) — первыми внутри одной фасовки
       return b.qty - a.qty; // final stable tie-break
-    });
+    }
+    articles.sort(placementComparator);
+
+    // Fixed business rule: 0.5 L bottles always go to row 04, regardless of
+    // material/ABC ranking — that row is reserved exclusively for this volume.
+    // Add more entries here if other volumes/rows need the same kind of pin.
+    const FORCED_ROW_BY_VOLUME = { '0.50': '04' };
+    function forcedRowFor(a){ return a.vol==null ? null : (FORCED_ROW_BY_VOLUME[a.vol.toFixed(2)] || null); }
 
     // Physical walking path ("змейка"): only rows 01–06 are real (07–12 are stale
     // leftovers from the old warehouse in the DB and are never used for new
     // placements). Picking starts at the far end of row 06 (lowest rack in that
-    // row, e.g. 06-28-01, next to "начало пикинга"/"зона возврата" on the layout)
+    // row, e.g. 06-28-01, next to "начало пикинга"/"зона возврата" на layout)
     // and runs in ASCENDING rack order through row 06 (28→66, confirmed), then
     // zig-zags back and forth through rows 05→01, reversing direction each row
     // (05 descending, 04 ascending, 03 descending, 02 ascending, 01 descending)
-    // so the path never jumps across the warehouse.
+    // so the path never jumps across the warehouse. Row 04's rack pool is split
+    // off into its own reserved queue (forcedPool) for the pinned volume above;
+    // every other row feeds the regular queue (pool) as before.
     const pool = [];
+    const forcedPools = {}; // row -> [{row,rack}, ...], one queue per pinned row
+    Object.values(FORCED_ROW_BY_VOLUME).forEach(row=>{ forcedPools[row] = []; });
+    const walkIndex = {}; // "row-rack" -> position in the true physical walking order
+    let walkPtr = 0;
     ACTIVE_ROWS.forEach((row, idx)=>{
       const extent = aisleExtent(row);
       if(!extent) return;
       let racks = extent.racks.slice().sort((a,b)=>a-b);
       racks = racksInStorageZone(row, racks);
       if(idx % 2 === 1) racks = racks.reverse(); // odd idx (rows 05,03,01): descending
-      racks.forEach(rack=> pool.push({row, rack}));
+      racks.forEach(rack=>{
+        walkIndex[`${row}-${rack}`] = walkPtr++;
+        (forcedPools[row] || pool).push({row, rack});
+      });
     });
 
-    let poolPtr = 0;
-    const assigned = articles.map((a,idx)=>{
-      const abc = abcByArticle[a.article];
-      const width = ABC_COLS[abc.abcClass] || 1;
-      const positions = [];
-      for(let i=0; i<width && poolPtr<pool.length; i++, poolPtr++) positions.push(pool[poolPtr]);
-      const pos = positions[0] || null;
-      return {
-        ...a,
-        rank: idx+1,
-        volShare: abc.volShare, cumShare: abc.cumShare, abcClass: abc.abcClass, stockVolume: abc.stockVolume,
-        materialColor: MATERIAL_COLORS[a.material] || '#64748B',
-        pickAddress: pos ? `${pos.row}-${zpad(pos.rack)}-01` : null,
-        pickAddresses: positions.map(p=>`${p.row}-${zpad(p.rack)}-01`),
-        replenish: pos ? `${pos.row}-${zpad(pos.rack)} · ярусы выше 01` : null,
-        replenishRow: pos ? pos.row : null, replenishRack: pos ? pos.rack : null,
-        positions // every {row,rack} column this article's pick face occupies (width per ABC class)
-      };
+    function assignFromPool(list, queue){
+      let ptr = 0;
+      return list.map(a=>{
+        const abc = abcByArticle[a.article];
+        const width = ABC_COLS[abc.abcClass] || 1;
+        const positions = [];
+        for(let i=0; i<width && ptr<queue.length; i++, ptr++) positions.push(queue[ptr]);
+        const pos = positions[0] || null;
+        return {
+          ...a,
+          volShare: abc.volShare, cumShare: abc.cumShare, abcClass: abc.abcClass, stockVolume: abc.stockVolume,
+          materialColor: MATERIAL_COLORS[a.material] || '#64748B',
+          pickAddress: pos ? `${pos.row}-${zpad(pos.rack)}-01` : null,
+          pickAddresses: positions.map(p=>`${p.row}-${zpad(p.rack)}-01`),
+          replenish: pos ? `${pos.row}-${zpad(pos.rack)} · ярусы выше 01` : null,
+          replenishRow: pos ? pos.row : null, replenishRack: pos ? pos.rack : null,
+          positions // every {row,rack} column this article's pick face occupies (width per ABC class)
+        };
+      });
+    }
+
+    const generalArticles = articles.filter(a=>!forcedRowFor(a));
+    let assigned = assignFromPool(generalArticles, pool);
+    Object.entries(forcedPools).forEach(([row, queue])=>{
+      const pinned = articles.filter(a=>forcedRowFor(a)===row).sort(placementComparator);
+      assigned = assigned.concat(assignFromPool(pinned, queue));
     });
+
+    // Re-rank everything in true physical walking order (06→05→04→03→02→01, with
+    // the pinned rows' items sitting wherever that row falls in the route) so the
+    // "№"/queue rank shown in the UI matches the order you'd actually walk it.
+    assigned.sort((a,b)=>{
+      const ia = a.positions[0] ? walkIndex[`${a.positions[0].row}-${a.positions[0].rack}`] : Infinity;
+      const ib = b.positions[0] ? walkIndex[`${b.positions[0].row}-${b.positions[0].rack}`] : Infinity;
+      return ia - ib;
+    });
+    assigned.forEach((a,idx)=>{ a.rank = idx+1; });
 
     const abcTotals = {A:{n:0,vol:0}, B:{n:0,vol:0}, C:{n:0,vol:0}};
     assigned.forEach(a=>{ abcTotals[a.abcClass].n++; abcTotals[a.abcClass].vol += a.stockVolume; });
