@@ -927,9 +927,32 @@
       progressEnd();
     }
   }
+  async function deleteActivityEntry(id){
+    if(!confirm('Удалить эту запись из журнала? Само действие отменено не будет.')) return;
+    try{
+      const res = await fetch(`${API_BASE}/api/activity/${id}`, { method:'DELETE' });
+      const payload = await res.json().catch(()=>({}));
+      if(!res.ok) throw new Error(payload.error || ('HTTP '+res.status));
+      await openActivityLog();
+    }catch(err){
+      alert('Не удалось удалить запись: ' + err.message);
+    }
+  }
+  async function clearActivityLog(){
+    if(!confirm('Полностью очистить журнал изменений? Это нельзя отменить (сами данные склада не изменятся).')) return;
+    try{
+      const res = await fetch(`${API_BASE}/api/activity`, { method:'DELETE' });
+      const payload = await res.json().catch(()=>({}));
+      if(!res.ok) throw new Error(payload.error || ('HTTP '+res.status));
+      await openActivityLog();
+    }catch(err){
+      alert('Не удалось очистить журнал: ' + err.message);
+    }
+  }
   async function openActivityLog(){
-    openModal('Журнал изменений', '<div id="activity-log-hint">Хранится за последние 14 дней. У каждого действия, которое можно отменить, есть кнопка ↺ — не обязательно отменять всё по порядку.</div><div id="activity-log-list"><div id="activity-log-empty">Загрузка…</div></div>', '<button class="btn" id="activity-log-close">Закрыть</button>');
+    openModal('Журнал изменений', '<div id="activity-log-hint">Хранится за последние 14 дней. У каждого действия, которое можно отменить, есть кнопка ↺ — не обязательно отменять всё по порядку. Кнопка ✕ убирает запись из журнала, не отменяя само действие.</div><div id="activity-log-list"><div id="activity-log-empty">Загрузка…</div></div>', '<button class="btn danger" id="activity-log-clear-all">🗑 Очистить журнал</button><button class="btn" id="activity-log-close">Закрыть</button>');
     document.getElementById('activity-log-close').addEventListener('click', closeModal);
+    document.getElementById('activity-log-clear-all').addEventListener('click', clearActivityLog);
     try{
       const res = await fetch(`${API_BASE}/api/activity?limit=1000`);
       const payload = await res.json().catch(()=>({}));
@@ -937,6 +960,8 @@
       const entries = payload.entries || [];
       const listEl = document.getElementById('activity-log-list');
       if(!listEl) return; // окно уже закрыли, пока грузились данные
+      const clearAllBtn = document.getElementById('activity-log-clear-all');
+      if(clearAllBtn) clearAllBtn.style.display = entries.length ? '' : 'none';
       if(!entries.length){
         listEl.innerHTML = '<div id="activity-log-empty">За последние 14 дней изменений не было.</div>';
         return;
@@ -947,10 +972,14 @@
           <span class="a-action">${escHtml(ACTIVITY_LABELS[e.action] || e.action)}</span>
           <span class="a-summary">${escHtml(e.summary)}</span>
           ${e.undoable ? `<button class="btn a-undo-btn" data-id="${e.id}" data-latest="${idx===0}" title="Отменить это действие">↺ Отменить</button>` : ''}
+          <button class="btn a-delete-btn" data-id="${e.id}" title="Удалить запись из журнала (без отмены действия)">✕</button>
         </div>
       `).join('');
       listEl.querySelectorAll('.a-undo-btn').forEach(btn=>{
         btn.addEventListener('click', ()=> undoActivityEntry(btn.dataset.id, btn.dataset.latest==='true'));
+      });
+      listEl.querySelectorAll('.a-delete-btn').forEach(btn=>{
+        btn.addEventListener('click', ()=> deleteActivityEntry(btn.dataset.id));
       });
     }catch(err){
       const listEl = document.getElementById('activity-log-list');
@@ -2630,6 +2659,18 @@
       btn.classList.add('active');
       document.querySelectorAll('.view').forEach(v=>v.classList.remove('active'));
       document.getElementById('view-'+btn.dataset.view).classList.add('active');
+    });
+  });
+
+  // ---------- SEARCH CLEAR (×) BUTTONS ----------
+  [['map-search','map-search-clear'], ['table-search','table-search-clear'], ['reco-search','reco-search-clear']].forEach(([inputId, btnId])=>{
+    const input = document.getElementById(inputId);
+    const btn = document.getElementById(btnId);
+    if(!input || !btn) return;
+    btn.addEventListener('click', ()=>{
+      input.value = '';
+      input.dispatchEvent(new Event('input', { bubbles:true }));
+      input.focus();
     });
   });
 

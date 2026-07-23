@@ -87,6 +87,20 @@ function getLastActivity() {
   return db.prepare('SELECT * FROM activity_log ORDER BY id DESC LIMIT 1').get();
 }
 
+// Удалить одну запись журнала (без отмены самого действия — просто убрать её из списка)
+function deleteActivityEntry(id) {
+  const entry = db.prepare('SELECT id FROM activity_log WHERE id = ?').get(id);
+  if (!entry) throw new Error('Запись журнала не найдена (возможно, уже удалена)');
+  db.prepare('DELETE FROM activity_log WHERE id = ?').run(id);
+  return { id };
+}
+
+// Полностью очистить журнал изменений
+function clearActivity() {
+  const info = db.prepare('DELETE FROM activity_log').run();
+  return { deleted: info.changes };
+}
+
 // ---------- Fixed ABC classification (supplied by the business, not computed) ----------
 // This is a static article -> class ('A'/'B'/'C') lookup from an external file
 // (e.g. product strength/priority planning), not derived from stock volume.
@@ -763,7 +777,7 @@ module.exports = {
   db, classifyCell, listRecords, replaceAll, updateRecord, createRecord, deleteRecord,
   swapRows, swapRacks, renameRow, setRacks, setLevels, createRow, deleteRow, getMeta, setMeta, count, seedIfEmpty,
   getLayout, ensureLayoutFromSeed, rebuildLayoutFromCurrent, setRackOrder,
-  bulkMove, bulkDelete, listActivity, undoLastAction, undoActivityById,
+  bulkMove, bulkDelete, listActivity, undoLastAction, undoActivityById, deleteActivityEntry, clearActivity,
   seedAbcClasses, getAbcClasses,
   ensureZonesFromData, listZones, createZone, renameZone, setZoneIsolate, deleteZone
 };

@@ -327,6 +327,28 @@ app.post('/api/activity/:id/undo', (req, res) => {
   }
 });
 
+// DELETE /api/activity/:id — удалить одну запись журнала (не отменяя само действие)
+app.delete('/api/activity/:id', (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  if (!Number.isInteger(id)) return res.status(400).json({ error: 'Некорректный id записи журнала' });
+  try {
+    const result = db.deleteActivityEntry(id);
+    res.json({ ok: true, ...result });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+// DELETE /api/activity — полностью очистить журнал изменений
+app.delete('/api/activity', (req, res) => {
+  try {
+    const result = db.clearActivity();
+    res.json({ ok: true, ...result });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
 // PUT /api/layout/:row/rack-order — сохранить пользовательский порядок стеллажей ряда
 app.put('/api/layout/:row/rack-order', (req, res) => {
   const row = String(req.params.row).trim().padStart(2, '0');

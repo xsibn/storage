@@ -175,7 +175,8 @@
   .search::before{
     content:"⌕"; position:absolute; left:11px; top:50%; transform:translateY(-50%); color:var(--ink-soft); font-size:15px;
   }
-  .search input{ padding-right:36px; }
+  .search input{ padding-right:34px; }
+  .search.has-scan input{ padding-right:62px; }
   .search .scan-inline-btn{
     position:absolute; right:4px; top:50%; transform:translateY(-50%);
     width:28px; height:28px; border:none; background:none; cursor:pointer;
@@ -183,6 +184,15 @@
     border-radius:6px; color:var(--ink-soft);
   }
   .search .scan-inline-btn:hover{ background:var(--bg); color:var(--ink); }
+  .search .clear-inline-btn{
+    position:absolute; right:4px; top:50%; transform:translateY(-50%);
+    width:26px; height:26px; border:none; background:none; cursor:pointer;
+    font-size:16px; line-height:1; align-items:center; justify-content:center;
+    border-radius:6px; color:var(--ink-soft); display:none;
+  }
+  .search.has-scan .clear-inline-btn{ right:32px; }
+  .search .clear-inline-btn:hover{ background:var(--bg); color:var(--ink); }
+  .search input:not(:placeholder-shown) ~ .clear-inline-btn{ display:flex; }
   select{
     padding:8px 10px; border:1px solid var(--line); border-radius:7px; background:var(--panel);
     font-family:var(--sans); font-size:13px; color:var(--ink);
@@ -380,6 +390,8 @@
   .activity-row .a-action{flex:0 0 auto; padding:1px 7px; border-radius:5px; font-size:11px; font-weight:600; white-space:nowrap; background:var(--accent-soft, #eef2ff); color:var(--accent, #4f46e5);}
   .activity-row .a-summary{flex:1 1 auto; color:var(--ink);}
   .activity-row .a-undo-btn{flex:0 0 auto; padding:4px 9px; font-size:11px; font-weight:600;}
+  .activity-row .a-delete-btn{flex:0 0 auto; padding:4px 8px; font-size:11px; line-height:1; color:var(--ink-soft);}
+  .activity-row .a-delete-btn:hover{color:var(--danger); border-color:var(--danger);}
   #activity-log-empty{padding:24px; text-align:center; color:var(--ink-soft); font-size:13px;}
   #activity-log-hint{font-size:12px; color:var(--ink-soft); margin-bottom:10px;}
   #barcode-reader{background:#111; min-height:220px;}
@@ -594,8 +606,9 @@
       </div>
       <div class="panel">
         <div class="toolbar" style="margin-bottom:12px;">
-          <div class="search">
+          <div class="search has-scan">
             <input type="text" id="map-search" placeholder="Найти артикул, ячейку или ТЕ на схеме…">
+            <button class="clear-inline-btn" id="map-search-clear" type="button" title="Очистить">✕</button>
             <button class="scan-inline-btn" id="map-scan-btn" type="button" title="Найти товар по штрих-коду через камеру"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 5v14M7 5v14M10 5v14M13 5v14M15 5v14M19 5v14M21 5v14"/></svg></button>
           </div>
           <button class="btn" id="move-mode-btn" title="Для телефона: перетаскивание мышкой недоступно, включите этот режим — коснитесь ячейки, затем коснитесь другой">✥ Режим перемещения</button>
@@ -614,8 +627,9 @@
     <section class="view" id="view-table">
       <div class="panel">
         <div class="toolbar">
-          <div class="search">
+          <div class="search has-scan">
             <input type="text" id="table-search" placeholder="Поиск по артикулу, наименованию, ячейке или ТЕ…">
+            <button class="clear-inline-btn" id="table-search-clear" type="button" title="Очистить">✕</button>
             <button class="scan-inline-btn" id="scan-barcode-btn" type="button" title="Найти товар по штрих-коду через камеру"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 5v14M7 5v14M10 5v14M13 5v14M15 5v14M19 5v14M21 5v14"/></svg></button>
           </div>
           <select id="table-filter">
@@ -694,7 +708,7 @@
 
       <div class="panel">
         <div class="toolbar">
-          <div class="search"><input type="text" id="reco-search" placeholder="Поиск по артикулу или наименованию…"></div>
+          <div class="search"><input type="text" id="reco-search" placeholder="Поиск по артикулу или наименованию…"><button class="clear-inline-btn" id="reco-search-clear" type="button" title="Очистить">✕</button></div>
           <select id="reco-abc-filter">
             <option value="all">Все классы ABC</option>
             <option value="A">Класс A</option>
