@@ -180,7 +180,20 @@
   .aisle-chip.drag-over{outline:2px dashed var(--accent); outline-offset:2px; background:var(--accent-soft); color:var(--ink);}
 
   /* Grid map */
-  .grid-wrap{overflow-x:auto; padding-bottom:6px;}
+  .grid-wrap{overflow-x:auto; padding-bottom:10px;}
+
+  /* Custom scrollbars — thin, rounded, theme-aware, instead of the default OS bar. */
+  .grid-wrap, .table-scroll{ scrollbar-width:thin; scrollbar-color:var(--ink-soft) transparent; }
+  .grid-wrap::-webkit-scrollbar, .table-scroll::-webkit-scrollbar{ height:8px; width:8px; }
+  .grid-wrap::-webkit-scrollbar-track, .table-scroll::-webkit-scrollbar-track{ background:transparent; }
+  .grid-wrap::-webkit-scrollbar-thumb, .table-scroll::-webkit-scrollbar-thumb{
+    background:var(--line); border-radius:8px; border:2px solid transparent; background-clip:padding-box;
+  }
+  .grid-wrap::-webkit-scrollbar-thumb:hover, .table-scroll::-webkit-scrollbar-thumb:hover{
+    background:var(--ink-soft); border:2px solid transparent; background-clip:padding-box;
+  }
+  .grid-wrap::-webkit-scrollbar-button, .table-scroll::-webkit-scrollbar-button{ display:none; width:0; height:0; }
+  .grid-wrap::-webkit-scrollbar-corner, .table-scroll::-webkit-scrollbar-corner{ background:transparent; }
   .rack-grid{display:inline-grid; gap:3px; align-items:center;}
   .level-label{
     font-family:var(--mono); font-size:10px; color:var(--ink-soft); text-align:right; padding-right:6px;
