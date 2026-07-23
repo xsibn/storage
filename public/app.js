@@ -1289,9 +1289,10 @@
 
   // Within each active row, only this rack range is the actual STORAGE zone used
   // for picking/replenishment. Racks outside this range (in the same row) belong
-  // to other zones (staging, return, etc.) and must never be offered for new
-  // placements or ranges — confirmed by warehouse layout.
-  const STORAGE_RANGE = {
+  // to other zones (staging, return, etc.) by default — confirmed by warehouse
+  // layout — but the boundary is editable per row in the UI (schema panel) so the
+  // zone can be stretched to cover more (or fewer) rack columns, persisted per-browser.
+  const STORAGE_RANGE_DEFAULT = {
     '06': [28, 66],
     '05': [25, 66],
     '04': [25, 84],
@@ -1299,6 +1300,40 @@
     '02': [19, 66],
     '01': [13, 66]
   };
+  function rowMaxRack(row){
+    const extent = aisleExtent(row);
+    if(!extent || !extent.racks.length) return STORAGE_RANGE_DEFAULT[row] ? STORAGE_RANGE_DEFAULT[row][1] : 999;
+    return Math.max(...extent.racks);
+  }
+  function rowMinRack(row){
+    const extent = aisleExtent(row);
+    if(!extent || !extent.racks.length) return STORAGE_RANGE_DEFAULT[row] ? STORAGE_RANGE_DEFAULT[row][0] : 1;
+    return Math.min(...extent.racks);
+  }
+  function clampStorageBound(row, v, fallback){
+    v = parseInt(v, 10);
+    if(!Number.isFinite(v)) return fallback;
+    return Math.max(rowMinRack(row), Math.min(rowMaxRack(row), v));
+  }
+  function loadStorageRange(){
+    const out = {...STORAGE_RANGE_DEFAULT};
+    try{
+      const saved = JSON.parse(localStorage.getItem('storageRange'));
+      if(saved && typeof saved === 'object'){
+        Object.keys(out).forEach(row=>{
+          const s = saved[row];
+          if(Array.isArray(s) && s.length===2){
+            const lo = clampStorageBound(row, s[0], out[row][0]);
+            const hi = clampStorageBound(row, s[1], out[row][1]);
+            out[row] = lo<=hi ? [lo, hi] : [hi, lo];
+          }
+        });
+      }
+    }catch(e){}
+    return out;
+  }
+  function saveStorageRange(){ try{ localStorage.setItem('storageRange', JSON.stringify(STORAGE_RANGE)); }catch(e){} }
+  let STORAGE_RANGE = loadStorageRange();
   function racksInStorageZone(row, racks){
     const range = STORAGE_RANGE[row];
     if(!range) return racks;
@@ -1466,7 +1501,44 @@
       return `<button class="aisle-chip ${a===recoAisle?'active':''}" data-aisle="${a}">Ряд ${a}<span class="n">· ${racks}</span></button>`;
     }).join('');
     box.querySelectorAll('.aisle-chip').forEach(btn=>{
-      btn.addEventListener('click', ()=>{ recoAisle = btn.dataset.aisle; renderRecoAisleChips(); renderRecoScheme(); });
+      btn.addEventListener('click', ()=>{ recoAisle = btn.dataset.aisle; renderRecoAisleChips(); renderStorageRangeControl(); renderRecoScheme(); });
+    });
+    renderStorageRangeControl();
+  }
+
+  // Editable rack-range boundary for the currently selected row's storage zone —
+  // lets the zone be stretched (or shrunk) to cover more/fewer rack columns
+  // instead of being stuck at the hardcoded default from STORAGE_RANGE_DEFAULT.
+  function renderStorageRangeControl(){
+    const box = document.getElementById('storage-range-inline');
+    if(!box) return;
+    if(!recoAisle || !STORAGE_RANGE[recoAisle]){ box.innerHTML = ''; return; }
+    const [lo, hi] = STORAGE_RANGE[recoAisle];
+    const min = rowMinRack(recoAisle), max = rowMaxRack(recoAisle);
+    box.innerHTML = `
+      <span class="lbl">Диапазон стеллажей зоны хранения, ряд ${recoAisle} (доступно ${min}–${max}):</span>
+      <div class="grp"><span class="lbl">от</span><input type="number" class="abc-cols-input" id="range-lo-input" min="${min}" max="${max}" step="1" value="${lo}"></div>
+      <div class="grp"><span class="lbl">до</span><input type="number" class="abc-cols-input" id="range-hi-input" min="${min}" max="${max}" step="1" value="${hi}"></div>
+      <button type="button" class="abc-cols-inline-reset" id="storage-range-reset-btn">Сбросить ряд</button>
+    `;
+    function apply(){
+      const loInp = document.getElementById('range-lo-input');
+      const hiInp = document.getElementById('range-hi-input');
+      let newLo = clampStorageBound(recoAisle, loInp.value, lo);
+      let newHi = clampStorageBound(recoAisle, hiInp.value, hi);
+      if(newLo > newHi){ const t = newLo; newLo = newHi; newHi = t; }
+      STORAGE_RANGE[recoAisle] = [newLo, newHi];
+      saveStorageRange();
+      recoCache = null;
+      renderReco();
+    }
+    box.querySelector('#range-lo-input').addEventListener('change', apply);
+    box.querySelector('#range-hi-input').addEventListener('change', apply);
+    box.querySelector('#storage-range-reset-btn').addEventListener('click', ()=>{
+      if(STORAGE_RANGE_DEFAULT[recoAisle]) STORAGE_RANGE[recoAisle] = [...STORAGE_RANGE_DEFAULT[recoAisle]];
+      saveStorageRange();
+      recoCache = null;
+      renderReco();
     });
   }
 
