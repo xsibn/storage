@@ -463,6 +463,46 @@ function deleteRow(row) {
 // number of cells" operation. Adding is always safe (just a new empty
 // position). Removing is blocked if that rack still holds any stock, so a
 // careless edit can't silently delete inventory.
+// Add and/or remove levels (tiers) for a row in one go — same safety rule as
+// setRacks: removing a level is blocked if any of its cells still hold stock.
+function setLevels(row, levels) {
+  const layout = getLayout();
+  if (!layout[row]) throw new Error(`ряд ${row} не найден в структуре склада`);
+
+  const VALID_LEVELS = ["01","02","03","04","05","06","07","08","A1","B1"];
+  const cleanLevels = [];
+  const seen = new Set();
+  for (const lv of levels) {
+    const v = String(lv).toUpperCase();
+    if (VALID_LEVELS.includes(v) && !seen.has(v)) { cleanLevels.push(v); seen.add(v); }
+  }
+  if (!cleanLevels.length) throw new Error('нужен хотя бы один ярус');
+
+  const removed = layout[row].levels.filter(lv => !seen.has(lv));
+  if (removed.length) {
+    const placeholders = removed.map(() => '?').join(',');
+    const stillOccupied = db.prepare(
+      `SELECT DISTINCT level FROM stock_records WHERE row_code = ? AND is_service = 0 AND level IN (${placeholders})`
+    ).all(row, ...removed);
+    if (stillOccupied.length) {
+      throw new Error(`нельзя убрать ярус(ы) ${stillOccupied.map(r => r.level).join(', ')} — там ещё есть товар`);
+    }
+  }
+
+  const prevLevels = layout[row].levels.slice();
+  layout[row].levels = cleanLevels;
+  setLayout(layout);
+
+  const added = cleanLevels.filter(lv => !prevLevels.includes(lv));
+  const bits = [];
+  if (added.length) bits.push(`добавлены ${added.join(', ')}`);
+  if (removed.length) bits.push(`убраны ${removed.join(', ')}`);
+  if (bits.length) logActivity('set-levels', `Ряд ${row}: ярусы — ${bits.join('; ')}`, { row, prevLevels });
+
+  return layout[row];
+}
+
+
 function setRacks(row, racks) {
   const layout = getLayout();
   if (!layout[row]) throw new Error(`ряд ${row} не найден в структуре склада`);
@@ -700,7 +740,7 @@ const undoLastAction = db.transaction(() => {
 
 module.exports = {
   db, classifyCell, listRecords, replaceAll, updateRecord, createRecord, deleteRecord,
-  swapRows, swapRacks, renameRow, setRacks, createRow, deleteRow, getMeta, setMeta, count, seedIfEmpty,
+  swapRows, swapRacks, renameRow, setRacks, setLevels, createRow, deleteRow, getMeta, setMeta, count, seedIfEmpty,
   getLayout, ensureLayoutFromSeed, rebuildLayoutFromCurrent, setRackOrder,
   bulkMove, bulkDelete, listActivity, undoLastAction,
   seedAbcClasses, getAbcClasses,

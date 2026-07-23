@@ -431,6 +431,11 @@
 
   /* Move-mode toggle (tap-to-select alternative to drag-and-drop, for touch) */
   #move-mode-btn.active{background:var(--accent); color:#fff; border-color:var(--accent);}
+  /* Tap-to-move is only needed where drag-and-drop doesn't work — hide the
+     toggle on desktop/mouse devices, keep it for touch screens. */
+  @media (hover: hover) and (pointer: fine){
+    #move-mode-btn{display:none;}
+  }
   .cell.tap-selected{outline:2px solid var(--accent); outline-offset:1px; box-shadow:0 0 0 3px var(--accent-soft);}
   .aisle-chip.tap-selected, .rack-label.tap-selected{outline:2px solid var(--accent); outline-offset:1px;}
   .order-chip .oc-move{cursor:pointer; padding:0 3px; color:var(--ink-soft);}

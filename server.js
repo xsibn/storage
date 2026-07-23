@@ -215,6 +215,19 @@ app.put('/api/layout/:row/racks', (req, res) => {
   }
 });
 
+// PUT /api/layout/:row/levels — задать список ярусов ряда (добавление/удаление строк по высоте)
+app.put('/api/layout/:row/levels', (req, res) => {
+  const row = String(req.params.row).trim().padStart(2, '0');
+  const { levels } = req.body || {};
+  if (!Array.isArray(levels)) return res.status(400).json({ error: '"levels" должен быть массивом ярусов' });
+  try {
+    const updated = db.setLevels(row, levels);
+    res.json({ ok: true, row, levels: updated.levels });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
 // ---------- Служебные зоны ----------
 
 // POST /api/zones — создать новую зону

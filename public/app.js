@@ -1329,13 +1329,90 @@
     if(!extent){ alert('Для этого ряда пока нет структуры склада.'); return; }
     const originalRow = targetRow;
     let orderDraft = extent.racks.slice();
+    let levelsDraft = LEVEL_ORDER.filter(l=>extent.levels.includes(l));
     let dragIdx = null;
+    let levelDragIdx = null;
 
     function occupiedRacksInDraftRow(){
       // ranks that currently hold stock in THIS row — removing them needs a warning
       const set = new Set();
       addressRecords().filter(r=>r.row===originalRow).forEach(r=>set.add(r.rack));
       return set;
+    }
+
+    function occupiedLevelsInDraftRow(){
+      const set = new Set();
+      addressRecords().filter(r=>r.row===originalRow).forEach(r=>set.add(r.level));
+      return set;
+    }
+
+    function renderLevelChips(){
+      const occupied = occupiedLevelsInDraftRow();
+      const list = document.getElementById('modal-body').querySelector('.level-order-list');
+      list.innerHTML = levelsDraft.map((lv,idx)=>`
+        <div class="order-chip" draggable="true" data-idx="${idx}" data-level="${lv}" title="${occupied.has(lv)?'На этом ярусе есть товар':'Пусто'}">
+          <span class="oc-move" data-dir="-1" title="Сдвинуть влево">◀</span>
+          ${lv}${occupied.has(lv)?'':' <span class="rm" style="opacity:.5;">×</span>'}
+          <span class="oc-move" data-dir="1" title="Сдвинуть вправо">▶</span>
+        </div>
+      `).join('');
+
+      list.querySelectorAll('.order-chip').forEach(chip=>{
+        chip.addEventListener('dragstart', (e)=>{
+          levelDragIdx = parseInt(chip.dataset.idx,10);
+          chip.classList.add('drag-source');
+          e.dataTransfer.effectAllowed = 'move';
+          e.dataTransfer.setData('text/plain', String(levelDragIdx));
+        });
+        chip.addEventListener('dragend', ()=>{ chip.classList.remove('drag-source'); levelDragIdx = null; });
+        chip.addEventListener('dragover', (e)=>{
+          if(levelDragIdx===null) return;
+          e.preventDefault();
+          e.dataTransfer.dropEffect = 'move';
+          chip.classList.add('drag-over');
+        });
+        chip.addEventListener('dragleave', ()=>{ chip.classList.remove('drag-over'); });
+        chip.addEventListener('drop', (e)=>{
+          e.preventDefault();
+          chip.classList.remove('drag-over');
+          const targetIdx = parseInt(chip.dataset.idx,10);
+          if(levelDragIdx===null || levelDragIdx===targetIdx) return;
+          const [moved] = levelsDraft.splice(levelDragIdx,1);
+          levelsDraft.splice(targetIdx,0,moved);
+          levelDragIdx = null;
+          renderLevelChips();
+        });
+        chip.querySelectorAll('.oc-move').forEach(btn=>{
+          btn.addEventListener('click', (e)=>{
+            e.stopPropagation();
+            const idx = parseInt(chip.dataset.idx,10);
+            const dir = parseInt(btn.dataset.dir,10);
+            const newIdx = idx + dir;
+            if(newIdx<0 || newIdx>=levelsDraft.length) return;
+            [levelsDraft[idx], levelsDraft[newIdx]] = [levelsDraft[newIdx], levelsDraft[idx]];
+            renderLevelChips();
+          });
+        });
+        const rmBtn = chip.querySelector('.rm');
+        if(rmBtn){
+          rmBtn.addEventListener('click', (e)=>{
+            e.stopPropagation();
+            const lv = chip.dataset.level;
+            levelsDraft = levelsDraft.filter(l=>l!==lv);
+            renderLevelChips();
+            renderAddLevelOptions();
+          });
+        }
+      });
+    }
+
+    function renderAddLevelOptions(){
+      const sel = document.getElementById('add-level-select');
+      if(!sel) return;
+      const remaining = LEVEL_ORDER.filter(l=>!levelsDraft.includes(l));
+      sel.innerHTML = remaining.map(l=>`<option value="${l}">${l}</option>`).join('') || '<option value="">— все ярусы уже добавлены —</option>';
+      sel.disabled = !remaining.length;
+      document.getElementById('add-level-btn').disabled = !remaining.length;
     }
 
     function renderChips(){
@@ -1404,24 +1481,34 @@
         <label>Название ряда (2 цифры)</label>
         <input id="row-rename-input" type="text" maxlength="2" value="${originalRow}" style="width:80px; padding:8px 10px; border:1px solid var(--line); border-radius:7px; font-family:var(--mono); font-size:14px;">
       </div>
-      <div class="form-field" style="margin-bottom:10px;">
+      <div class="form-field" style="margin-bottom:16px;">
         <label>Стеллажи ряда — перетаскивайте, чтобы задать порядок; × убирает пустой стеллаж</label>
         <div class="order-list"></div>
       </div>
-      <div class="form-field with-pin" style="max-width:260px;">
+      <div class="form-field with-pin" style="max-width:260px; margin-bottom:20px;">
         <div><input id="add-rack-input" type="number" min="1" placeholder="Номер нового стеллажа"></div>
         <button class="btn" id="add-rack-btn" style="height:34px;">+ Добавить</button>
+      </div>
+      <div class="form-field" style="margin-bottom:10px;">
+        <label>Ярусы ряда (количество строк по высоте) — перетаскивайте, чтобы задать порядок; × убирает пустой ярус</label>
+        <div class="order-list level-order-list"></div>
+      </div>
+      <div class="form-field with-pin" style="max-width:260px;">
+        <div><select id="add-level-select"></select></div>
+        <button class="btn" id="add-level-btn" style="height:34px;">+ Добавить</button>
       </div>
       <div class="form-error" id="row-mgr-error"></div>
     `;
     const footer = `
       <button class="btn danger" id="row-mgr-delete">Удалить ряд</button>
-      <button class="btn" id="order-reset">По возрастанию</button>
+      <button class="btn" id="order-reset">Стеллажи по возрастанию</button>
       <button class="btn" id="row-mgr-cancel">Отмена</button>
       <button class="btn primary" id="row-mgr-save">Сохранить</button>
     `;
     openModal(`Управление рядом ${originalRow}`, body, footer);
     renderChips();
+    renderLevelChips();
+    renderAddLevelOptions();
 
     document.getElementById('row-mgr-delete').addEventListener('click', async ()=>{
       const errEl = document.getElementById('row-mgr-error');
@@ -1457,6 +1544,14 @@
       inp.value = '';
       renderChips();
     });
+    document.getElementById('add-level-btn').addEventListener('click', ()=>{
+      const sel = document.getElementById('add-level-select');
+      const v = sel.value;
+      if(!v || levelsDraft.includes(v)) return;
+      levelsDraft.push(v);
+      renderLevelChips();
+      renderAddLevelOptions();
+    });
     document.getElementById('row-mgr-cancel').addEventListener('click', closeModal);
 
     document.getElementById('row-mgr-save').addEventListener('click', async ()=>{
@@ -1486,6 +1581,13 @@
         });
         const payload2 = await res2.json().catch(()=>({}));
         if(!res2.ok) throw new Error(payload2.error || ('HTTP '+res2.status));
+
+        const res3 = await fetch(`${API_BASE}/api/layout/${workingRow}/levels`, {
+          method:'PUT', headers:{'Content-Type':'application/json'},
+          body: JSON.stringify({ levels: levelsDraft })
+        });
+        const payload3 = await res3.json().catch(()=>({}));
+        if(!res3.ok) throw new Error(payload3.error || ('HTTP '+res3.status));
 
         closeModal();
         currentAisle = workingRow;
