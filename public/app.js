@@ -195,90 +195,6 @@
 
   function addressRecords(){ return state.records.filter(r=>!r.isService); }
 
-  // ---------- GLOBAL SEARCH ----------
-  // One article across many DB rows (pick face + replenishment cells, service
-  // zones) collapses into a single search result: total qty, every distinct
-  // address it occupies, its merchandise category/material/ABC class.
-  let searchTerm = '';
-  let searchCategoryFilter = 'all';
-
-  function buildSearchIndex(){
-    const byArticle = {};
-    state.records.forEach(r=>{
-      let entry = byArticle[r.article];
-      if(!entry){
-        entry = byArticle[r.article] = {
-          article: r.article, name: r.name, qty: 0,
-          material: classifyMaterial(r.name), category: classifyCategory(r.name),
-          abcClass: (state.abcClasses && state.abcClasses[r.article]) || 'C',
-          cells: []
-        };
-      }
-      entry.qty += r.qty;
-      if(!r.isService && !entry.cells.includes(r.cell)) entry.cells.push(r.cell);
-    });
-    return Object.values(byArticle);
-  }
-
-  function populateSearchCategoryFilter(){
-    const sel = document.getElementById('global-search-category');
-    if(!sel) return;
-    const present = new Set(buildSearchIndex().map(a=>a.category));
-    const known = Object.keys(CATEGORY_COLORS).filter(c=>present.has(c));
-    const rest = Array.from(present).filter(c=>!known.includes(c));
-    const cats = [...known, ...rest];
-    const prev = sel.value || searchCategoryFilter;
-    sel.innerHTML = `<option value="all">Все категории</option>` + cats.map(c=>`<option value="${c}">${c}</option>`).join('');
-    sel.value = cats.includes(prev) ? prev : 'all';
-    searchCategoryFilter = sel.value;
-  }
-
-  function renderSearchResults(){
-    populateSearchCategoryFilter();
-    const box = document.getElementById('global-search-results');
-    const countEl = document.getElementById('global-search-count');
-    if(!box) return;
-    const term = searchTerm.trim().toLowerCase();
-    if(!term && searchCategoryFilter==='all'){
-      box.innerHTML = `<tr><td colspan="8" class="empty-note">Начните вводить артикул, наименование или выберите категорию…</td></tr>`;
-      if(countEl) countEl.textContent = '';
-      return;
-    }
-    const abcBadgeClass = {A:'multi', B:'multi', C:'service'};
-    const items = buildSearchIndex().filter(a=>{
-      if(searchCategoryFilter!=='all' && a.category!==searchCategoryFilter) return false;
-      if(!term) return true;
-      return a.article.toLowerCase().includes(term) || a.name.toLowerCase().includes(term) || a.category.toLowerCase().includes(term) || a.material.toLowerCase().includes(term);
-    }).sort((a,b)=> a.name.localeCompare(b.name, 'ru'));
-    if(countEl) countEl.textContent = `Найдено: ${fmtNum(items.length)}`;
-    if(!items.length){
-      box.innerHTML = `<tr><td colspan="8" class="empty-note">Ничего не найдено</td></tr>`;
-      return;
-    }
-    const MAX = 200;
-    box.innerHTML = items.slice(0, MAX).map(a=>{
-      const cellsLabel = a.cells.length
-        ? a.cells.slice(0,2).join(', ') + (a.cells.length>2 ? ` +${a.cells.length-2}` : '')
-        : '<span class="badge service">нет ячейки</span>';
-      const showBtn = a.cells.length
-        ? `<button class="btn" data-show-article="${a.article}">Показать на схеме</button>`
-        : '';
-      return `<tr>
-        <td>${a.category}</td>
-        <td class="article">${a.article}</td>
-        <td>${a.name}</td>
-        <td>${a.material}</td>
-        <td><span class="badge ${a.abcClass==='A'?'service':abcBadgeClass[a.abcClass]}" style="${a.abcClass==='A'?'background:#FBEAE7;color:var(--danger);':''}">${a.abcClass}</span></td>
-        <td>${fmtNum(a.qty)}</td>
-        <td class="cellcode">${cellsLabel}</td>
-        <td>${showBtn}</td>
-      </tr>`;
-    }).join('') + (items.length>MAX ? `<tr><td colspan="8" style="text-align:center;color:var(--ink-soft);padding:14px;">Показаны первые ${MAX} из ${fmtNum(items.length)} — уточните поиск</td></tr>` : '');
-    box.querySelectorAll('[data-show-article]').forEach(btn=>{
-      btn.addEventListener('click', ()=> showArticleOnScheme(btn.dataset.showArticle));
-    });
-  }
-
   // Select the row holding these records on the currently-rendered scheme,
   // scroll to the cell(s) and pulse-highlight them so they're easy to spot.
   // Shared by the global search ("Показать на схеме"), the in-map search box
@@ -302,15 +218,6 @@
       setTimeout(()=> cells.forEach(el=> el.classList.remove('just-found')), 3200);
     });
     return true;
-  }
-
-  // Jump to the "Схема склада" tab, select the right row, scroll to the cell(s)
-  // holding this article and pulse-highlight them so they're easy to spot.
-  function showArticleOnScheme(article){
-    const records = addressRecords().filter(r=>r.article===article);
-    if(!records.length){ alert('У этого артикула сейчас нет ячейки на схеме склада (только служебная зона).'); return; }
-    document.querySelector('nav.tabs button[data-view="map"]').click();
-    pulseAddressesOnMap(records);
   }
 
   // Match a typed/scanned code against address cells only (schema search), same
@@ -786,14 +693,6 @@
       alert(`Товар со штрихкодом «${code}» не найден в текущих данных склада.`);
       return;
     }
-    if(context === 'search'){
-      // подставляем код в единый поиск и остаёмся там — результат уже виден в списке
-      document.querySelector('nav.tabs button[data-view="search"]').click();
-      searchTerm = code;
-      document.getElementById('global-search-input').value = code;
-      renderSearchResults();
-      return;
-    }
     if(context === 'map'){
       // остаёмся на схеме склада: сразу переходим на нужный ряд и подсвечиваем ячейку(и)
       document.querySelector('nav.tabs button[data-view="map"]').click();
@@ -880,7 +779,7 @@
   }
 
   document.getElementById('scan-barcode-btn').addEventListener('click', ()=> openBarcodeScanner('table'));
-  document.getElementById('global-scan-btn').addEventListener('click', ()=> openBarcodeScanner('search'));
+  document.getElementById('map-scan-btn').addEventListener('click', ()=> openBarcodeScanner('map'));
 
   // ---------- ЖУРНАЛ ИЗМЕНЕНИЙ (отдельное окно) ----------
   const ACTIVITY_LABELS = {
@@ -2516,7 +2415,6 @@
     if(!val) return;
     if(!jumpOnMap(val)) alert(`На схеме склада не найдено: «${val}»`);
   });
-  document.getElementById('map-scan-btn').addEventListener('click', ()=> openBarcodeScanner('map'));
   document.getElementById('table-search').addEventListener('input', (e)=>{
     tableTerm = e.target.value; renderTable();
   });
@@ -2543,12 +2441,6 @@
       }
       renderTable();
     });
-  });
-  document.getElementById('global-search-input').addEventListener('input', (e)=>{
-    searchTerm = e.target.value; renderSearchResults();
-  });
-  document.getElementById('global-search-category').addEventListener('change', (e)=>{
-    searchCategoryFilter = e.target.value; renderSearchResults();
   });
 
   // ---------- DB ACTIONS DROPDOWN (import + export grouped together) ----------
@@ -2671,7 +2563,6 @@
     renderTable();
     renderZones();
     renderReco();
-    renderSearchResults();
   }
 
   // ---------- BOOTSTRAP ----------

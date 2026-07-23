@@ -523,8 +523,7 @@
   </div>
 
   <nav class="tabs">
-    <button data-view="search" class="active">🔍 Поиск</button>
-    <button data-view="map">Схема склада</button>
+    <button data-view="map" class="active">Схема склада</button>
     <button data-view="table">Таблица данных</button>
     <button data-view="zones">Служебные зоны</button>
     <button data-view="reco">Рекомендация пикинга</button>
@@ -532,30 +531,8 @@
 
   <main>
 
-    <!-- SEARCH VIEW -->
-    <section class="view active" id="view-search">
-      <div class="panel">
-        <h2>Поиск товара</h2>
-        <p style="font-size:12px; color:var(--ink-soft); margin:8px 0 14px;">Ищет по артикулу, наименованию и категории товара сразу по всей базе. Отсканируйте штрих-код камерой или введите код вручную.</p>
-        <div class="toolbar" style="margin-bottom:12px;">
-          <div class="search" style="flex:2 1 320px;">
-            <input type="text" id="global-search-input" placeholder="Артикул, наименование или категория…" autofocus>
-            <button class="scan-inline-btn" id="global-scan-btn" type="button" title="Найти товар по штрих-коду через камеру">📷</button>
-          </div>
-          <select id="global-search-category" style="flex:1 1 200px;"></select>
-          <span id="global-search-count" style="color:var(--ink-soft); font-size:12px; align-self:center;"></span>
-        </div>
-        <div class="table-scroll" style="max-height:560px;">
-          <table>
-            <thead><tr><th>Категория</th><th>Артикул</th><th>Наименование</th><th>Материал</th><th>ABC</th><th>Остаток</th><th>Ячейка(и)</th><th></th></tr></thead>
-            <tbody id="global-search-results"></tbody>
-          </table>
-        </div>
-      </div>
-    </section>
-
     <!-- MAP VIEW -->
-    <section class="view" id="view-map">
+    <section class="view active" id="view-map">
       <div class="panel">
         <h2>Ряд / проход</h2>
         <p style="font-size:12px; color:var(--ink-soft); margin:8px 0 10px;">Перетащите один ряд на другой, чтобы поменять их местами целиком — весь товар обоих рядов обменяется.</p>
