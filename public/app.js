@@ -458,7 +458,7 @@
 
     const term = mapFilterTerm.trim().toLowerCase();
 
-    let html = `<div style="display:grid; grid-template-columns:34px repeat(${fullRacks.length}, 22px); gap:3px;">`;
+    let html = `<div style="display:grid; grid-template-columns:34px repeat(${fullRacks.length}, var(--cell-size,22px)); gap:3px;">`;
     html += `<div></div>`;
     fullRacks.forEach(rk=> {
       const sel = moveMode && String(rk)===tapSourceRackSel ? 'tap-selected' : '';
@@ -859,7 +859,7 @@
       const byPos = {};
       rows.forEach(r=>{ (byPos[r.rack+'|'+r.level] = byPos[r.rack+'|'+r.level] || []).push(r); });
 
-      let html = `<div style="display:grid; grid-template-columns:34px repeat(${racks.length}, 22px); gap:3px;">`;
+      let html = `<div style="display:grid; grid-template-columns:34px repeat(${racks.length}, var(--cell-size,22px)); gap:3px;">`;
       html += `<div></div>`;
       racks.forEach(rk=> html += `<div class="rack-label">${rk}</div>`);
       levels.forEach(lv=>{
@@ -1986,7 +1986,7 @@
 
     const term = recoSearchTerm.trim().toLowerCase();
 
-    let html = `<div style="display:grid; grid-template-columns:34px repeat(${racks.length}, 22px); gap:3px;">`;
+    let html = `<div style="display:grid; grid-template-columns:34px repeat(${racks.length}, var(--cell-size,22px)); gap:3px;">`;
     html += `<div></div>`;
     racks.forEach(rk=> html += `<div class="rack-label">${rk}</div>`);
     levels.forEach(lv=>{
