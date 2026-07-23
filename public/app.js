@@ -1307,9 +1307,27 @@
   }
 
   // Picking-face footprint per ABC class: A-class articles are fast movers and
-  // get 3 rack columns of pick face, B gets 2, C gets 1 — wider face = fewer
-  // trips to replenish that slot during a shift.
-  const ABC_COLS = {A:3, B:2, C:1};
+  // get 3 rack columns of pick face by default, B gets 2, C gets 1 — wider face =
+  // fewer trips to replenish that slot during a shift. Editable in the UI (ABC-классы
+  // panel) and persisted per-browser; clamped to 1..6 columns.
+  const ABC_COLS_DEFAULT = {A:3, B:2, C:1};
+  const ABC_COLS_MIN = 1, ABC_COLS_MAX = 6;
+  function clampAbcCols(v){
+    v = parseInt(v, 10);
+    if(!Number.isFinite(v)) return ABC_COLS_MIN;
+    return Math.max(ABC_COLS_MIN, Math.min(ABC_COLS_MAX, v));
+  }
+  function loadAbcCols(){
+    try{
+      const saved = JSON.parse(localStorage.getItem('abcCols'));
+      if(saved && typeof saved === 'object'){
+        return {A: clampAbcCols(saved.A ?? ABC_COLS_DEFAULT.A), B: clampAbcCols(saved.B ?? ABC_COLS_DEFAULT.B), C: clampAbcCols(saved.C ?? ABC_COLS_DEFAULT.C)};
+      }
+    }catch(e){}
+    return {...ABC_COLS_DEFAULT};
+  }
+  function saveAbcCols(){ try{ localStorage.setItem('abcCols', JSON.stringify(ABC_COLS)); }catch(e){} }
+  let ABC_COLS = loadAbcCols();
 
   let recoCache = null; // {sorted:[...], posPool:[...]}
 
@@ -1464,11 +1482,12 @@
         <div class="name" style="color:${colors[k]};">Класс ${k}</div>
         <div class="row"><span>Артикулов</span><b>${fmtNum(t[k].n)}</b></div>
         <div class="row"><span>Доля объёма стока</span><b>${share.toFixed(1)}%</b></div>
-        <div class="row"><span>Колонок на пик-лицо</span><b>${ABC_COLS[k]}</b></div>
+        <div class="row"><span>Колонок на пик-лицо</span><input type="number" class="abc-cols-input" data-abc="${k}" min="${ABC_COLS_MIN}" max="${ABC_COLS_MAX}" step="1" value="${ABC_COLS[k]}"></div>
       </div>`;
     }).join('');
     box.querySelectorAll('.zone-card[data-abc]').forEach(card=>{
-      card.addEventListener('click', ()=>{
+      card.addEventListener('click', (e)=>{
+        if(e.target.closest('.abc-cols-input')) return; // don't trigger card select from the input
         recoAbcFilter = card.dataset.abc;
         const sel = document.getElementById('reco-abc-filter');
         if(sel) sel.value = recoAbcFilter;
@@ -1476,7 +1495,25 @@
         document.getElementById('reco-body').closest('.panel').scrollIntoView({behavior:'smooth', block:'start'});
       });
     });
+    box.querySelectorAll('.abc-cols-input').forEach(inp=>{
+      inp.addEventListener('click', e=> e.stopPropagation());
+      inp.addEventListener('change', ()=>{
+        const cls = inp.dataset.abc;
+        ABC_COLS[cls] = clampAbcCols(inp.value);
+        inp.value = ABC_COLS[cls]; // reflect clamped value
+        saveAbcCols();
+        recoCache = null; // force recompute with new column widths
+        renderReco();
+      });
+    });
   }
+
+  document.getElementById('abc-cols-reset-btn')?.addEventListener('click', ()=>{
+    ABC_COLS = {...ABC_COLS_DEFAULT};
+    saveAbcCols();
+    recoCache = null;
+    renderReco();
+  });
 
   function hexToRgb(hex){
     const m = hex.replace('#','');
