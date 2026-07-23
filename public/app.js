@@ -991,6 +991,7 @@
 
   let tableTerm = "";
   let tableFilter = "all";
+  let tableCategoryFilter = new Set(); // пусто = все категории
   let tableSort = { field: null, dir: 'asc' }; // dir: 'asc' | 'desc'
   const selectedIds = new Set();
 
@@ -1089,6 +1090,59 @@
   });
 
 
+  // Строит выпадающее меню мультивыбора категорий с чекбоксами и счётчиком
+  // по каждой (в рамках уже применённых поиска/фильтра "адресные/служебные"),
+  // и обновляет подпись на кнопке-переключателе.
+  function renderCategoryFilterMenu(baseRows){
+    const menu = document.getElementById('category-filter-menu');
+    const toggleBtn = document.getElementById('category-filter-toggle');
+    if(!menu || !toggleBtn) return;
+
+    const counts = {};
+    baseRows.forEach(r=>{
+      const cat = classifyCategory(r.name);
+      counts[cat] = (counts[cat] || 0) + 1;
+    });
+    const known = Object.keys(CATEGORY_COLORS).filter(c => counts[c]);
+    const rest = Object.keys(counts).filter(c => !known.includes(c)).sort((a,b)=>a.localeCompare(b,'ru'));
+    const cats = [...known, ...rest];
+
+    toggleBtn.textContent = tableCategoryFilter.size ? `Категория (${tableCategoryFilter.size}) ▾` : 'Категория ▾';
+    toggleBtn.classList.toggle('active', tableCategoryFilter.size > 0);
+
+    if(!cats.length){
+      menu.innerHTML = `<div style="padding:10px; font-size:12px; color:var(--ink-soft);">Нет категорий</div>`;
+      return;
+    }
+    menu.innerHTML = `
+      <div class="cat-menu-actions">
+        <button type="button" id="cat-select-all">Выбрать все</button>
+        <button type="button" id="cat-select-none">Сбросить</button>
+      </div>
+    ` + cats.map(c=>{
+      const color = CATEGORY_COLORS[c] || '#94A3B8';
+      const checked = tableCategoryFilter.has(c) ? 'checked' : '';
+      return `<label class="cat-menu-item">
+        <input type="checkbox" data-category="${c}" ${checked}>
+        <span class="cat-swatch" style="background:${color};"></span>
+        <span class="cat-name">${c}</span>
+        <span class="cat-count">${counts[c]}</span>
+      </label>`;
+    }).join('');
+
+    menu.querySelectorAll('input[type="checkbox"]').forEach(cb=>{
+      cb.addEventListener('change', ()=>{
+        const cat = cb.dataset.category;
+        if(cb.checked) tableCategoryFilter.add(cat); else tableCategoryFilter.delete(cat);
+        renderTable();
+      });
+    });
+    const selAll = document.getElementById('cat-select-all');
+    const selNone = document.getElementById('cat-select-none');
+    if(selAll) selAll.addEventListener('click', ()=>{ tableCategoryFilter = new Set(cats); renderTable(); });
+    if(selNone) selNone.addEventListener('click', ()=>{ tableCategoryFilter.clear(); renderTable(); });
+  }
+
   function renderTable(){
     let rows = state.records;
     if(tableFilter==='address') rows = rows.filter(r=>!r.isService);
@@ -1096,6 +1150,11 @@
     const term = tableTerm.trim().toLowerCase();
     if(term){
       rows = rows.filter(r=> r.article.toLowerCase().includes(term) || r.name.toLowerCase().includes(term) || r.cell.toLowerCase().includes(term) || (r.te && r.te.toLowerCase().includes(term)));
+    }
+
+    renderCategoryFilterMenu(rows);
+    if(tableCategoryFilter.size){
+      rows = rows.filter(r => tableCategoryFilter.has(classifyCategory(r.name)));
     }
 
     if(tableSort.field){
@@ -2463,6 +2522,16 @@
   });
   document.getElementById('table-filter').addEventListener('change', (e)=>{
     tableFilter = e.target.value; renderTable();
+  });
+  const categoryDropdown = document.getElementById('category-filter-dropdown');
+  document.getElementById('category-filter-toggle').addEventListener('click', (e)=>{
+    e.stopPropagation();
+    categoryDropdown.classList.toggle('open');
+  });
+  document.addEventListener('click', (e)=>{
+    if(categoryDropdown.classList.contains('open') && !categoryDropdown.contains(e.target)){
+      categoryDropdown.classList.remove('open');
+    }
   });
   document.querySelectorAll('#view-table thead th.sortable').forEach(th=>{
     th.addEventListener('click', ()=>{

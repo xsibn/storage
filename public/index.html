@@ -119,6 +119,18 @@
   }
   .dropdown-menu button:hover, .dropdown-menu label:hover{background:var(--bg);}
   .dropdown-menu .menu-sep{height:1px; background:var(--line); margin:5px 2px;}
+  .cat-menu-actions{display:flex; gap:6px; padding:2px 4px 6px; border-bottom:1px solid var(--line); margin-bottom:4px;}
+  .cat-menu-actions button{
+    flex:1; padding:5px 6px; font-size:11px; border:1px solid var(--line); border-radius:6px;
+    background:var(--bg); color:var(--ink-soft); cursor:pointer; text-align:center; width:auto;
+  }
+  .cat-menu-actions button:hover{color:var(--ink); border-color:var(--ink-soft);}
+  .cat-menu-item{cursor:pointer;}
+  .cat-menu-item input{margin:0; flex:0 0 auto;}
+  .cat-swatch{width:9px; height:9px; border-radius:3px; flex:0 0 auto;}
+  .cat-menu-item .cat-name{flex:1 1 auto; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
+  .cat-menu-item .cat-count{flex:0 0 auto; font-size:11px; color:var(--ink-soft);}
+  #category-filter-toggle.active{border-color:var(--accent); color:var(--accent);}
 
   /* Tabs */
   nav.tabs{
@@ -581,6 +593,10 @@
             <option value="address">Только адресные ячейки</option>
             <option value="service">Только служебные зоны</option>
           </select>
+          <div class="dropdown" id="category-filter-dropdown">
+            <button class="btn" id="category-filter-toggle" type="button">Категория ▾</button>
+            <div class="dropdown-menu" id="category-filter-menu" style="min-width:240px; max-height:340px; overflow-y:auto;"></div>
+          </div>
           <span id="table-count" style="color:var(--ink-soft); font-size:12px;"></span>
           <button class="btn primary" id="add-product-btn" style="margin-left:auto;">+ Добавить товар</button>
         </div>
