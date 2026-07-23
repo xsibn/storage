@@ -304,10 +304,62 @@
   let tapSourceAisleSel = null;
   let tapSourceRackSel = null;
 
+  // Row multi-select mode: pick several row chips, then delete them all at
+  // once instead of opening the row manager one row at a time.
+  let rowSelectMode = false;
+  let rowSelection = new Set();
+
+  function setRowSelectMode(on){
+    rowSelectMode = on;
+    rowSelection.clear();
+    document.getElementById('row-select-mode-btn').classList.toggle('active', rowSelectMode);
+    document.getElementById('row-select-mode-btn').textContent = rowSelectMode ? '✕ Отменить выбор' : '☑ Выбрать ряды';
+    updateDeleteSelectedBtn();
+    // Row multi-select and tap-move-mode are two different tap interpretations
+    // of the same chip click — keep only one active at a time.
+    if(rowSelectMode && moveMode) setMoveMode(false); else renderAisleChips();
+  }
+
+  function updateDeleteSelectedBtn(){
+    const btn = document.getElementById('delete-selected-rows-btn');
+    document.getElementById('delete-selected-count').textContent = rowSelection.size;
+    btn.style.display = (rowSelectMode && rowSelection.size>0) ? '' : 'none';
+  }
+
+  async function deleteSelectedRows(){
+    const rows = Array.from(rowSelection).sort();
+    if(!rows.length) return;
+    if(!confirm(`Удалить выбранные ряды (${rows.join(', ')})? Это возможно только для рядов без товара. Действие необратимо.`)) return;
+    progressStart('Удаление рядов…');
+    const failed = [];
+    for(const row of rows){
+      try{
+        const res = await fetch(`${API_BASE}/api/layout/${row}`, { method:'DELETE' });
+        const payload = await res.json().catch(()=>({}));
+        if(!res.ok) throw new Error(payload.error || ('HTTP '+res.status));
+      }catch(err){
+        failed.push(`${row} (${err.message})`);
+      }
+    }
+    progressEnd();
+    setRowSelectMode(false);
+    currentAisle = null;
+    await fetchRecords();
+    renderAll();
+    if(failed.length){
+      alert('Не удалось удалить ряд(ы): ' + failed.join(', '));
+      setSyncStatus('часть рядов не удалена', true);
+    }else{
+      setSyncStatus(`удалено рядов: ${rows.length} · ` + new Date().toLocaleTimeString('ru-RU'));
+    }
+  }
+
+
   function setMoveMode(on){
     moveMode = on;
     tapSourceAddress = null; tapSourceAisleSel = null; tapSourceRackSel = null;
     document.getElementById('move-mode-btn').classList.toggle('active', moveMode);
+    if(moveMode && rowSelectMode) setRowSelectMode(false);
     renderAisleChips();
     renderGrid();
   }
@@ -331,13 +383,21 @@
       const n = addressRecords().filter(r=>r.row===a);
       const cells = new Set(n.map(r=>r.cell)).size;
       const sel = moveMode && a===tapSourceAisleSel ? 'tap-selected' : '';
+      const delSel = rowSelectMode && rowSelection.has(a) ? 'del-selected' : '';
       const matchCount = matchesByRow && matchesByRow[a] ? matchesByRow[a].size : 0;
       const matchCls = matchCount ? 'has-match' : '';
       const badge = matchCount ? `<span class="match-badge" title="Совпадений с поиском: ${matchCount}">${matchCount}</span>` : '';
-      return `<button class="aisle-chip ${a===currentAisle?'active':''} ${sel} ${matchCls}" draggable="true" data-aisle="${a}" title="Перетащите на другой ряд, чтобы поменять их местами целиком">Ряд ${a}<span class="n">· ${cells}</span>${badge}</button>`;
+      return `<button class="aisle-chip ${a===currentAisle?'active':''} ${sel} ${delSel} ${matchCls}" draggable="${rowSelectMode?'false':'true'}" data-aisle="${a}" title="Перетащите на другой ряд, чтобы поменять их местами целиком">Ряд ${a}<span class="n">· ${cells}</span>${badge}</button>`;
     }).join('');
     box.querySelectorAll('.aisle-chip').forEach(btn=>{
       btn.addEventListener('click', async ()=>{
+        if(rowSelectMode){
+          const a = btn.dataset.aisle;
+          if(rowSelection.has(a)) rowSelection.delete(a); else rowSelection.add(a);
+          renderAisleChips();
+          updateDeleteSelectedBtn();
+          return;
+        }
         if(moveMode){
           const a = btn.dataset.aisle;
           if(tapSourceAisleSel===null){ tapSourceAisleSel = a; renderAisleChips(); }
@@ -1443,6 +1503,8 @@
 
   document.getElementById('rack-order-btn').addEventListener('click', openRowManager);
   document.getElementById('reco-add-row-btn').addEventListener('click', openAddRowForm);
+  document.getElementById('row-select-mode-btn').addEventListener('click', ()=> setRowSelectMode(!rowSelectMode));
+  document.getElementById('delete-selected-rows-btn').addEventListener('click', deleteSelectedRows);
   document.getElementById('reco-manage-row-btn').addEventListener('click', ()=> openRowManager(recoAisle));
   document.getElementById('move-mode-btn').addEventListener('click', ()=> setMoveMode(!moveMode));
 
