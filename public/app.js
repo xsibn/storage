@@ -279,16 +279,17 @@
     });
   }
 
-  // Jump to the "Схема склада" tab, select the right row, scroll to the cell(s)
-  // holding this article and pulse-highlight them so they're easy to spot.
-  function showArticleOnScheme(article){
-    const records = addressRecords().filter(r=>r.article===article);
-    if(!records.length){ alert('У этого артикула сейчас нет ячейки на схеме склада (только служебная зона).'); return; }
-    records.sort((a,b)=> a.row===b.row ? (a.rack===b.rack ? String(a.level).localeCompare(String(b.level)) : a.rack-b.rack) : a.row.localeCompare(b.row));
+  // Select the row holding these records on the currently-rendered scheme,
+  // scroll to the cell(s) and pulse-highlight them so they're easy to spot.
+  // Shared by the global search ("Показать на схеме"), the in-map search box
+  // and the barcode scanner — all three should land the user in exactly the
+  // same place with the same accent, no matter how the article was entered.
+  function pulseAddressesOnMap(records){
+    if(!records.length) return false;
+    records = records.slice().sort((a,b)=> a.row===b.row ? (a.rack===b.rack ? String(a.level).localeCompare(String(b.level)) : a.rack-b.rack) : a.row.localeCompare(b.row));
     const target = records[0];
     const targetAddresses = new Set(records.map(r=>`${r.row}-${zpad(r.rack)}-${r.level}`));
 
-    document.querySelector('nav.tabs button[data-view="map"]').click();
     currentAisle = target.row;
     renderAisleChips();
     renderGrid();
@@ -300,6 +301,45 @@
       if(cells[0]) cells[0].scrollIntoView({behavior:'smooth', block:'center', inline:'center'});
       setTimeout(()=> cells.forEach(el=> el.classList.remove('just-found')), 3200);
     });
+    return true;
+  }
+
+  // Jump to the "Схема склада" tab, select the right row, scroll to the cell(s)
+  // holding this article and pulse-highlight them so they're easy to spot.
+  function showArticleOnScheme(article){
+    const records = addressRecords().filter(r=>r.article===article);
+    if(!records.length){ alert('У этого артикула сейчас нет ячейки на схеме склада (только служебная зона).'); return; }
+    document.querySelector('nav.tabs button[data-view="map"]').click();
+    pulseAddressesOnMap(records);
+  }
+
+  // Match a typed/scanned code against address cells only (schema search), same
+  // priority as findRecordsByCode below: exact article/cell/ТЕ first, then a
+  // case-insensitive exact match, then a loose "contains" fallback.
+  function findAddressMatches(term){
+    const c = String(term || '').trim();
+    if(!c) return [];
+    const lc = c.toLowerCase();
+    let matches = addressRecords().filter(r => r.article === c || r.cell === c || (r.te && r.te === c));
+    if(!matches.length){
+      matches = addressRecords().filter(r =>
+        r.article.toLowerCase() === lc || r.cell.toLowerCase() === lc || (r.te && r.te.toLowerCase() === lc)
+      );
+    }
+    if(!matches.length){
+      matches = addressRecords().filter(r =>
+        r.article.toLowerCase().includes(lc) || r.cell.toLowerCase().includes(lc) ||
+        r.name.toLowerCase().includes(lc) || (r.te && r.te.toLowerCase().includes(lc))
+      );
+    }
+    return matches;
+  }
+
+  // Called from the map's own search box (typing an exact code, or pressing
+  // Enter) and from the barcode scanner when it's opened from the map view —
+  // jumps straight to the right row and pulses the matching cell(s).
+  function jumpOnMap(term){
+    return pulseAddressesOnMap(findAddressMatches(term));
   }
 
   function serviceRecords(){ return state.records.filter(r=>r.isService); }
@@ -729,6 +769,20 @@
       searchTerm = code;
       document.getElementById('global-search-input').value = code;
       renderSearchResults();
+      return;
+    }
+    if(context === 'map'){
+      // остаёмся на схеме склада: сразу переходим на нужный ряд и подсвечиваем ячейку(и)
+      document.querySelector('nav.tabs button[data-view="map"]').click();
+      document.getElementById('map-search').value = code;
+      mapFilterTerm = code;
+      const addressMatches = matches.filter(r => !r.isService);
+      if(!addressMatches.length){
+        renderGrid();
+        alert(`Товар со штрихкодом «${code}» найден только в служебной зоне — на схеме склада его нет.`);
+        return;
+      }
+      pulseAddressesOnMap(addressMatches);
       return;
     }
     // переключаемся на вкладку "Таблица данных" и подставляем код в поиск
@@ -2321,7 +2375,26 @@
   // ---------- SEARCH BINDINGS ----------
   document.getElementById('map-search').addEventListener('input', (e)=>{
     mapFilterTerm = e.target.value; renderGrid();
+    // Введённый (в т.ч. набранный сканером как "клавиатура") код, точно
+    // совпавший с артикулом, ячейкой или ТЕ, сразу переносит на нужный ряд
+    // и подсвечивает ячейку — не дожидаясь Enter.
+    const val = e.target.value.trim();
+    if(val.length >= 3){
+      const lc = val.toLowerCase();
+      const exact = addressRecords().some(r =>
+        r.article.toLowerCase() === lc || r.cell.toLowerCase() === lc || (r.te && r.te.toLowerCase() === lc)
+      );
+      if(exact) jumpOnMap(val);
+    }
   });
+  document.getElementById('map-search').addEventListener('keydown', (e)=>{
+    if(e.key !== 'Enter') return;
+    e.preventDefault();
+    const val = e.target.value.trim();
+    if(!val) return;
+    if(!jumpOnMap(val)) alert(`На схеме склада не найдено: «${val}»`);
+  });
+  document.getElementById('map-scan-btn').addEventListener('click', ()=> openBarcodeScanner('map'));
   document.getElementById('table-search').addEventListener('input', (e)=>{
     tableTerm = e.target.value; renderTable();
   });
