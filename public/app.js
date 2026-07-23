@@ -1446,9 +1446,10 @@
     }
     articles.sort(placementComparator);
 
-    // Fixed business rule: 0.5 L bottles always go to row 04, regardless of
-    // material/ABC ranking — that row is reserved exclusively for this volume.
-    // Add more entries here if other volumes/rows need the same kind of pin.
+    // Fixed business rule: 0.5 L bottles always go to row 04 — but row 04 is not
+    // exclusive to them; whatever cells the 0.5 L group doesn't use are still
+    // fair game for the normal route. Add more entries here if other
+    // volumes/rows need the same kind of pin.
     const FORCED_ROW_BY_VOLUME = { '0.50': '04' };
     function forcedRowFor(a){ return a.vol==null ? null : (FORCED_ROW_BY_VOLUME[a.vol.toFixed(2)] || null); }
 
@@ -1459,29 +1460,21 @@
     // and runs in ASCENDING rack order through row 06 (28→66, confirmed), then
     // zig-zags back and forth through rows 05→01, reversing direction each row
     // (05 descending, 04 ascending, 03 descending, 02 ascending, 01 descending)
-    // so the path never jumps across the warehouse. Row 04's rack pool is split
-    // off into its own reserved queue (forcedPool) for the pinned volume above;
-    // every other row feeds the regular queue (pool) as before.
-    const pool = [];
-    const forcedPools = {}; // row -> [{row,rack}, ...], one queue per pinned row
-    Object.values(FORCED_ROW_BY_VOLUME).forEach(row=>{ forcedPools[row] = []; });
+    // so the path never jumps across the warehouse.
+    const rowRacks = {}; // row -> ordered [{row,rack}] in that row's own walking direction
     const walkIndex = {}; // "row-rack" -> position in the true physical walking order
     let walkPtr = 0;
     ACTIVE_ROWS.forEach((row, idx)=>{
       const extent = aisleExtent(row);
-      if(!extent) return;
-      let racks = extent.racks.slice().sort((a,b)=>a-b);
+      let racks = extent ? extent.racks.slice().sort((a,b)=>a-b) : [];
       racks = racksInStorageZone(row, racks);
       if(idx % 2 === 1) racks = racks.reverse(); // odd idx (rows 05,03,01): descending
-      racks.forEach(rack=>{
-        walkIndex[`${row}-${rack}`] = walkPtr++;
-        (forcedPools[row] || pool).push({row, rack});
-      });
+      rowRacks[row] = racks.map(rack=>{ walkIndex[`${row}-${rack}`] = walkPtr++; return {row, rack}; });
     });
 
-    function assignFromPool(list, queue){
-      let ptr = 0;
-      return list.map(a=>{
+    function assignFromPool(list, queue, startPtr){
+      let ptr = startPtr || 0;
+      const results = list.map(a=>{
         const abc = abcByArticle[a.article];
         const width = ABC_COLS[abc.abcClass] || 1;
         const positions = [];
@@ -1498,18 +1491,32 @@
           positions // every {row,rack} column this article's pick face occupies (width per ABC class)
         };
       });
+      return { results, usedPtr: ptr };
     }
 
-    const generalArticles = articles.filter(a=>!forcedRowFor(a));
-    let assigned = assignFromPool(generalArticles, pool);
-    Object.entries(forcedPools).forEach(([row, queue])=>{
-      const pinned = articles.filter(a=>forcedRowFor(a)===row).sort(placementComparator);
-      assigned = assigned.concat(assignFromPool(pinned, queue));
+    // For each pinned row: place its pinned group first, taking cells from the
+    // START of that row's own rack sequence; whatever's left in that row after
+    // the pinned group is satisfied goes back into the general route's pool at
+    // this row's normal spot, so other materials can still land in row 04.
+    const pinnedRows = new Set(Object.values(FORCED_ROW_BY_VOLUME));
+    let assigned = [];
+    const pool = [];
+    ACTIVE_ROWS.forEach(row=>{
+      const queue = rowRacks[row] || [];
+      if(pinnedRows.has(row)){
+        const pinned = articles.filter(a=>forcedRowFor(a)===row).sort(placementComparator);
+        const {results, usedPtr} = assignFromPool(pinned, queue, 0);
+        assigned = assigned.concat(results);
+        for(let i=usedPtr; i<queue.length; i++) pool.push(queue[i]); // leftover cells rejoin the general route
+      } else {
+        queue.forEach(cell=> pool.push(cell));
+      }
     });
+    const generalArticles = articles.filter(a=>!forcedRowFor(a));
+    assigned = assigned.concat(assignFromPool(generalArticles, pool, 0).results);
 
-    // Re-rank everything in true physical walking order (06→05→04→03→02→01, with
-    // the pinned rows' items sitting wherever that row falls in the route) so the
-    // "№"/queue rank shown in the UI matches the order you'd actually walk it.
+    // Re-rank everything in true physical walking order (06→05→04→03→02→01) so
+    // the "№"/queue rank shown in the UI matches the order you'd actually walk it.
     assigned.sort((a,b)=>{
       const ia = a.positions[0] ? walkIndex[`${a.positions[0].row}-${a.positions[0].rack}`] : Infinity;
       const ib = b.positions[0] ? walkIndex[`${b.positions[0].row}-${b.positions[0].rack}`] : Infinity;
