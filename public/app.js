@@ -1109,6 +1109,7 @@
           if(av===null) return 1;  // пустые даты — всегда в конец, независимо от направления
           if(bv===null) return -1;
         } else if(f==='isService'){ av = a.isService ? 1 : 0; bv = b.isService ? 1 : 0; }
+        else if(f==='category'){ av = classifyCategory(a.name); bv = classifyCategory(b.name); }
         else { av = String(a[f]||'').toLowerCase(); bv = String(b[f]||'').toLowerCase(); }
         if(av < bv) return -1*dir;
         if(av > bv) return 1*dir;
@@ -1142,6 +1143,7 @@
         </td>
         <td class="article">${r.article}</td>
         <td>${r.name}</td>
+        <td>${classifyCategory(r.name)}</td>
         <td><input class="edit-input" data-field="qty" type="number" value="${r.qty}"></td>
         <td>${r.mfg||'—'}</td>
         <td>${r.exp||'—'}</td>
@@ -1149,7 +1151,7 @@
         <td>${r.isService ? '<span class="badge service">служебная</span>' : '<span class="badge ok">адресная</span>'}</td>
         <td><button class="pin-btn row-delete-btn" title="Удалить запись">🗑</button></td>
       </tr>
-    `).join('') + (rows.length>MAX ? `<tr><td colspan="10" style="text-align:center;color:var(--ink-soft);padding:14px;">Показаны первые ${MAX} из ${fmtNum(rows.length)} — уточните поиск, чтобы увидеть остальные</td></tr>` : '');
+    `).join('') + (rows.length>MAX ? `<tr><td colspan="11" style="text-align:center;color:var(--ink-soft);padding:14px;">Показаны первые ${MAX} из ${fmtNum(rows.length)} — уточните поиск, чтобы увидеть остальные</td></tr>` : '');
 
     body.querySelectorAll('.row-select').forEach(cb=>{
       cb.addEventListener('change', ()=>{
