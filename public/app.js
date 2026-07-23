@@ -1515,6 +1515,38 @@
     renderReco();
   });
 
+  // Compact version of the same A/B/C column-width control, shown right above the
+  // rack schema so it can be adjusted without scrolling up to the ABC-классы panel.
+  function renderAbcColsInline(){
+    const box = document.getElementById('abc-cols-inline');
+    if(!box) return;
+    const colors = {A:'var(--danger)', B:'var(--multi)', C:'var(--service)'};
+    box.innerHTML = `<span class="lbl">Колонок на пик-лицо:</span>` +
+      ['A','B','C'].map(k=>`
+        <div class="grp">
+          <span class="cls-dot" style="background:${colors[k]};"></span>
+          <span class="lbl">${k}</span>
+          <input type="number" class="abc-cols-input" data-abc="${k}" min="${ABC_COLS_MIN}" max="${ABC_COLS_MAX}" step="1" value="${ABC_COLS[k]}">
+        </div>`).join('') +
+      `<button type="button" class="abc-cols-inline-reset" id="abc-cols-inline-reset-btn">Сбросить</button>`;
+    box.querySelectorAll('.abc-cols-input').forEach(inp=>{
+      inp.addEventListener('change', ()=>{
+        const cls = inp.dataset.abc;
+        ABC_COLS[cls] = clampAbcCols(inp.value);
+        inp.value = ABC_COLS[cls];
+        saveAbcCols();
+        recoCache = null;
+        renderReco();
+      });
+    });
+    box.querySelector('#abc-cols-inline-reset-btn')?.addEventListener('click', ()=>{
+      ABC_COLS = {...ABC_COLS_DEFAULT};
+      saveAbcCols();
+      recoCache = null;
+      renderReco();
+    });
+  }
+
   function hexToRgb(hex){
     const m = hex.replace('#','');
     return {r:parseInt(m.substr(0,2),16), g:parseInt(m.substr(2,2),16), b:parseInt(m.substr(4,2),16)};
@@ -1708,6 +1740,7 @@
   function renderReco(){
     computeRecommendation();
     renderAbcSummary();
+    renderAbcColsInline();
     renderRecoCategoryLegend();
     renderRecoAisleChips();
     renderRecoScheme();

@@ -225,6 +225,20 @@
     text-decoration:underline; padding:0; margin-top:10px;
   }
   .abc-cols-reset:hover{color:var(--accent);}
+  .abc-cols-inline{
+    display:flex; align-items:center; gap:14px; flex-wrap:wrap; margin-bottom:12px;
+    padding:8px 12px; background:var(--bg); border:1px solid var(--line); border-radius:8px;
+  }
+  .abc-cols-inline .lbl{font-size:11px; color:var(--ink-soft); white-space:nowrap;}
+  .abc-cols-inline .grp{display:flex; align-items:center; gap:6px;}
+  .abc-cols-inline .grp .cls-dot{
+    width:9px; height:9px; border-radius:50%; display:inline-block;
+  }
+  .abc-cols-inline .abc-cols-inline-reset{
+    font-size:11px; color:var(--ink-soft); background:none; border:none; cursor:pointer;
+    text-decoration:underline; padding:0; margin-left:auto; white-space:nowrap;
+  }
+  .abc-cols-inline .abc-cols-inline-reset:hover{color:var(--accent);}
   .badge{
     font-size:10px; font-weight:700; padding:2px 7px; border-radius:20px; text-transform:uppercase;
   }
@@ -558,6 +572,7 @@
 
       <div class="panel">
         <h2>Ряд / проход — схема пикинга (ярус 1) и пополнения (ярусы выше)</h2>
+        <div class="abc-cols-inline" id="abc-cols-inline"></div>
         <div class="aisles" id="reco-aisle-chips"></div>
         <div class="grid-wrap" style="margin-top:12px;"><div class="rack-grid" id="reco-strip"></div></div>
         <div class="legend" id="category-legend"></div>
