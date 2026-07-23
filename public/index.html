@@ -101,6 +101,8 @@
   .btn:hover{border-color:var(--accent); color:var(--accent);}
   .btn.primary{background:var(--emphasis-bg); color:var(--emphasis-ink); border-color:var(--emphasis-bg);}
   .btn.primary:hover{background:var(--accent); border-color:var(--accent); color:#fff;}
+  .btn.danger{color:var(--danger); border-color:var(--danger);}
+  .btn.danger:hover{background:var(--danger); color:#fff;}
   input[type=file]{display:none;}
 
   .dropdown{position:relative; display:inline-block;}
@@ -535,6 +537,7 @@
         <h2>Ряд / проход</h2>
         <p style="font-size:12px; color:var(--ink-soft); margin:8px 0 10px;">Перетащите один ряд на другой, чтобы поменять их местами целиком — весь товар обоих рядов обменяется.</p>
         <div class="aisles" id="aisle-chips"></div>
+        <button class="btn" id="add-row-btn" style="margin-top:10px;">+ Добавить ряд</button>
       </div>
       <div class="panel">
         <div class="toolbar" style="margin-bottom:12px;">
@@ -602,6 +605,10 @@
         <h2>Ряд / проход — схема пикинга (ярус 1) и пополнения (ярусы выше)</h2>
         <div class="abc-cols-inline" id="abc-cols-inline"></div>
         <div class="aisles" id="reco-aisle-chips"></div>
+        <div class="toolbar" style="margin:8px 0 0; gap:8px;">
+          <button class="btn" id="reco-add-row-btn">+ Добавить ряд</button>
+          <button class="btn" id="reco-manage-row-btn">⚙ Управление рядом</button>
+        </div>
         <div class="abc-cols-inline" id="storage-range-inline"></div>
         <div class="grid-wrap" style="margin-top:12px;"><div class="rack-grid" id="reco-strip"></div></div>
         <div class="legend" id="category-legend"></div>

@@ -157,6 +157,35 @@ app.delete('/api/records/:id', (req, res) => {
   res.json({ ok: true });
 });
 
+// POST /api/layout — создать новый ряд с нуля
+app.post('/api/layout', (req, res) => {
+  const { row, racks, levels } = req.body || {};
+  if (!row || !/^\d{1,2}$/.test(String(row).trim())) {
+    return res.status(400).json({ error: '"row" должен быть числом из 1-2 цифр' });
+  }
+  const r = String(row).trim().padStart(2, '0');
+  if (!Array.isArray(racks) || !racks.length) {
+    return res.status(400).json({ error: '"racks" должен быть непустым массивом номеров стеллажей' });
+  }
+  try {
+    const created = db.createRow(r, racks, levels);
+    res.status(201).json({ ok: true, row: r, ...created });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+// DELETE /api/layout/:row — удалить ряд целиком (только если он пуст)
+app.delete('/api/layout/:row', (req, res) => {
+  const row = String(req.params.row).trim().padStart(2, '0');
+  try {
+    const result = db.deleteRow(row);
+    res.json({ ok: true, ...result });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
 // PUT /api/layout/:row/rename — переименовать ряд (перенести все записи под новый код)
 app.put('/api/layout/:row/rename', (req, res) => {
   const oldRow = String(req.params.row).trim().padStart(2, '0');

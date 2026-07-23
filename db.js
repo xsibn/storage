@@ -411,6 +411,54 @@ const renameRow = db.transaction((oldRow, newRow) => {
   return { moved: records.length };
 });
 
+// Create a brand-new row from scratch — used when the warehouse physically
+// gains an aisle. Fails if the row code is already in use (rename/add-racks
+// should be used to edit an existing row instead).
+function createRow(row, racks, levels) {
+  const layout = getLayout();
+  if (layout[row]) throw new Error(`ряд ${row} уже существует`);
+
+  const cleanRacks = [];
+  const seen = new Set();
+  for (const n of (racks || [])) {
+    const v = parseInt(n, 10);
+    if (Number.isInteger(v) && v > 0 && !seen.has(v)) { cleanRacks.push(v); seen.add(v); }
+  }
+  if (!cleanRacks.length) throw new Error('нужен хотя бы один стеллаж');
+
+  const cleanLevels = (levels && levels.length) ? levels.slice() : ['01'];
+
+  layout[row] = { racks: cleanRacks, levels: cleanLevels };
+  setLayout(layout);
+
+  logActivity('create-row', `Создан ряд ${row} (стеллажи: ${cleanRacks.join(', ')})`, { row });
+
+  return layout[row];
+}
+
+// Delete a row entirely from the layout. Blocked if any stock still sits in
+// that row (empty or service-only rows can go — never silently drop
+// inventory), same safety rule as removing a single rack in setRacks.
+function deleteRow(row) {
+  const layout = getLayout();
+  if (!layout[row]) throw new Error(`ряд ${row} не найден в структуре склада`);
+
+  const stillOccupied = db.prepare(
+    'SELECT COUNT(*) AS n FROM stock_records WHERE row_code = ? AND is_service = 0'
+  ).get(row);
+  if (stillOccupied && stillOccupied.n > 0) {
+    throw new Error(`нельзя удалить ряд ${row} — там ещё есть товар (${stillOccupied.n} запис.)`);
+  }
+
+  const prevEntry = layout[row];
+  delete layout[row];
+  setLayout(layout);
+
+  logActivity('delete-row', `Удалён ряд ${row}`, { row, prevEntry });
+
+  return { row };
+}
+
 // Add and/or remove racks for a row in one go — this is the "change the
 // number of cells" operation. Adding is always safe (just a new empty
 // position). Removing is blocked if that rack still holds any stock, so a
@@ -652,7 +700,7 @@ const undoLastAction = db.transaction(() => {
 
 module.exports = {
   db, classifyCell, listRecords, replaceAll, updateRecord, createRecord, deleteRecord,
-  swapRows, swapRacks, renameRow, setRacks, getMeta, setMeta, count, seedIfEmpty,
+  swapRows, swapRacks, renameRow, setRacks, createRow, deleteRow, getMeta, setMeta, count, seedIfEmpty,
   getLayout, ensureLayoutFromSeed, rebuildLayoutFromCurrent, setRackOrder,
   bulkMove, bulkDelete, listActivity, undoLastAction,
   seedAbcClasses, getAbcClasses,

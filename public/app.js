@@ -1132,11 +1132,67 @@
   // Real warehouses don't always run 1,2,3...N in order (e.g. 75,74,73,1,2,3...),
   // rows sometimes need relabelling, and the number of racks in a row changes
   // when shelving is added or removed — this one panel covers all three.
-  function openRowManager(){
-    if(!currentAisle){ alert('Сначала выберите ряд.'); return; }
-    const extent = aisleExtent(currentAisle);
+  function openAddRowForm(){
+    const existing = new Set(aisleList());
+    const body = `
+      <div class="form-field" style="margin-bottom:16px;">
+        <label>Название ряда (2 цифры)</label>
+        <input id="new-row-code" type="text" maxlength="2" placeholder="напр. 07" style="width:80px; padding:8px 10px; border:1px solid var(--line); border-radius:7px; font-family:var(--mono); font-size:14px;">
+      </div>
+      <div class="form-field" style="margin-bottom:6px;">
+        <label>Стеллажи ряда</label>
+        <div class="form-grid">
+          <div class="form-field"><label>От</label><input id="new-row-from" type="number" min="1" placeholder="напр. 1"></div>
+          <div class="form-field"><label>До</label><input id="new-row-to" type="number" min="1" placeholder="напр. 20"></div>
+        </div>
+        <p style="font-size:11.5px; color:var(--ink-soft); margin:6px 0 0;">Создаст стеллажи по порядку от «От» до «До» включительно — состав и порядок можно поменять потом через «Управление рядом».</p>
+      </div>
+      <div class="form-error" id="add-row-error"></div>
+    `;
+    const footer = `<button class="btn" id="add-row-cancel">Отмена</button><button class="btn primary" id="add-row-save">Создать ряд</button>`;
+    openModal('Добавить ряд', body, footer);
+    document.getElementById('add-row-cancel').addEventListener('click', closeModal);
+    document.getElementById('add-row-save').addEventListener('click', async ()=>{
+      const errEl = document.getElementById('add-row-error');
+      errEl.classList.remove('show');
+      const code = document.getElementById('new-row-code').value.trim().padStart(2,'0');
+      const from = parseInt(document.getElementById('new-row-from').value, 10);
+      const to = parseInt(document.getElementById('new-row-to').value, 10);
+      if(!/^\d{2}$/.test(code)){ errEl.textContent = 'Название ряда должно быть числом (1-2 цифры).'; errEl.classList.add('show'); return; }
+      if(existing.has(code)){ errEl.textContent = `Ряд ${code} уже существует.`; errEl.classList.add('show'); return; }
+      if(!Number.isInteger(from) || !Number.isInteger(to) || from<1 || to<from){ errEl.textContent = 'Укажите корректный диапазон стеллажей («От» ≤ «До»).'; errEl.classList.add('show'); return; }
+      const racks = [];
+      for(let i=from; i<=to; i++) racks.push(i);
+      progressStart('Создание ряда…');
+      try{
+        const res = await fetch(`${API_BASE}/api/layout`, {
+          method:'POST', headers:{'Content-Type':'application/json'},
+          body: JSON.stringify({ row: code, racks })
+        });
+        const payload = await res.json().catch(()=>({}));
+        if(!res.ok) throw new Error(payload.error || ('HTTP '+res.status));
+        closeModal();
+        currentAisle = code;
+        await fetchRecords();
+        renderAll();
+        setSyncStatus(`ряд ${code} создан · ` + new Date().toLocaleTimeString('ru-RU'));
+      }catch(err){
+        errEl.textContent = 'Не удалось создать ряд: ' + err.message;
+        errEl.classList.add('show');
+      } finally {
+        progressEnd();
+      }
+    });
+  }
+
+  document.getElementById('add-row-btn').addEventListener('click', openAddRowForm);
+
+  function openRowManager(row){
+    const targetRow = (typeof row === 'string') ? row : currentAisle;
+    if(!targetRow){ alert('Сначала выберите ряд.'); return; }
+    const extent = aisleExtent(targetRow);
     if(!extent){ alert('Для этого ряда пока нет структуры склада.'); return; }
-    const originalRow = currentAisle;
+    const originalRow = targetRow;
     let orderDraft = extent.racks.slice();
     let dragIdx = null;
 
@@ -1224,12 +1280,35 @@
       <div class="form-error" id="row-mgr-error"></div>
     `;
     const footer = `
+      <button class="btn danger" id="row-mgr-delete">Удалить ряд</button>
       <button class="btn" id="order-reset">По возрастанию</button>
       <button class="btn" id="row-mgr-cancel">Отмена</button>
       <button class="btn primary" id="row-mgr-save">Сохранить</button>
     `;
     openModal(`Управление рядом ${originalRow}`, body, footer);
     renderChips();
+
+    document.getElementById('row-mgr-delete').addEventListener('click', async ()=>{
+      const errEl = document.getElementById('row-mgr-error');
+      errEl.classList.remove('show');
+      if(!confirm(`Удалить ряд ${originalRow} целиком? Это возможно только если в нём нет товара. Действие необратимо.`)) return;
+      progressStart('Удаление ряда…');
+      try{
+        const res = await fetch(`${API_BASE}/api/layout/${originalRow}`, { method:'DELETE' });
+        const payload = await res.json().catch(()=>({}));
+        if(!res.ok) throw new Error(payload.error || ('HTTP '+res.status));
+        closeModal();
+        currentAisle = null;
+        await fetchRecords();
+        renderAll();
+        setSyncStatus(`ряд ${originalRow} удалён · ` + new Date().toLocaleTimeString('ru-RU'));
+      }catch(err){
+        errEl.textContent = 'Не удалось удалить ряд: ' + err.message;
+        errEl.classList.add('show');
+      } finally {
+        progressEnd();
+      }
+    });
 
     document.getElementById('order-reset').addEventListener('click', ()=>{
       orderDraft = [...orderDraft].sort((a,b)=>a-b);
@@ -1288,6 +1367,8 @@
   }
 
   document.getElementById('rack-order-btn').addEventListener('click', openRowManager);
+  document.getElementById('reco-add-row-btn').addEventListener('click', openAddRowForm);
+  document.getElementById('reco-manage-row-btn').addEventListener('click', ()=> openRowManager(recoAisle));
   document.getElementById('move-mode-btn').addEventListener('click', ()=> setMoveMode(!moveMode));
 
 
