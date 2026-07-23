@@ -982,7 +982,17 @@
 
   let tableTerm = "";
   let tableFilter = "all";
+  let tableSort = { field: null, dir: 'asc' }; // dir: 'asc' | 'desc'
   const selectedIds = new Set();
+
+  // Даты в базе хранятся строками формата "дд.мм.гггг[, ЧЧ:ММ:СС]" (или пустые) —
+  // для сортировки переводим их в сравнимое число, пустые/нераспознанные уходят в конец.
+  function parseRuDateForSort(v){
+    if(!v) return null;
+    const m = String(v).match(/(\d{1,2})\.(\d{1,2})\.(\d{4})/);
+    if(!m) return null;
+    return new Date(Number(m[3]), Number(m[2])-1, Number(m[1])).getTime();
+  }
 
   function updateBulkToolbar(){
     const bar = document.getElementById('bulk-toolbar');
@@ -1078,7 +1088,35 @@
     if(term){
       rows = rows.filter(r=> r.article.toLowerCase().includes(term) || r.name.toLowerCase().includes(term) || r.cell.toLowerCase().includes(term) || (r.te && r.te.toLowerCase().includes(term)));
     }
+
+    if(tableSort.field){
+      const f = tableSort.field, dir = tableSort.dir==='asc' ? 1 : -1;
+      rows = rows.slice().sort((a,b)=>{
+        let av, bv;
+        if(f==='qty'){ av = a.qty; bv = b.qty; }
+        else if(f==='mfg' || f==='exp'){
+          av = parseRuDateForSort(a[f]); bv = parseRuDateForSort(b[f]);
+          if(av===null && bv===null) return 0;
+          if(av===null) return 1;  // пустые даты — всегда в конец, независимо от направления
+          if(bv===null) return -1;
+        } else if(f==='isService'){ av = a.isService ? 1 : 0; bv = b.isService ? 1 : 0; }
+        else { av = String(a[f]||'').toLowerCase(); bv = String(b[f]||'').toLowerCase(); }
+        if(av < bv) return -1*dir;
+        if(av > bv) return 1*dir;
+        return 0;
+      });
+    }
+
     document.getElementById('table-count').textContent = `${fmtNum(rows.length)} записей`;
+    document.querySelectorAll('#view-table thead th.sortable').forEach(th=>{
+      const active = th.dataset.sort === tableSort.field;
+      th.classList.toggle('sorted', active);
+      th.querySelector('.sort-arrow')?.remove();
+      const arrow = document.createElement('span');
+      arrow.className = 'sort-arrow';
+      arrow.textContent = active ? (tableSort.dir==='asc' ? '▲' : '▼') : '↕';
+      th.appendChild(arrow);
+    });
 
     const body = document.getElementById('table-body');
     // cap rendered rows for performance, keep it responsive
@@ -2414,6 +2452,17 @@
   });
   document.getElementById('table-filter').addEventListener('change', (e)=>{
     tableFilter = e.target.value; renderTable();
+  });
+  document.querySelectorAll('#view-table thead th.sortable').forEach(th=>{
+    th.addEventListener('click', ()=>{
+      const field = th.dataset.sort;
+      if(tableSort.field === field){
+        tableSort.dir = tableSort.dir === 'asc' ? 'desc' : 'asc';
+      } else {
+        tableSort = { field, dir: 'asc' };
+      }
+      renderTable();
+    });
   });
   document.getElementById('global-search-input').addEventListener('input', (e)=>{
     searchTerm = e.target.value; renderSearchResults();

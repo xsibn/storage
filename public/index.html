@@ -246,6 +246,11 @@
   tbody td{padding:7px 10px; border-bottom:1px solid var(--line); vertical-align:middle;}
   tbody tr:hover{background:var(--bg);}
   td.cellcode, td.article{font-family:var(--mono); font-size:12px;}
+  thead th.sortable{cursor:pointer; user-select:none;}
+  thead th.sortable:hover{color:var(--ink);}
+  thead th.sortable .sort-arrow{opacity:.35; margin-left:3px; font-size:9px;}
+  thead th.sortable.sorted{color:var(--ink);}
+  thead th.sortable.sorted .sort-arrow{opacity:1; color:var(--accent);}
   .table-scroll{max-height:520px; overflow:auto; border:1px solid var(--line); border-radius:8px;}
   .edit-input{
     width:70px; padding:4px 6px; border:1px solid var(--line); border-radius:5px; font-family:var(--mono);
@@ -591,8 +596,15 @@
           <table>
             <thead><tr>
               <th style="width:30px;"><input type="checkbox" id="table-select-all"></th>
-              <th>Ячейка</th><th>Артикул</th><th>Наименование</th><th>Остаток, шт</th>
-              <th>Дата изгот.</th><th>Срок годности</th><th>ТЕ</th><th>Тип</th><th></th>
+              <th class="sortable" data-sort="cell">Ячейка</th>
+              <th class="sortable" data-sort="article">Артикул</th>
+              <th class="sortable" data-sort="name">Наименование</th>
+              <th class="sortable" data-sort="qty">Остаток, шт</th>
+              <th class="sortable" data-sort="mfg">Дата изгот.</th>
+              <th class="sortable" data-sort="exp">Срок годности</th>
+              <th class="sortable" data-sort="te">ТЕ</th>
+              <th class="sortable" data-sort="isService">Тип</th>
+              <th></th>
             </tr></thead>
             <tbody id="table-body"></tbody>
           </table>
