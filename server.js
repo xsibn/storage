@@ -315,6 +315,18 @@ app.post('/api/activity/undo', (req, res) => {
   }
 });
 
+// POST /api/activity/:id/undo — отменить конкретную запись журнала (не обязательно последнюю)
+app.post('/api/activity/:id/undo', (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  if (!Number.isInteger(id)) return res.status(400).json({ error: 'Некорректный id записи журнала' });
+  try {
+    const result = db.undoActivityById(id);
+    res.json({ ok: true, ...result });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
 // PUT /api/layout/:row/rack-order — сохранить пользовательский порядок стеллажей ряда
 app.put('/api/layout/:row/rack-order', (req, res) => {
   const row = String(req.params.row).trim().padStart(2, '0');

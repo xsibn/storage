@@ -896,6 +896,7 @@
   const ACTIVITY_LABELS = {
     'update': 'Правка', 'create': 'Добавление', 'delete': 'Удаление',
     'swap-rows': 'Обмен рядами', 'rename-row': 'Переим. ряда', 'set-racks': 'Стеллажи',
+    'set-levels': 'Ярусы', 'create-row': 'Новый ряд', 'delete-row': 'Удаление ряда',
     'swap-racks': 'Обмен стеллажами', 'bulk-move': 'Массовый перенос', 'bulk-delete': 'Массовое удаление',
     'create-zone': 'Новая зона', 'rename-zone': 'Переим. зоны', 'delete-zone': 'Удаление зоны',
     'import': 'Загрузка файла'
@@ -906,8 +907,28 @@
     if(isNaN(d.getTime())) return ts;
     return d.toLocaleString('ru-RU', { day:'2-digit', month:'2-digit', year:'2-digit', hour:'2-digit', minute:'2-digit' });
   }
+  async function undoActivityEntry(id, isLatest){
+    const msg = isLatest
+      ? 'Отменить это действие?'
+      : 'Это не последнее действие в журнале — после него были и другие изменения. Если они затрагивали те же записи, отмена может дать неожиданный результат. Всё равно отменить?';
+    if(!confirm(msg)) return;
+    progressStart('Отмена действия…');
+    try{
+      const res = await fetch(`${API_BASE}/api/activity/${id}/undo`, { method:'POST' });
+      const payload = await res.json().catch(()=>({}));
+      if(!res.ok) throw new Error(payload.error || ('HTTP '+res.status));
+      await fetchRecords();
+      renderAll();
+      setSyncStatus(`отменено: ${payload.summary} · ` + new Date().toLocaleTimeString('ru-RU'));
+      await openActivityLog(); // обновляем список в том же окне
+    }catch(err){
+      alert('Не удалось отменить действие: ' + err.message);
+    } finally {
+      progressEnd();
+    }
+  }
   async function openActivityLog(){
-    openModal('Журнал изменений', '<div id="activity-log-hint">Хранится за последние 14 дней.</div><div id="activity-log-list"><div id="activity-log-empty">Загрузка…</div></div>', '<button class="btn" id="activity-log-close">Закрыть</button>');
+    openModal('Журнал изменений', '<div id="activity-log-hint">Хранится за последние 14 дней. У каждого действия, которое можно отменить, есть кнопка ↺ — не обязательно отменять всё по порядку.</div><div id="activity-log-list"><div id="activity-log-empty">Загрузка…</div></div>', '<button class="btn" id="activity-log-close">Закрыть</button>');
     document.getElementById('activity-log-close').addEventListener('click', closeModal);
     try{
       const res = await fetch(`${API_BASE}/api/activity?limit=1000`);
@@ -920,13 +941,17 @@
         listEl.innerHTML = '<div id="activity-log-empty">За последние 14 дней изменений не было.</div>';
         return;
       }
-      listEl.innerHTML = entries.map(e => `
+      listEl.innerHTML = entries.map((e, idx) => `
         <div class="activity-row">
           <span class="a-time">${fmtActivityTime(e.ts)}</span>
           <span class="a-action">${escHtml(ACTIVITY_LABELS[e.action] || e.action)}</span>
           <span class="a-summary">${escHtml(e.summary)}</span>
+          ${e.undoable ? `<button class="btn a-undo-btn" data-id="${e.id}" data-latest="${idx===0}" title="Отменить это действие">↺ Отменить</button>` : ''}
         </div>
       `).join('');
+      listEl.querySelectorAll('.a-undo-btn').forEach(btn=>{
+        btn.addEventListener('click', ()=> undoActivityEntry(btn.dataset.id, btn.dataset.latest==='true'));
+      });
     }catch(err){
       const listEl = document.getElementById('activity-log-list');
       if(listEl) listEl.innerHTML = `<div id="activity-log-empty">Не удалось загрузить журнал: ${err.message}</div>`;

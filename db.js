@@ -714,13 +714,9 @@ const deleteZone = db.transaction((name, force) => {
 // public functions above — each of those calls also logs its own activity
 // entry, so an undo shows up in the feed too (and undoing an undo redoes the
 // original action, which is a reasonable and transparent side effect).
-const undoLastAction = db.transaction(() => {
-  const last = getLastActivity();
-  if (!last) throw new Error('Нет действий для отмены');
-  if (!last.undo_data) throw new Error('Это действие нельзя отменить');
-  const data = JSON.parse(last.undo_data);
-
-  switch (last.action) {
+function reverseActivity(entry) {
+  const data = JSON.parse(entry.undo_data);
+  switch (entry.action) {
     case 'create': deleteRecord(data.id); break;
     case 'delete': createRecord(data.record); break;
     case 'update': updateRecord(data.id, { cell: data.prevCell, qty: data.prevQty }); break;
@@ -729,20 +725,45 @@ const undoLastAction = db.transaction(() => {
     case 'rename-row': renameRow(data.newRow, data.oldRow); break;
     case 'rename-zone': renameZone(data.newName, data.oldName); break;
     case 'set-racks': setRacks(data.row, data.prevRacks); break;
+    case 'set-levels': setLevels(data.row, data.prevLevels); break;
+    case 'create-row': deleteRow(data.row); break;
+    case 'delete-row': createRow(data.row, data.prevEntry.racks, data.prevEntry.levels); break;
     case 'bulk-move': data.moves.forEach(m => updateRecord(m.id, { cell: m.prevCell })); break;
     case 'bulk-delete': data.records.forEach(r => createRecord(r)); break;
-    default: throw new Error('Неизвестное действие: ' + last.action);
+    default: throw new Error('Неизвестное действие: ' + entry.action);
   }
+}
 
+const undoLastAction = db.transaction(() => {
+  const last = getLastActivity();
+  if (!last) throw new Error('Нет действий для отмены');
+  if (!last.undo_data) throw new Error('Это действие нельзя отменить');
+  reverseActivity(last);
   db.prepare('DELETE FROM activity_log WHERE id = ?').run(last.id);
   return { action: last.action, summary: last.summary };
+});
+
+// Undo any single entry from the journal by id — not just the most recent
+// one. Useful for reversing a specific change several steps back without
+// having to click "undo" repeatedly through everything that happened after
+// it. This can't detect conflicts with later actions that touched the same
+// data (e.g. the record was moved again since), so the frontend shows a
+// warning when the chosen entry isn't the latest one — the operation itself
+// still just replays the same inverse used for undoLastAction.
+const undoActivityById = db.transaction((id) => {
+  const entry = db.prepare('SELECT * FROM activity_log WHERE id = ?').get(id);
+  if (!entry) throw new Error('Запись журнала не найдена (возможно, уже удалена или устарела)');
+  if (!entry.undo_data) throw new Error('Это действие нельзя отменить');
+  reverseActivity(entry);
+  db.prepare('DELETE FROM activity_log WHERE id = ?').run(entry.id);
+  return { action: entry.action, summary: entry.summary };
 });
 
 module.exports = {
   db, classifyCell, listRecords, replaceAll, updateRecord, createRecord, deleteRecord,
   swapRows, swapRacks, renameRow, setRacks, setLevels, createRow, deleteRow, getMeta, setMeta, count, seedIfEmpty,
   getLayout, ensureLayoutFromSeed, rebuildLayoutFromCurrent, setRackOrder,
-  bulkMove, bulkDelete, listActivity, undoLastAction,
+  bulkMove, bulkDelete, listActivity, undoLastAction, undoActivityById,
   seedAbcClasses, getAbcClasses,
   ensureZonesFromData, listZones, createZone, renameZone, setZoneIsolate, deleteZone
 };
