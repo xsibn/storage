@@ -15,7 +15,7 @@ const app = express();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 25 * 1024 * 1024 } });
 
 app.use(cors());
-app.use(express.json());
+app.use(express.json({ limit: '10mb' }));
 app.use(express.static(path.join(__dirname, 'public')));
 
 // ---- первичная загрузка данных, если база пустая (первый запуск сервера) ----
@@ -413,6 +413,39 @@ app.post('/api/import', upload.single('file'), (req, res) => {
     res.json({ ok: true, imported: rows.length });
   } catch (err) {
     res.status(400).json({ error: 'не удалось прочитать файл: ' + err.message });
+  }
+});
+
+// POST /api/export/reco — выгрузка таблицы «Рекомендация пикинга» в .xlsx.
+// Ранжирование считается на клиенте (зависит от текущих поиска/фильтров на
+// экране), поэтому сюда приходят уже готовые строки — сервер только льёт их
+// в .xlsx тем же способом, что и обычный /api/export.
+app.post('/api/export/reco', (req, res) => {
+  const rows = Array.isArray(req.body && req.body.rows) ? req.body.rows : null;
+  if (!rows) return res.status(400).json({ error: 'rows is required' });
+  try {
+    const sheetRows = rows.map(r => ({
+      '№ (порядок размещения)': r.rank,
+      'Артикул': r.article,
+      'Наименование': r.name,
+      'Материал': r.material,
+      'Объём/вес ед.': r.vol != null ? r.vol + ' л/кг' : '',
+      'Остаток всего, шт': r.qty,
+      'Доля объёма стока': (typeof r.volShare === 'number' ? r.volShare.toFixed(1) : r.volShare) + '%',
+      'ABC': r.abcClass,
+      'Пикинг-адрес (ярус 1)': r.pickAddress || '',
+      'Пополнение (резерв)': r.replenish || ''
+    }));
+    const ws = XLSX.utils.json_to_sheet(sheetRows);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Рекомендация пикинга');
+    const buf = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
+    const encodedName = encodeURIComponent('рекомендация_пикинга.xlsx');
+    res.setHeader('Content-Disposition', `attachment; filename="picking-recommendation.xlsx"; filename*=UTF-8''${encodedName}`);
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.send(buf);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
   }
 });
 

@@ -2413,6 +2413,49 @@
     recoMaterialFilter = e.target.value; renderRecoTable();
   });
 
+  // ---------- EXPORT (Рекомендация пикинга) ----------
+  // Exports exactly what's currently filtered/searched on screen — not capped
+  // to the 400-row on-screen preview — as an .xlsx built server-side.
+  document.getElementById('reco-export-btn').addEventListener('click', async ()=>{
+    if(!recoCache) computeRecommendation();
+    let rows = recoCache.assigned;
+    const term = recoSearchTerm.trim().toLowerCase();
+    if(term){
+      rows = rows.filter(r=> r.article.toLowerCase().includes(term) || r.name.toLowerCase().includes(term));
+    }
+    if(recoAbcFilter!=='all') rows = rows.filter(r=>r.abcClass===recoAbcFilter);
+    if(recoMaterialFilter!=='all') rows = rows.filter(r=>r.material===recoMaterialFilter);
+    if(!rows.length){ alert('Нечего экспортировать — таблица пуста при текущих фильтрах.'); return; }
+
+    progressStart('Формирование файла…');
+    try{
+      const res = await fetch(API_BASE + '/api/export/reco', {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ rows })
+      });
+      if(!res.ok){
+        const payload = await res.json().catch(()=>({}));
+        throw new Error(payload.error || ('HTTP '+res.status));
+      }
+      const blob = await res.blob();
+      let filename = 'рекомендация_пикинга.xlsx';
+      const disp = res.headers.get('Content-Disposition') || '';
+      const starMatch = disp.match(/filename\*=UTF-8''([^;]+)/i);
+      if(starMatch) filename = decodeURIComponent(starMatch[1]);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = filename;
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(()=>URL.revokeObjectURL(url), 2000);
+      setSyncStatus(`экспорт рекомендаций скачан (${fmtNum(rows.length)} артикулов) · ` + new Date().toLocaleTimeString('ru-RU'));
+    }catch(err){
+      setSyncStatus('ошибка экспорта рекомендаций', true);
+      alert('Не удалось скачать экспорт рекомендаций: ' + err.message);
+    } finally {
+      progressEnd();
+    }
+  });
+
   // ---------- ZONES VIEW ----------
   function renderZones(){
     const svc = serviceRecords();
@@ -2828,12 +2871,47 @@
 
   // Poll for changes made by other users, but don't yank the table out from under
   // someone who is mid-edit (an input is focused) or looking at a cell's detail drawer.
-  setInterval(()=>{
+  // If a sync gets skipped for that reason, `pendingSync` remembers it so we
+  // catch up as soon as the user is no longer blocking it, instead of waiting
+  // out the rest of the interval (or forever, if they stay mid-edit).
+  let pendingSync = false;
+
+  function isSyncBlocked(){
     const active = document.activeElement;
     const isEditing = active && active.classList && active.classList.contains('edit-input');
     const drawerOpen = document.getElementById('drawer').classList.contains('open');
-    if(!isEditing && !drawerOpen) syncFromServer(false);
-  }, 60000);
+    return isEditing || drawerOpen;
+  }
+
+  function attemptSync(){
+    if(isSyncBlocked()){
+      pendingSync = true;
+      return;
+    }
+    pendingSync = false;
+    syncFromServer(false);
+  }
+
+  setInterval(attemptSync, 60000);
+
+  // Catch up immediately once the blocker goes away, rather than waiting for
+  // the next 60s tick.
+  document.addEventListener('focusout', (e)=>{
+    if(pendingSync && e.target && e.target.classList && e.target.classList.contains('edit-input')){
+      setTimeout(attemptSync, 0);
+    }
+  });
+  document.getElementById('drawer').addEventListener('transitionend', ()=>{
+    if(pendingSync && !document.getElementById('drawer').classList.contains('open')) attemptSync();
+  });
+
+  // Tab was backgrounded/reconnected, or the browser regained network access:
+  // the local copy may now be stale, so sync right away instead of waiting.
+  document.addEventListener('visibilitychange', ()=>{
+    if(document.visibilityState === 'visible') attemptSync();
+  });
+  window.addEventListener('online', attemptSync);
+  window.addEventListener('focus', attemptSync);
 
   // ---------- MASTER RENDER ----------
   function renderAll(){
