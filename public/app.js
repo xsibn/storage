@@ -116,6 +116,25 @@
     if(el){ el.textContent = text; el.style.color = isError ? 'var(--danger)' : 'var(--ink-soft)'; }
   }
 
+  // ---------- CONNECTION STATUS (online / offline indicator) ----------
+  // Independent of setSyncStatus above (which shows the *last action*, e.g.
+  // "сохранено 18:17:34"). This dot+label always reflects whether we can
+  // currently reach the server, based on the continuous background sync.
+  let connState = 'connecting'; // 'online' | 'offline' | 'connecting'
+
+  function setConnStatus(nextState, detail){
+    connState = nextState;
+    const dot = document.getElementById('conn-dot');
+    const label = document.getElementById('conn-text');
+    if(dot) dot.classList.remove('online','offline','connecting');
+    if(dot) dot.classList.add(nextState);
+    if(label){
+      if(nextState === 'online') label.textContent = 'онлайн' + (detail ? ' · ' + detail : '');
+      else if(nextState === 'offline') label.textContent = 'офлайн · нет связи с сервером' + (detail ? ' · ' + detail : '');
+      else label.textContent = 'подключение…';
+    }
+  }
+
   // ---------- PROGRESS BAR ----------
   // Two modes: indeterminate (quick JSON calls — we don't know real duration,
   // just show something is happening) and determinate (file upload/download,
@@ -180,12 +199,19 @@
 
   async function syncFromServer(showAlert){
     try{
-      setSyncStatus('синхронизация…');
-      await withProgress('Синхронизация…', fetchRecords);
+      if(showAlert){
+        setSyncStatus('синхронизация…');
+        await withProgress('Синхронизация…', fetchRecords);
+      } else {
+        await fetchRecords();
+      }
       renderAll();
-      setSyncStatus('обновлено ' + state.lastSync.toLocaleTimeString('ru-RU'));
+      const time = state.lastSync.toLocaleTimeString('ru-RU');
+      if(showAlert) setSyncStatus('обновлено ' + time);
+      setConnStatus('online', 'обновлено ' + time);
     }catch(err){
-      setSyncStatus('нет связи с сервером', true);
+      if(showAlert) setSyncStatus('нет связи с сервером', true);
+      setConnStatus('offline');
       if(showAlert) alert('Не удалось получить данные с сервера: ' + err.message);
     }
   }
@@ -2170,38 +2196,6 @@
     renderReco();
   });
 
-  // Compact version of the same A/B/C column-width control, shown right above the
-  // rack schema so it can be adjusted without scrolling up to the ABC-классы panel.
-  function renderAbcColsInline(){
-    const box = document.getElementById('abc-cols-inline');
-    if(!box) return;
-    const colors = {A:'var(--danger)', B:'var(--multi)', C:'var(--service)'};
-    box.innerHTML = `<span class="lbl">Колонок на пик-лицо:</span>` +
-      ['A','B','C'].map(k=>`
-        <div class="grp">
-          <span class="cls-dot" style="background:${colors[k]};"></span>
-          <span class="lbl">${k}</span>
-          <input type="number" class="abc-cols-input" data-abc="${k}" min="${ABC_COLS_MIN}" max="${ABC_COLS_MAX}" step="1" value="${ABC_COLS[k]}">
-        </div>`).join('') +
-      `<button type="button" class="abc-cols-inline-reset" id="abc-cols-inline-reset-btn">Сбросить</button>`;
-    box.querySelectorAll('.abc-cols-input').forEach(inp=>{
-      inp.addEventListener('change', ()=>{
-        const cls = inp.dataset.abc;
-        ABC_COLS[cls] = clampAbcCols(inp.value);
-        inp.value = ABC_COLS[cls];
-        saveAbcCols();
-        recoCache = null;
-        renderReco();
-      });
-    });
-    box.querySelector('#abc-cols-inline-reset-btn')?.addEventListener('click', ()=>{
-      ABC_COLS = {...ABC_COLS_DEFAULT};
-      saveAbcCols();
-      recoCache = null;
-      renderReco();
-    });
-  }
-
   function hexToRgb(hex){
     const m = hex.replace('#','');
     return {r:parseInt(m.substr(0,2),16), g:parseInt(m.substr(2,2),16), b:parseInt(m.substr(4,2),16)};
@@ -2395,7 +2389,6 @@
   function renderReco(){
     computeRecommendation();
     renderAbcSummary();
-    renderAbcColsInline();
     renderRecoCategoryLegend();
     renderRecoAisleChips();
     renderRecoScheme();
@@ -2866,15 +2859,17 @@
     }
   });
 
-  // ---------- MANUAL / PERIODIC SYNC ----------
+  // ---------- MANUAL / CONTINUOUS BACKGROUND SYNC ----------
   document.getElementById('sync-btn').addEventListener('click', ()=> syncFromServer(true));
 
-  // Poll for changes made by other users, but don't yank the table out from under
-  // someone who is mid-edit (an input is focused) or looking at a cell's detail drawer.
-  // If a sync gets skipped for that reason, `pendingSync` remembers it so we
-  // catch up as soon as the user is no longer blocking it, instead of waiting
-  // out the rest of the interval (or forever, if they stay mid-edit).
+  // Poll for changes made by other users continuously, but don't yank the
+  // table out from under someone who is mid-edit (an input is focused) or
+  // looking at a cell's detail drawer. If a sync gets skipped for that
+  // reason, `pendingSync` remembers it so we catch up as soon as the user is
+  // no longer blocking it, instead of waiting out the rest of the interval
+  // (or forever, if they stay mid-edit).
   let pendingSync = false;
+  const SYNC_INTERVAL_MS = 5000; // continuous background sync every 5s
 
   function isSyncBlocked(){
     const active = document.activeElement;
@@ -2884,6 +2879,11 @@
   }
 
   function attemptSync(){
+    if(!navigator.onLine){
+      setConnStatus('offline');
+      pendingSync = true;
+      return;
+    }
     if(isSyncBlocked()){
       pendingSync = true;
       return;
@@ -2892,14 +2892,26 @@
     syncFromServer(false);
   }
 
-  setInterval(attemptSync, 60000);
+  setInterval(attemptSync, SYNC_INTERVAL_MS);
 
   // Catch up immediately once the blocker goes away, rather than waiting for
-  // the next 60s tick.
+  // the next tick.
   document.addEventListener('focusout', (e)=>{
     if(pendingSync && e.target && e.target.classList && e.target.classList.contains('edit-input')){
       setTimeout(attemptSync, 0);
     }
+  });
+
+  // React instantly to the browser's own connectivity signals, rather than
+  // waiting up to SYNC_INTERVAL_MS to notice the connection dropped or came back.
+  window.addEventListener('offline', ()=> setConnStatus('offline'));
+  window.addEventListener('online', ()=> attemptSync());
+
+  // When the tab/app regains focus (e.g. phone screen woken up, browser tab
+  // switched back to), sync right away instead of showing stale data until
+  // the next scheduled tick.
+  document.addEventListener('visibilitychange', ()=>{
+    if(document.visibilityState === 'visible') attemptSync();
   });
   document.getElementById('drawer').addEventListener('transitionend', ()=>{
     if(pendingSync && !document.getElementById('drawer').classList.contains('open')) attemptSync();
@@ -2926,6 +2938,7 @@
 
   // ---------- BOOTSTRAP ----------
   (async function init(){
+    setConnStatus('connecting');
     await syncFromServer(true);
   })();
 })();

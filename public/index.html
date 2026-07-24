@@ -99,6 +99,7 @@
     max-width:1400px; width:100%; margin:0 auto; box-sizing:border-box;
   }
   .actions-bar-buttons{display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-left:auto;}
+  .status-group{display:flex; align-items:center; gap:12px; flex-wrap:wrap;}
 
   .btn{
     font-family:var(--sans); font-size:12.5px; font-weight:600; padding:8px 14px;
@@ -553,6 +554,34 @@
   @media (hover: none) and (pointer: coarse){
     .cell[draggable="true"], .aisle-chip[draggable="true"], .rack-label[draggable="true"]{cursor:pointer;}
   }
+
+  /* Online/offline connection indicator in the actions bar */
+  .conn-status{
+    display:inline-flex; align-items:center; gap:6px;
+    font-size:11px; color:var(--ink-soft); white-space:nowrap;
+  }
+  .conn-dot{
+    width:8px; height:8px; border-radius:50%;
+    background:var(--service); flex:0 0 auto;
+    box-shadow:0 0 0 0 rgba(0,0,0,0);
+    transition:background-color .2s ease;
+  }
+  .conn-dot.online{
+    background:var(--good);
+    box-shadow:0 0 0 3px color-mix(in srgb, var(--good) 20%, transparent);
+  }
+  .conn-dot.offline{
+    background:var(--danger);
+    box-shadow:0 0 0 3px color-mix(in srgb, var(--danger) 20%, transparent);
+  }
+  .conn-dot.connecting{
+    background:var(--multi);
+    animation:conn-pulse 1s ease-in-out infinite;
+  }
+  @keyframes conn-pulse{
+    0%,100%{ opacity:1; }
+    50%{ opacity:.35; }
+  }
 </style>
 </head>
 <body>
@@ -566,9 +595,15 @@
   </header>
 
   <div class="actions-bar">
-    <span id="sync-status" style="font-size:11px; color:var(--ink-soft); white-space:nowrap;"></span>
+    <div class="status-group">
+      <span class="conn-status" title="Статус связи с сервером">
+        <span class="conn-dot" id="conn-dot"></span>
+        <span id="conn-text">подключение…</span>
+      </span>
+      <span id="sync-status" style="display:none;"></span>
+    </div>
     <div class="actions-bar-buttons">
-      <button class="btn" id="sync-btn" title="Подтянуть последние данные с сервера">⟳ Синхронизировать</button>
+      <button class="btn" id="sync-btn" title="Синхронизировать прямо сейчас">⟳ Синхронизировать</button>
       <button class="btn" id="undo-btn" title="Отменить последнее действие">↺ Отменить</button>
       <button class="btn" id="activity-log-btn" title="Журнал изменений (хранится 14 дней)">📋 Журнал</button>
       <button class="btn" id="theme-toggle-btn" title="Переключить тему">🌙</button>
@@ -683,7 +718,6 @@
 
       <div class="panel">
         <h2>Ряд / проход — схема пикинга (ярус 1) и пополнения (ярусы выше)</h2>
-        <div class="abc-cols-inline" id="abc-cols-inline"></div>
         <div class="aisles" id="reco-aisle-chips" style="margin-bottom:12px;"></div>
         <div class="toolbar" style="margin:0 0 12px; gap:8px;">
           <button class="btn" id="reco-add-row-btn">+ Добавить ряд</button>
