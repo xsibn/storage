@@ -73,39 +73,37 @@
     }
   });
 
-  // ---------- профиль (виджет в шапке) ----------
+  // ---------- профиль (отдельная страница, как в Telegram) ----------
   function applyUserToUI() {
     if (!currentUser) return;
+    const label = currentUser.displayName || currentUser.username;
     const avatar = $('profile-avatar');
-    avatar.textContent = initials(currentUser.displayName || currentUser.username);
+    avatar.textContent = initials(label);
     const dot = document.createElement('span');
     dot.className = 'status-dot';
     avatar.appendChild(dot); // textContent write above already cleared any previous dot
-    $('profile-name').textContent = currentUser.displayName || currentUser.username;
+    $('profile-name').textContent = label;
     $('profile-role').textContent = currentUser.roleLabel;
-    $('profile-menu-name').textContent = currentUser.displayName || currentUser.username;
-    $('profile-menu-role').textContent = currentUser.roleLabel;
-    $('profile-manage-users-btn').style.display = currentUser.perms.canManageUsers ? '' : 'none';
+
+    $('pp-avatar').textContent = initials(label);
+    $('pp-name').textContent = label;
+    $('pp-role').textContent = currentUser.roleLabel;
+    $('pp-manage-users').style.display = currentUser.perms.canManageUsers ? '' : 'none';
 
     document.body.classList.toggle('perm-no-read-activity', !currentUser.perms.canReadActivity);
     document.body.classList.toggle('perm-no-manage-activity', !currentUser.perms.canManageActivity);
   }
 
-  $('profile-pill').addEventListener('click', () => {
-    $('profile-widget').classList.toggle('open');
-  });
-  document.addEventListener('click', (e) => {
-    const w = $('profile-widget');
-    if (w.classList.contains('open') && !w.contains(e.target)) w.classList.remove('open');
-  });
-  $('profile-menu-backdrop').addEventListener('click', () => {
-    $('profile-widget').classList.remove('open');
-  });
-  $('profile-menu-close').addEventListener('click', () => {
-    $('profile-widget').classList.remove('open');
-  });
+  function openProfilePage() {
+    $('profile-page').classList.add('open');
+  }
+  function closeProfilePage() {
+    $('profile-page').classList.remove('open');
+  }
+  $('profile-pill').addEventListener('click', openProfilePage);
+  $('profile-page-back').addEventListener('click', closeProfilePage);
 
-  $('profile-logout-btn').addEventListener('click', async () => {
+  $('pp-logout').addEventListener('click', async () => {
     try { await fetch(API_BASE + '/api/auth/logout', { method: 'POST' }); } catch (_) {}
     location.reload();
   });
@@ -128,8 +126,7 @@
   });
 
   // ---------- смена собственного пароля ----------
-  $('profile-change-password-btn').addEventListener('click', () => {
-    $('profile-widget').classList.remove('open');
+  $('pp-change-password').addEventListener('click', () => {
     openAuthModal('Сменить пароль', `
       <div class="auth-field">
         <label>Текущий пароль</label>
@@ -376,7 +373,7 @@
   }
 
   function openUsersModal() {
-    $('profile-widget').classList.remove('open');
+    closeProfilePage();
     cachedRoles = [];
     openAuthModal('Пользователи и роли', `
       <div class="um-tabs" style="display:flex; gap:6px; margin-bottom:14px; border-bottom:1px solid var(--line); padding-bottom:10px;">
@@ -463,7 +460,7 @@
     fillNewUserRoleSelect();
     renderUsersList();
   }
-  $('profile-manage-users-btn').addEventListener('click', openUsersModal);
+  $('pp-manage-users').addEventListener('click', openUsersModal);
 
   // ---------- перехват истёкшей/недействительной сессии ----------
   // Если во время работы сессия истекла, любой запрос к /api/* (кроме
