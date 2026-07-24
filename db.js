@@ -57,6 +57,24 @@ db.exec(`
     isolate    INTEGER NOT NULL DEFAULT 0,
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
   );
+
+  CREATE TABLE IF NOT EXISTS users (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    username      TEXT NOT NULL UNIQUE,
+    display_name  TEXT NOT NULL DEFAULT '',
+    password_hash TEXT NOT NULL,
+    role          TEXT NOT NULL DEFAULT 'employee',
+    created_at    TEXT NOT NULL DEFAULT (datetime('now')),
+    created_by    TEXT,
+    disabled      INTEGER NOT NULL DEFAULT 0
+  );
+
+  CREATE TABLE IF NOT EXISTS sessions (
+    token      TEXT PRIMARY KEY,
+    user_id    INTEGER NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    expires_at TEXT NOT NULL
+  );
 `);
 
 // Every mutating operation calls this. undoData is a small JSON-serialisable
@@ -69,9 +87,17 @@ const ACTIVITY_RETENTION_DAYS = 14;
 function purgeOldActivity() {
   db.prepare(`DELETE FROM activity_log WHERE ts < datetime('now', ?)`).run(`-${ACTIVITY_RETENTION_DAYS} days`);
 }
+// Кто выполняет текущий запрос — выставляется middleware'ом авторизации в
+// начале каждого запроса (см. auth.js) и подмешивается в текст записи
+// журнала. Все вызовы db.js в рамках одного запроса синхронны, поэтому
+// между установкой актора и записью в журнал event loop не переключается
+// на другой запрос — конфликтов между параллельными запросами нет.
+let currentActor = null;
+function setCurrentActor(label) { currentActor = label || null; }
 function logActivity(action, summary, undoData) {
+  const withActor = currentActor ? `[${currentActor}] ${summary}` : summary;
   db.prepare('INSERT INTO activity_log (action, summary, undo_data) VALUES (?, ?, ?)')
-    .run(action, summary, undoData ? JSON.stringify(undoData) : null);
+    .run(action, withActor, undoData ? JSON.stringify(undoData) : null);
   purgeOldActivity();
 }
 // Also sweep once on startup, so entries older than the retention window
@@ -773,11 +799,120 @@ const undoActivityById = db.transaction((id) => {
   return { action: entry.action, summary: entry.summary };
 });
 
+// ---------- Пользователи и роли ----------
+// Роли:
+//   service  — сервисный аккаунт: полный контроль (создание любых аккаунтов,
+//              журнал целиком, включая очистку и отмену). Защищённая учётка,
+//              её нельзя удалить и понизить в правах — всегда должен
+//              оставаться хотя бы один способ управлять системой.
+//   boss     — начальник: те же права, что у service (создание аккаунтов,
+//              полный журнал с очисткой/отменой), кроме удаления service.
+//   warehouse_manager — завсклад: доступ ко всем основным функциям склада,
+//              журнал — только чтение (без очистки/отмены), пользователями
+//              не управляет.
+//   employee — сотрудник: доступ ко всем основным функциям склада, но без
+//              журнала и без управления пользователями/ролями.
+const ROLES = ['service', 'boss', 'warehouse_manager', 'employee'];
+
+function listUsers() {
+  return db.prepare('SELECT id, username, display_name, role, created_at, created_by, disabled FROM users ORDER BY id ASC').all();
+}
+
+function getUserByUsername(username) {
+  return db.prepare('SELECT * FROM users WHERE username = ?').get(String(username || '').trim().toLowerCase());
+}
+
+function getUserById(id) {
+  return db.prepare('SELECT * FROM users WHERE id = ?').get(id);
+}
+
+function countUsers() {
+  return db.prepare('SELECT COUNT(*) AS n FROM users').get().n;
+}
+
+function insertUser({ username, displayName, passwordHash, role, createdBy }) {
+  const uname = String(username || '').trim().toLowerCase();
+  if (!uname) throw new Error('Логин не может быть пустым');
+  if (!ROLES.includes(role)) throw new Error('Некорректная роль');
+  const existing = getUserByUsername(uname);
+  if (existing) throw new Error('Пользователь с таким логином уже существует');
+  const info = db.prepare('INSERT INTO users (username, display_name, password_hash, role, created_by) VALUES (?, ?, ?, ?, ?)')
+    .run(uname, displayName || uname, passwordHash, role, createdBy || null);
+  return getUserById(info.lastInsertRowid);
+}
+
+function updateUserRole(id, role) {
+  if (!ROLES.includes(role)) throw new Error('Некорректная роль');
+  const user = getUserById(id);
+  if (!user) throw new Error('Пользователь не найден');
+  if (user.role === 'service' && role !== 'service') {
+    throw new Error('Нельзя понизить в правах единственный сервисный аккаунт');
+  }
+  db.prepare('UPDATE users SET role = ? WHERE id = ?').run(role, id);
+  return getUserById(id);
+}
+
+function setUserPasswordHash(id, passwordHash) {
+  const info = db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(passwordHash, id);
+  if (!info.changes) throw new Error('Пользователь не найден');
+  return getUserById(id);
+}
+
+function setUserDisabled(id, disabled) {
+  const user = getUserById(id);
+  if (!user) throw new Error('Пользователь не найден');
+  if (user.role === 'service') throw new Error('Сервисный аккаунт нельзя заблокировать');
+  db.prepare('UPDATE users SET disabled = ? WHERE id = ?').run(disabled ? 1 : 0, id);
+  return getUserById(id);
+}
+
+function deleteUser(id) {
+  const user = getUserById(id);
+  if (!user) throw new Error('Пользователь не найден');
+  if (user.role === 'service') throw new Error('Сервисный аккаунт нельзя удалить');
+  db.prepare('DELETE FROM sessions WHERE user_id = ?').run(id);
+  db.prepare('DELETE FROM users WHERE id = ?').run(id);
+  return { id };
+}
+
+// ---------- Сессии ----------
+const SESSION_TTL_DAYS = 14;
+
+function createSession(token, userId) {
+  db.prepare(`INSERT INTO sessions (token, user_id, expires_at) VALUES (?, ?, datetime('now', ?))`)
+    .run(token, userId, `+${SESSION_TTL_DAYS} days`);
+}
+
+function getSession(token) {
+  purgeExpiredSessions();
+  const row = db.prepare('SELECT * FROM sessions WHERE token = ? AND expires_at > datetime(\'now\')').get(token);
+  if (!row) return null;
+  const user = getUserById(row.user_id);
+  if (!user || user.disabled) return null;
+  return user;
+}
+
+function deleteSession(token) {
+  db.prepare('DELETE FROM sessions WHERE token = ?').run(token);
+}
+
+function deleteAllSessionsForUser(userId) {
+  db.prepare('DELETE FROM sessions WHERE user_id = ?').run(userId);
+}
+
+function purgeExpiredSessions() {
+  db.prepare(`DELETE FROM sessions WHERE expires_at <= datetime('now')`).run();
+}
+
 module.exports = {
   db, classifyCell, listRecords, replaceAll, updateRecord, createRecord, deleteRecord,
   swapRows, swapRacks, renameRow, setRacks, setLevels, createRow, deleteRow, getMeta, setMeta, count, seedIfEmpty,
   getLayout, ensureLayoutFromSeed, rebuildLayoutFromCurrent, setRackOrder,
   bulkMove, bulkDelete, listActivity, undoLastAction, undoActivityById, deleteActivityEntry, clearActivity,
   seedAbcClasses, getAbcClasses,
-  ensureZonesFromData, listZones, createZone, renameZone, setZoneIsolate, deleteZone
+  ensureZonesFromData, listZones, createZone, renameZone, setZoneIsolate, deleteZone,
+  setCurrentActor,
+  ROLES, listUsers, getUserByUsername, getUserById, countUsers, insertUser, updateUserRole,
+  setUserPasswordHash, setUserDisabled, deleteUser,
+  createSession, getSession, deleteSession, deleteAllSessionsForUser
 };

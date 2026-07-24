@@ -4,18 +4,52 @@
 
 const path = require('path');
 const fs = require('fs');
+const crypto = require('crypto');
 const express = require('express');
 const cors = require('cors');
 const multer = require('multer');
 const XLSX = require('xlsx');
 
 const db = require('./db');
+const auth = require('./auth');
 
 const app = express();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 25 * 1024 * 1024 } });
 
-app.use(cors());
+app.use(cors({ origin: true, credentials: true }));
 app.use(express.json({ limit: '10mb' }));
+app.use(auth.attachUser);
+
+// ---- первичное создание сервисного аккаунта, если пользователей ещё нет ----
+if (db.countUsers() === 0) {
+  const username = process.env.SERVICE_USERNAME || 'admin';
+  const password = process.env.SERVICE_PASSWORD || crypto.randomBytes(6).toString('hex');
+  db.insertUser({
+    username,
+    displayName: 'Сервисный аккаунт',
+    passwordHash: auth.hashPassword(password),
+    role: 'service',
+    createdBy: null
+  });
+  console.log('================================================================');
+  console.log(' Создан сервисный аккаунт (полный контроль над системой):');
+  console.log(`   логин:  ${username}`);
+  if (process.env.SERVICE_PASSWORD) {
+    console.log('   пароль: задан через переменную окружения SERVICE_PASSWORD');
+  } else {
+    console.log(`   пароль: ${password}  (сгенерирован автоматически, смените после входа)`);
+  }
+  console.log(' Эти данные больше нигде не показываются — сохраните их сейчас.');
+  console.log('================================================================');
+}
+
+// Всё под /api/*, кроме входа и health-check, требует авторизации.
+app.use((req, res, next) => {
+  if (!req.path.startsWith('/api/')) return next();
+  if (req.path.startsWith('/api/auth/') || req.path === '/api/health') return next();
+  return auth.requireAuth(req, res, next);
+});
+
 app.use(express.static(path.join(__dirname, 'public')));
 
 // ---- первичная загрузка данных, если база пустая (первый запуск сервера) ----
@@ -313,13 +347,13 @@ app.post('/api/records/bulk-delete', (req, res) => {
 // ---------- Журнал изменений ----------
 
 // GET /api/activity — последние записи журнала
-app.get('/api/activity', (req, res) => {
+app.get('/api/activity', auth.requirePerm('canReadActivity'), (req, res) => {
   const limit = Math.min(1000, parseInt(req.query.limit, 10) || 200);
   res.json({ entries: db.listActivity(limit) });
 });
 
 // POST /api/activity/undo — отменить последнее действие
-app.post('/api/activity/undo', (req, res) => {
+app.post('/api/activity/undo', auth.requirePerm('canManageActivity'), (req, res) => {
   try {
     const result = db.undoLastAction();
     res.json({ ok: true, ...result });
@@ -329,7 +363,7 @@ app.post('/api/activity/undo', (req, res) => {
 });
 
 // POST /api/activity/:id/undo — отменить конкретную запись журнала (не обязательно последнюю)
-app.post('/api/activity/:id/undo', (req, res) => {
+app.post('/api/activity/:id/undo', auth.requirePerm('canManageActivity'), (req, res) => {
   const id = parseInt(req.params.id, 10);
   if (!Number.isInteger(id)) return res.status(400).json({ error: 'Некорректный id записи журнала' });
   try {
@@ -341,7 +375,7 @@ app.post('/api/activity/:id/undo', (req, res) => {
 });
 
 // DELETE /api/activity/:id — удалить одну запись журнала (не отменяя само действие)
-app.delete('/api/activity/:id', (req, res) => {
+app.delete('/api/activity/:id', auth.requirePerm('canManageActivity'), (req, res) => {
   const id = parseInt(req.params.id, 10);
   if (!Number.isInteger(id)) return res.status(400).json({ error: 'Некорректный id записи журнала' });
   try {
@@ -353,7 +387,7 @@ app.delete('/api/activity/:id', (req, res) => {
 });
 
 // DELETE /api/activity — полностью очистить журнал изменений
-app.delete('/api/activity', (req, res) => {
+app.delete('/api/activity', auth.requirePerm('canManageActivity'), (req, res) => {
   try {
     const result = db.clearActivity();
     res.json({ ok: true, ...result });
@@ -483,6 +517,124 @@ app.get('/api/export', (req, res) => {
   res.setHeader('Content-Disposition', `attachment; filename="warehouse-export.xlsx"; filename*=UTF-8''${encodedName}`);
   res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
   res.send(buf);
+});
+
+// ---------- Авторизация ----------
+
+// POST /api/auth/login — вход по логину/паролю
+app.post('/api/auth/login', (req, res) => {
+  const { username, password } = req.body || {};
+  if (!username || !password) return res.status(400).json({ error: 'Введите логин и пароль' });
+  const user = db.getUserByUsername(username);
+  if (!user || user.disabled || !auth.verifyPassword(password, user.password_hash)) {
+    return res.status(401).json({ error: 'Неверный логин или пароль' });
+  }
+  const token = auth.newToken();
+  db.createSession(token, user.id);
+  auth.setSessionCookie(res, token);
+  res.json({ ok: true, user: auth.publicUser(user) });
+});
+
+// POST /api/auth/logout — выход (только текущая сессия)
+app.post('/api/auth/logout', (req, res) => {
+  if (req.sessionToken) db.deleteSession(req.sessionToken);
+  auth.clearSessionCookie(res);
+  res.json({ ok: true });
+});
+
+// GET /api/auth/me — кто я сейчас (для восстановления сессии на фронте)
+app.get('/api/auth/me', (req, res) => {
+  if (!req.user) return res.status(401).json({ error: 'Не авторизован' });
+  res.json({ user: auth.publicUser(req.user) });
+});
+
+// POST /api/auth/change-password — сменить собственный пароль
+app.post('/api/auth/change-password', auth.requireAuth, (req, res) => {
+  const { currentPassword, newPassword } = req.body || {};
+  if (!auth.verifyPassword(currentPassword || '', req.user.password_hash)) {
+    return res.status(401).json({ error: 'Текущий пароль неверен' });
+  }
+  const err = auth.validatePasswordStrength(newPassword);
+  if (err) return res.status(400).json({ error: err });
+  db.setUserPasswordHash(req.user.id, auth.hashPassword(newPassword));
+  res.json({ ok: true });
+});
+
+// ---------- Управление пользователями (сервисный аккаунт / начальник) ----------
+
+// GET /api/users — список аккаунтов
+app.get('/api/users', auth.requirePerm('canManageUsers'), (req, res) => {
+  res.json({ users: db.listUsers().map(u => ({ ...u, roleLabel: auth.ROLE_LABELS[u.role] || u.role })) });
+});
+
+// POST /api/users — создать аккаунт
+app.post('/api/users', auth.requirePerm('canManageUsers'), (req, res) => {
+  const { username, displayName, password, role } = req.body || {};
+  if (!username || !password || !role) {
+    return res.status(400).json({ error: 'обязательны поля "username", "password", "role"' });
+  }
+  if (role === 'service') {
+    return res.status(400).json({ error: 'Создать ещё один сервисный аккаунт нельзя — он один на систему' });
+  }
+  if (!auth.ROLE_PERMS[role]) return res.status(400).json({ error: 'Некорректная роль' });
+  const pwErr = auth.validatePasswordStrength(password);
+  if (pwErr) return res.status(400).json({ error: pwErr });
+  try {
+    const created = db.insertUser({
+      username, displayName, role,
+      passwordHash: auth.hashPassword(password),
+      createdBy: req.user.username
+    });
+    res.status(201).json({ user: auth.publicUser(created) });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+// PATCH /api/users/:id — изменить роль и/или заблокировать/разблокировать
+app.patch('/api/users/:id', auth.requirePerm('canManageUsers'), (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  if (!Number.isInteger(id)) return res.status(400).json({ error: 'bad id' });
+  const { role, disabled } = req.body || {};
+  try {
+    let updated;
+    if (role !== undefined) updated = db.updateUserRole(id, role);
+    if (disabled !== undefined) updated = db.setUserDisabled(id, !!disabled);
+    if (!updated) updated = db.getUserById(id);
+    if (!updated) return res.status(404).json({ error: 'not found' });
+    res.json({ user: auth.publicUser(updated) });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+// POST /api/users/:id/reset-password — сбросить пароль сотрудника
+app.post('/api/users/:id/reset-password', auth.requirePerm('canManageUsers'), (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  if (!Number.isInteger(id)) return res.status(400).json({ error: 'bad id' });
+  const { password } = req.body || {};
+  const pwErr = auth.validatePasswordStrength(password);
+  if (pwErr) return res.status(400).json({ error: pwErr });
+  try {
+    db.setUserPasswordHash(id, auth.hashPassword(password));
+    db.deleteAllSessionsForUser(id);
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+// DELETE /api/users/:id — удалить аккаунт (кроме сервисного и себя самого)
+app.delete('/api/users/:id', auth.requirePerm('canManageUsers'), (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  if (!Number.isInteger(id)) return res.status(400).json({ error: 'bad id' });
+  if (id === req.user.id) return res.status(400).json({ error: 'Нельзя удалить собственный аккаунт' });
+  try {
+    db.deleteUser(id);
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
 });
 
 app.get('/api/health', (req, res) => res.json({ ok: true }));

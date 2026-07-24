@@ -3069,6 +3069,9 @@
   // ---------- BOOTSTRAP ----------
   (async function init(){
     setConnStatus('connecting');
+    // auth.js resolves this once the person is logged in (immediately, if a
+    // valid session cookie already exists) — data must not load before that.
+    if (window.__whenAuthed) await window.__whenAuthed;
     await syncFromServer(true);
   })();
 })();

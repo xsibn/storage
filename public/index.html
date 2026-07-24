@@ -616,9 +616,153 @@
     0%,100%{ opacity:1; }
     50%{ opacity:.35; }
   }
+
+  /* ---------- Авторизация: экран входа ---------- */
+  #auth-screen{
+    position:fixed; inset:0; z-index:1000; display:none;
+    align-items:center; justify-content:center;
+    background:var(--bg);
+  }
+  #auth-screen.show{display:flex;}
+  .auth-card{
+    width:min(360px, 92vw); background:var(--panel); border:1px solid var(--line);
+    border-radius:14px; padding:28px 26px; box-shadow:0 8px 28px rgba(16,24,40,.12);
+  }
+  .auth-card h2{margin:0 0 4px; font-size:18px;}
+  .auth-card p.sub{margin:0 0 20px; font-size:12.5px; color:var(--ink-soft);}
+  .auth-field{margin-bottom:14px;}
+  .auth-field label{display:block; font-size:12px; color:var(--ink-soft); margin-bottom:6px;}
+  .auth-field input{
+    width:100%; padding:10px 12px; border:1px solid var(--line); border-radius:8px;
+    font-family:var(--sans); font-size:14px;
+  }
+  .auth-field input:focus{outline:none; border-color:var(--accent);}
+  #auth-error{
+    display:none; background:#FBEAE7; color:var(--danger); border:1px solid var(--danger);
+    border-radius:8px; padding:8px 10px; font-size:12.5px; margin-bottom:14px;
+  }
+  [data-theme="dark"] #auth-error{background:#3A2323;}
+  .auth-card .btn.primary{width:100%; padding:11px; font-size:13.5px;}
+
+  /* ---------- Профиль (правый верхний угол, "как в Дискорде") ---------- */
+  .profile-widget{position:relative; display:inline-block; margin-left:8px;}
+  .profile-pill{
+    display:flex; align-items:center; gap:8px; padding:5px 12px 5px 5px;
+    border:1px solid var(--line); border-radius:999px; background:var(--panel);
+    cursor:pointer; transition:.12s;
+  }
+  .profile-pill:hover{border-color:var(--accent);}
+  .profile-avatar{
+    width:28px; height:28px; border-radius:50%; background:var(--accent);
+    color:#fff; display:flex; align-items:center; justify-content:center;
+    font-size:12px; font-weight:700; flex:none; position:relative;
+  }
+  .profile-avatar .status-dot{
+    position:absolute; right:-1px; bottom:-1px; width:9px; height:9px; border-radius:50%;
+    background:var(--good); border:2px solid var(--panel);
+  }
+  .profile-pill .who{display:flex; flex-direction:column; line-height:1.25; text-align:left;}
+  .profile-pill .who .name{font-size:12.5px; font-weight:700; white-space:nowrap; max-width:140px; overflow:hidden; text-overflow:ellipsis;}
+  .profile-pill .who .role{font-size:10.5px; color:var(--ink-soft);}
+  .profile-menu{
+    display:none; position:absolute; right:0; top:calc(100% + 8px); z-index:30;
+    background:var(--panel); border:1px solid var(--line); border-radius:10px;
+    box-shadow:0 8px 24px rgba(0,0,0,.14); min-width:230px; padding:8px; overflow:hidden;
+  }
+  .profile-widget.open .profile-menu{display:block;}
+  .profile-menu .pm-head{padding:8px 10px 10px; border-bottom:1px solid var(--line); margin-bottom:6px;}
+  .profile-menu .pm-head .name{font-size:13.5px; font-weight:700;}
+  .profile-menu .pm-head .role-badge{
+    display:inline-block; margin-top:4px; font-size:10.5px; font-weight:600;
+    padding:2px 8px; border-radius:999px; background:var(--accent-soft); color:var(--accent);
+  }
+  .profile-menu button{
+    display:flex; align-items:center; gap:8px; width:100%; padding:9px 10px;
+    border:none; background:none; text-align:left; font-family:var(--sans);
+    font-size:13px; color:var(--ink); border-radius:6px; cursor:pointer; box-sizing:border-box;
+  }
+  .profile-menu button:hover{background:var(--bg);}
+  .profile-menu button.danger{color:var(--danger);}
+  .profile-menu .menu-sep{height:1px; background:var(--line); margin:5px 2px;}
+
+  /* ---------- Модалка авторизации (управление пользователями / смена пароля) ---------- */
+  #auth-modal-backdrop{
+    display:none; position:fixed; inset:0; z-index:900; background:rgba(16,20,28,.45);
+    align-items:center; justify-content:center; padding:20px;
+  }
+  #auth-modal-backdrop.show{display:flex;}
+  #auth-modal{
+    width:min(560px, 100%); max-height:86vh; overflow:auto; background:var(--panel);
+    border-radius:12px; box-shadow:0 12px 40px rgba(0,0,0,.2);
+  }
+  #auth-modal .mh{
+    display:flex; align-items:center; justify-content:space-between;
+    padding:14px 18px; border-bottom:1px solid var(--line);
+  }
+  #auth-modal .mh h3{margin:0; font-size:15px;}
+  #auth-modal .mh button{border:none; background:none; font-size:16px; cursor:pointer; color:var(--ink-soft);}
+  #auth-modal .mb{padding:16px 18px;}
+  #auth-modal .mf{padding:12px 18px; border-top:1px solid var(--line); display:flex; justify-content:flex-end; gap:8px;}
+  .user-row{
+    display:flex; align-items:center; gap:10px; padding:9px 4px; border-bottom:1px solid var(--line);
+  }
+  .user-row:last-child{border-bottom:none;}
+  .user-row .u-info{flex:1; min-width:0;}
+  .user-row .u-info .u-name{font-size:13px; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+  .user-row .u-info .u-login{font-size:11px; color:var(--ink-soft); font-family:var(--mono);}
+  .user-row select{
+    font-size:12px; padding:5px 6px; border-radius:6px; border:1px solid var(--line);
+    background:var(--panel); color:var(--ink);
+  }
+  .user-row.disabled .u-name{color:var(--ink-soft); text-decoration:line-through;}
+  .icon-btn{
+    border:1px solid var(--line); background:var(--panel); border-radius:6px; padding:5px 8px;
+    font-size:12px; cursor:pointer; color:var(--ink-soft);
+  }
+  .icon-btn:hover{color:var(--ink); border-color:var(--ink-soft);}
+  .icon-btn.danger:hover{color:var(--danger); border-color:var(--danger);}
+  .new-user-form{
+    display:grid; grid-template-columns:1fr 1fr; gap:10px; padding:12px 4px 16px; border-bottom:1px solid var(--line); margin-bottom:6px;
+  }
+  .new-user-form input, .new-user-form select{
+    padding:8px 10px; border:1px solid var(--line); border-radius:7px; font-family:var(--sans); font-size:13px;
+    background:var(--panel); color:var(--ink);
+  }
+  .new-user-form .full{grid-column:1 / -1;}
+  /* Скрытие функций журнала по правам роли (классы вешает auth.js на <body>) */
+  body.perm-no-read-activity #activity-log-btn,
+  body.perm-no-read-activity #undo-btn{display:none !important;}
+  body.perm-no-manage-activity .a-undo-btn,
+  body.perm-no-manage-activity .a-delete-btn,
+  body.perm-no-manage-activity #activity-log-clear-all,
+  body.perm-no-manage-activity #undo-btn{display:none !important;}
+
+  #journal-readonly-note{
+    font-size:12px; color:var(--ink-soft); background:var(--bg); border:1px solid var(--line);
+    border-radius:8px; padding:8px 10px; margin-bottom:10px;
+  }
 </style>
 </head>
 <body>
+
+<!-- Экран входа: перекрывает всё, пока пользователь не авторизован -->
+<div id="auth-screen">
+  <form class="auth-card" id="auth-login-form" autocomplete="on">
+    <h2>Адресное хранение склада</h2>
+    <p class="sub">Войдите, чтобы продолжить</p>
+    <div id="auth-error"></div>
+    <div class="auth-field">
+      <label for="auth-login-username">Логин</label>
+      <input type="text" id="auth-login-username" name="username" autocomplete="username" required>
+    </div>
+    <div class="auth-field">
+      <label for="auth-login-password">Пароль</label>
+      <input type="password" id="auth-login-password" name="password" autocomplete="current-password" required>
+    </div>
+    <button type="submit" class="btn primary" id="auth-login-submit">Войти</button>
+  </form>
+</div>
+
 <div id="progress-wrap"><div id="progress-bar"></div></div>
 <div id="progress-label"></div>
 <div id="app">
@@ -626,6 +770,25 @@
   <header>
     <h1>Адресное хранение <span class="tag" id="src-tag">подключение…</span></h1>
     <div class="stats" id="stats"></div>
+    <div class="profile-widget" id="profile-widget">
+      <button class="profile-pill" id="profile-pill" type="button">
+        <span class="profile-avatar" id="profile-avatar"><span class="status-dot"></span></span>
+        <span class="who">
+          <span class="name" id="profile-name">…</span>
+          <span class="role" id="profile-role">…</span>
+        </span>
+      </button>
+      <div class="profile-menu" id="profile-menu">
+        <div class="pm-head">
+          <div class="name" id="profile-menu-name">…</div>
+          <span class="role-badge" id="profile-menu-role">…</span>
+        </div>
+        <button type="button" id="profile-change-password-btn">🔑 Сменить пароль</button>
+        <button type="button" id="profile-manage-users-btn" style="display:none;">👥 Пользователи и роли</button>
+        <div class="menu-sep"></div>
+        <button type="button" class="danger" id="profile-logout-btn">↪ Выйти</button>
+      </div>
+    </div>
   </header>
 
   <div class="actions-bar">
@@ -839,8 +1002,17 @@
     </div>
   </div>
 
+  <div id="auth-modal-backdrop">
+    <div id="auth-modal">
+      <div class="mh"><h3 id="auth-modal-title">Заголовок</h3><button type="button" id="auth-modal-close">✕</button></div>
+      <div class="mb" id="auth-modal-body"></div>
+      <div class="mf" id="auth-modal-footer"></div>
+    </div>
+  </div>
+
 </div>
 
+<script src="auth.js"></script>
 <script src="app.js"></script>
 </body>
 </html>
