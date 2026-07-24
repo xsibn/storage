@@ -548,11 +548,12 @@
     :root{ --cell-size:26px; }
 
     /* Профиль/аккаунт на телефоне: убираем из шапки (там и так тесно от
-       статистики) и превращаем в плавающую круглую кнопку в углу экрана —
-       имя/роль/выход остаются в выпадающем меню по тапу. */
+       статистики) и превращаем в маленькую круглую кнопку-триггер в углу
+       экрана. По тапу открывается не всплывающая подсказка, а полноценное
+       меню слева во весь экран по высоте — так шапка остаётся свободной. */
     .profile-widget{
       position:fixed; top:calc(10px + env(safe-area-inset-top)); right:calc(10px + env(safe-area-inset-right));
-      margin-left:0; z-index:40;
+      margin-left:0; z-index:70;
     }
     .profile-pill{
       padding:0; border:none; background:transparent; box-shadow:none;
@@ -562,7 +563,32 @@
       width:38px; height:38px; font-size:14px;
       box-shadow:0 2px 8px rgba(0,0,0,.28); border:2px solid var(--panel);
     }
-    .profile-menu{top:calc(100% + 8px); right:0; max-width:calc(100vw - 20px);}
+
+    .profile-menu-backdrop{
+      display:none; position:fixed; inset:0; background:rgba(12,14,20,.5); z-index:68;
+    }
+    .profile-widget.open .profile-menu-backdrop{display:block;}
+
+    .profile-menu{
+      display:flex; flex-direction:column;
+      position:fixed; top:0; left:0; right:auto; bottom:0;
+      width:280px; max-width:82vw; height:100%;
+      border-radius:0; border:none; box-shadow:8px 0 28px rgba(0,0,0,.3);
+      transform:translateX(-100%); transition:transform .2s ease;
+      padding:calc(14px + env(safe-area-inset-top)) 14px 14px 14px; z-index:69;
+      opacity:1; visibility:visible; /* stays in DOM, only slides off-canvas */
+    }
+    .profile-widget.open .profile-menu{transform:translateX(0);}
+
+    .profile-menu .pm-head{position:relative; padding:6px 28px 14px 6px; margin-bottom:10px;}
+    .profile-menu .pm-head .name{font-size:15px;}
+    .pm-close{
+      display:flex; align-items:center; justify-content:center;
+      position:absolute; top:0; right:0; width:30px; height:30px;
+      border:none; background:var(--bg); border-radius:50%; color:var(--ink-soft);
+      font-size:14px; cursor:pointer;
+    }
+    .profile-menu button{padding:12px 10px; font-size:13.5px;}
   }
 
   @media (max-width: 480px){
@@ -701,6 +727,8 @@
   .profile-menu button:hover{background:var(--bg);}
   .profile-menu button.danger{color:var(--danger);}
   .profile-menu .menu-sep{height:1px; background:var(--line); margin:5px 2px;}
+  .profile-menu-backdrop{display:none;}
+  .pm-close{display:none;}
 
   /* ---------- Модалка авторизации (управление пользователями / смена пароля) ---------- */
   #auth-modal-backdrop{
@@ -798,10 +826,12 @@
           <span class="role" id="profile-role">…</span>
         </span>
       </button>
+      <div class="profile-menu-backdrop" id="profile-menu-backdrop"></div>
       <div class="profile-menu" id="profile-menu">
         <div class="pm-head">
           <div class="name" id="profile-menu-name">…</div>
           <span class="role-badge" id="profile-menu-role">…</span>
+          <button type="button" class="pm-close" id="profile-menu-close" aria-label="Закрыть">✕</button>
         </div>
         <button type="button" id="profile-change-password-btn">🔑 Сменить пароль</button>
         <button type="button" id="profile-manage-users-btn" style="display:none;">👥 Пользователи и роли</button>

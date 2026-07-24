@@ -98,6 +98,12 @@
     const w = $('profile-widget');
     if (w.classList.contains('open') && !w.contains(e.target)) w.classList.remove('open');
   });
+  $('profile-menu-backdrop').addEventListener('click', () => {
+    $('profile-widget').classList.remove('open');
+  });
+  $('profile-menu-close').addEventListener('click', () => {
+    $('profile-widget').classList.remove('open');
+  });
 
   $('profile-logout-btn').addEventListener('click', async () => {
     try { await fetch(API_BASE + '/api/auth/logout', { method: 'POST' }); } catch (_) {}
