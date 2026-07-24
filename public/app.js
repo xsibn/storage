@@ -2778,26 +2778,89 @@
   });
 
   // ---------- SEARCH BINDINGS ----------
+  // Match list under the map search box: typing used to only jump to the FIRST
+  // exact hit, so finding a different cell holding the same article meant
+  // clearing and retyping. Now every match is listed (артикул, наименование,
+  // остаток, ячейка, ТЕ, срок годности) and clicking one jumps straight there.
+  let mapSearchActiveIndex = -1;
+  function closeMapSearchResults(){
+    const box = document.getElementById('map-search-results');
+    box.classList.remove('open');
+    box.innerHTML = '';
+    mapSearchActiveIndex = -1;
+  }
+  function renderMapSearchResults(term){
+    const box = document.getElementById('map-search-results');
+    const val = term.trim();
+    if(val.length < 2){ closeMapSearchResults(); return; }
+    const matches = findAddressMatches(val);
+    if(!matches.length){
+      box.innerHTML = `<div class="sr-empty">Ничего не найдено: «${escapeHtml(val)}»</div>`;
+      box.classList.add('open');
+      mapSearchActiveIndex = -1;
+      return;
+    }
+    const shown = matches.slice(0, 30);
+    box.innerHTML = shown.map((r,i)=>`
+      <div class="sr-item${i===0?' active':''}" data-idx="${i}">
+        <div class="sr-main">
+          <div class="sr-art">${escapeHtml(r.article)}</div>
+          <div class="sr-name">${escapeHtml(r.name || '—')}${r.te ? ' · ТЕ '+escapeHtml(r.te) : ''}${r.exp ? ' · годен до '+escapeHtml(r.exp) : ''}</div>
+        </div>
+        <div class="sr-meta">
+          <span class="sr-cell">${escapeHtml(r.cell)}</span>
+          <span class="sr-qty">${fmtNum(r.qty)} шт</span>
+        </div>
+      </div>
+    `).join('') + (matches.length > shown.length ? `<div class="sr-more">и ещё ${matches.length - shown.length}… уточните запрос</div>` : '');
+    box.classList.add('open');
+    mapSearchActiveIndex = 0;
+    box.querySelectorAll('.sr-item').forEach(el=>{
+      el.addEventListener('click', ()=>{
+        const r = shown[parseInt(el.dataset.idx,10)];
+        pulseAddressesOnMap([r]);
+        closeMapSearchResults();
+      });
+    });
+  }
+  function escapeHtml(s){ return String(s).replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+
   document.getElementById('map-search').addEventListener('input', (e)=>{
     mapFilterTerm = e.target.value; renderGrid(); renderAisleChips();
-    // Введённый (в т.ч. набранный сканером как "клавиатура") код, точно
-    // совпавший с артикулом, ячейкой или ТЕ, сразу переносит на нужный ряд
-    // и подсвечивает ячейку — не дожидаясь Enter.
-    const val = e.target.value.trim();
-    if(val.length >= 3){
-      const lc = val.toLowerCase();
-      const exact = addressRecords().some(r =>
-        r.article.toLowerCase() === lc || r.cell.toLowerCase() === lc || (r.te && r.te.toLowerCase() === lc)
-      );
-      if(exact) jumpOnMap(val);
-    }
+    renderMapSearchResults(e.target.value);
+  });
+  document.getElementById('map-search').addEventListener('focus', (e)=>{
+    if(e.target.value.trim().length >= 2) renderMapSearchResults(e.target.value);
   });
   document.getElementById('map-search').addEventListener('keydown', (e)=>{
+    const box = document.getElementById('map-search-results');
+    const items = box.classList.contains('open') ? Array.from(box.querySelectorAll('.sr-item')) : [];
+    if(e.key === 'ArrowDown' && items.length){
+      e.preventDefault();
+      mapSearchActiveIndex = Math.min(mapSearchActiveIndex+1, items.length-1);
+      items.forEach((el,i)=>el.classList.toggle('active', i===mapSearchActiveIndex));
+      items[mapSearchActiveIndex].scrollIntoView({block:'nearest'});
+      return;
+    }
+    if(e.key === 'ArrowUp' && items.length){
+      e.preventDefault();
+      mapSearchActiveIndex = Math.max(mapSearchActiveIndex-1, 0);
+      items.forEach((el,i)=>el.classList.toggle('active', i===mapSearchActiveIndex));
+      items[mapSearchActiveIndex].scrollIntoView({block:'nearest'});
+      return;
+    }
+    if(e.key === 'Escape'){ closeMapSearchResults(); return; }
     if(e.key !== 'Enter') return;
     e.preventDefault();
+    if(items.length && mapSearchActiveIndex >= 0){ items[mapSearchActiveIndex].click(); return; }
     const val = e.target.value.trim();
     if(!val) return;
     if(!jumpOnMap(val)) alert(`На схеме склада не найдено: «${val}»`);
+    closeMapSearchResults();
+  });
+  document.addEventListener('click', (e)=>{
+    const wrap = document.getElementById('map-search').closest('.search');
+    if(wrap && !wrap.contains(e.target)) closeMapSearchResults();
   });
   document.getElementById('table-search').addEventListener('input', (e)=>{
     tableTerm = e.target.value; renderTable();

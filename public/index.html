@@ -194,6 +194,31 @@
   .search.has-scan .clear-inline-btn{ right:32px; }
   .search .clear-inline-btn:hover{ background:var(--bg); color:var(--ink); }
   .search input:not(:placeholder-shown) ~ .clear-inline-btn{ display:flex; }
+  /* Search results dropdown (map search): a small list of every match instead
+     of forcing the user to keep retyping to jump between hits. */
+  .search-results{
+    display:none; position:absolute; left:0; right:0; top:calc(100% + 4px); z-index:40;
+    background:var(--panel); border:1px solid var(--line); border-radius:9px;
+    box-shadow:0 8px 24px rgba(16,24,40,.12); max-height:340px; overflow-y:auto;
+  }
+  .search-results.open{ display:block; }
+  .search-results .sr-empty{ padding:14px 12px; font-size:12.5px; color:var(--ink-soft); text-align:center; }
+  .search-results .sr-more{ padding:8px 12px; font-size:11.5px; color:var(--ink-soft); text-align:center; }
+  .search-results .sr-item{
+    display:flex; align-items:center; gap:8px; padding:8px 12px; cursor:pointer;
+    border-bottom:1px solid var(--line); font-size:12.5px;
+  }
+  .search-results .sr-item:last-child{ border-bottom:none; }
+  .search-results .sr-item:hover, .search-results .sr-item.active{ background:var(--bg); }
+  .search-results .sr-main{ flex:1; min-width:0; }
+  .search-results .sr-art{ font-weight:600; color:var(--ink); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .search-results .sr-name{ color:var(--ink-soft); font-size:11.5px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; margin-top:1px; }
+  .search-results .sr-meta{ display:flex; flex-direction:column; align-items:flex-end; gap:2px; flex-shrink:0; }
+  .search-results .sr-cell{
+    font-family:var(--mono, monospace); font-weight:600; font-size:11.5px; color:var(--accent);
+    background:var(--accent-soft); padding:2px 6px; border-radius:5px; white-space:nowrap;
+  }
+  .search-results .sr-qty{ font-size:11px; color:var(--ink-soft); white-space:nowrap; }
   select{
     padding:8px 10px; border:1px solid var(--line); border-radius:7px; background:var(--panel);
     font-family:var(--sans); font-size:13px; color:var(--ink);
@@ -487,6 +512,15 @@
     .edit-input{width:56px;}
     .edit-input.cellinput{width:76px;}
 
+    /* Search results: stack name under article, drop the qty line to keep
+       each row to two short lines instead of a cramped one-liner. */
+    .search-results{max-height:min(60vh, 400px);}
+    .search-results .sr-item{padding:9px 12px; gap:6px;}
+    .search-results .sr-art{font-size:12.5px;}
+    .search-results .sr-name{font-size:11px; white-space:normal; display:-webkit-box; -webkit-line-clamp:1; -webkit-box-orient:vertical; overflow:hidden;}
+    .search-results .sr-cell{font-size:11px;}
+    .search-results .sr-qty{display:none;}
+
     #drawer{width:100%; max-width:100%;}
     #modal{max-width:96vw; max-height:94vh;}
     #modal .mb{padding:14px;}
@@ -642,9 +676,10 @@
       <div class="panel">
         <div class="toolbar" style="margin-bottom:12px;">
           <div class="search has-scan">
-            <input type="text" id="map-search" placeholder="Найти артикул, ячейку или ТЕ на схеме…">
+            <input type="text" id="map-search" placeholder="Найти артикул, ячейку или ТЕ на схеме…" autocomplete="off">
             <button class="clear-inline-btn" id="map-search-clear" type="button" title="Очистить">✕</button>
             <button class="scan-inline-btn" id="map-scan-btn" type="button" title="Найти товар по штрих-коду через камеру"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 5v14M7 5v14M10 5v14M13 5v14M15 5v14M19 5v14M21 5v14"/></svg></button>
+            <div class="search-results" id="map-search-results"></div>
           </div>
           <button class="btn" id="move-mode-btn" title="Для телефона: перетаскивание мышкой недоступно, включите этот режим — коснитесь ячейки, затем коснитесь другой">✥ Режим перемещения</button>
           <button class="btn" id="rack-order-btn">⚙ Управление рядом</button>
