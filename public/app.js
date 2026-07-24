@@ -195,6 +195,11 @@
     state.abcClasses = data.meta.abcClasses || {};
     state.zones = data.meta.zones || [];
     state.lastSync = new Date();
+    // Storage-range / ABC-column settings live server-side (see /api/settings)
+    // so they're the same on every device, not stuck in this browser's
+    // localStorage. Only apply them if this is the first load or nothing has
+    // been changed locally since — applySettingsFromServer() handles merging.
+    applySettingsFromServer(data.meta.storageRange, data.meta.abcCols);
   }
 
   async function syncFromServer(showAlert){
@@ -1900,7 +1905,10 @@
     }catch(e){}
     return out;
   }
-  function saveStorageRange(){ try{ localStorage.setItem('storageRange', JSON.stringify(STORAGE_RANGE)); }catch(e){} }
+  function saveStorageRange(){
+    try{ localStorage.setItem('storageRange', JSON.stringify(STORAGE_RANGE)); }catch(e){}
+    persistSettings({ storageRange: STORAGE_RANGE });
+  }
   let STORAGE_RANGE = loadStorageRange();
   function racksInStorageZone(row, racks){
     const range = STORAGE_RANGE[row];
@@ -1929,8 +1937,67 @@
     }catch(e){}
     return {...ABC_COLS_DEFAULT};
   }
-  function saveAbcCols(){ try{ localStorage.setItem('abcCols', JSON.stringify(ABC_COLS)); }catch(e){} }
+  function saveAbcCols(){
+    try{ localStorage.setItem('abcCols', JSON.stringify(ABC_COLS)); }catch(e){}
+    persistSettings({ abcCols: ABC_COLS });
+  }
   let ABC_COLS = loadAbcCols();
+
+  // Settings (storage-range per row, ABC pick-face width) used to live only in
+  // localStorage, so each device/browser kept its own copy — set the range to
+  // 91 on a desktop, the phone still showed the old value (e.g. 66) because it
+  // never saw the change. They're now saved to the server (see PUT
+  // /api/settings) so every device converges on the same value; localStorage
+  // is kept only as an instant-load cache before the first server sync.
+  let settingsSyncedFromServer = false;
+  async function persistSettings(patch){
+    try{
+      await fetch(API_BASE + '/api/settings', {
+        method: 'PUT',
+        headers: {'Content-Type':'application/json'},
+        body: JSON.stringify(patch)
+      });
+    }catch(e){ /* offline — localStorage copy above still saved locally */ }
+  }
+  function applySettingsFromServer(serverStorageRange, serverAbcCols){
+    // The server is the source of truth once it has a value for a given
+    // setting; a device that never touched a setting still gets whatever the
+    // last device to change it saved. Only fall back to this browser's own
+    // localStorage/defaults when the server has genuinely never seen a value.
+    let changed = false;
+    if(serverStorageRange && typeof serverStorageRange==='object'){
+      const merged = {...STORAGE_RANGE_DEFAULT};
+      Object.keys(merged).forEach(row=>{
+        const s = serverStorageRange[row];
+        if(Array.isArray(s) && s.length===2){
+          const lo = clampStorageBound(row, s[0], merged[row][0]);
+          const hi = clampStorageBound(row, s[1], merged[row][1]);
+          merged[row] = lo<=hi ? [lo, hi] : [hi, lo];
+        }
+      });
+      if(JSON.stringify(merged) !== JSON.stringify(STORAGE_RANGE)){ STORAGE_RANGE = merged; changed = true; }
+    }
+    if(serverAbcCols && typeof serverAbcCols==='object'){
+      const merged = {
+        A: clampAbcCols(serverAbcCols.A ?? ABC_COLS_DEFAULT.A),
+        B: clampAbcCols(serverAbcCols.B ?? ABC_COLS_DEFAULT.B),
+        C: clampAbcCols(serverAbcCols.C ?? ABC_COLS_DEFAULT.C)
+      };
+      if(JSON.stringify(merged) !== JSON.stringify(ABC_COLS)){ ABC_COLS = merged; changed = true; }
+    }
+    if(changed){
+      try{ localStorage.setItem('storageRange', JSON.stringify(STORAGE_RANGE)); }catch(e){}
+      try{ localStorage.setItem('abcCols', JSON.stringify(ABC_COLS)); }catch(e){}
+      recoCache = null;
+    }
+    // If this browser had local-only settings from before this feature existed
+    // (e.g. it was the "91" device) and the server has never been told about
+    // them, push them up once so other devices pick them up too.
+    if(!settingsSyncedFromServer && serverStorageRange==null && serverAbcCols==null){
+      persistSettings({ storageRange: STORAGE_RANGE, abcCols: ABC_COLS });
+    }
+    settingsSyncedFromServer = true;
+  }
 
   let recoCache = null; // {sorted:[...], posPool:[...]}
 

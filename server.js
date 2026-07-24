@@ -121,9 +121,22 @@ app.get('/api/records', (req, res) => {
       count: records.length,
       layout,
       abcClasses: db.getAbcClasses(),
-      zones: db.listZones()
+      zones: db.listZones(),
+      storageRange: JSON.parse(db.getMeta('storageRange') || 'null'),
+      abcCols: JSON.parse(db.getMeta('abcCols') || 'null')
     }
   });
+});
+
+// PUT /api/settings — сохранить пользовательские настройки (диапазон стеллажей
+// зоны хранения по рядам, ширину пик-фейса по ABC-классам) в базе, а не в
+// localStorage браузера — так они одинаковы на всех устройствах, а не только
+// на том, где их поменяли.
+app.put('/api/settings', (req, res) => {
+  const { storageRange, abcCols } = req.body || {};
+  if (storageRange !== undefined) db.setMeta('storageRange', JSON.stringify(storageRange));
+  if (abcCols !== undefined) db.setMeta('abcCols', JSON.stringify(abcCols));
+  res.json({ ok: true });
 });
 
 // PATCH /api/records/:id — ручная правка одной записи (остаток и/или ячейка)
