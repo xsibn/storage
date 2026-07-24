@@ -75,7 +75,31 @@ db.exec(`
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
     expires_at TEXT NOT NULL
   );
+
+  CREATE TABLE IF NOT EXISTS roles (
+    key                  TEXT PRIMARY KEY,
+    label                TEXT NOT NULL,
+    can_manage_users     INTEGER NOT NULL DEFAULT 0,
+    can_manage_activity  INTEGER NOT NULL DEFAULT 0,
+    can_read_activity    INTEGER NOT NULL DEFAULT 0,
+    is_system            INTEGER NOT NULL DEFAULT 0,
+    created_at           TEXT NOT NULL DEFAULT (datetime('now'))
+  );
 `);
+
+// Базовые роли — создаются один раз при первом запуске (INSERT OR IGNORE),
+// дальше их можно свободно переименовывать и менять права через API/CLI;
+// повторные запуски сервера ничего не перезаписывают поверх правок админа.
+// "service" — системная роль, отмечена is_system: её нельзя удалить и её
+// права всегда остаются полными (гарантия, что доступ к системе не потеряют).
+const DEFAULT_ROLES = [
+  { key: 'service', label: 'Сервисный аккаунт', canManageUsers: 1, canManageActivity: 1, canReadActivity: 1, isSystem: 1 },
+  { key: 'boss', label: 'Начальник', canManageUsers: 1, canManageActivity: 1, canReadActivity: 1, isSystem: 0 },
+  { key: 'warehouse_manager', label: 'Завсклад', canManageUsers: 0, canManageActivity: 0, canReadActivity: 1, isSystem: 0 },
+  { key: 'employee', label: 'Сотрудник', canManageUsers: 0, canManageActivity: 0, canReadActivity: 0, isSystem: 0 }
+];
+const insertRoleStmt = db.prepare(`INSERT OR IGNORE INTO roles (key, label, can_manage_users, can_manage_activity, can_read_activity, is_system) VALUES (@key, @label, @canManageUsers, @canManageActivity, @canReadActivity, @isSystem)`);
+DEFAULT_ROLES.forEach(r => insertRoleStmt.run(r));
 
 // Every mutating operation calls this. undoData is a small JSON-serialisable
 // object with just enough info to reverse the action — null means it can't
@@ -800,19 +824,93 @@ const undoActivityById = db.transaction((id) => {
 });
 
 // ---------- Пользователи и роли ----------
-// Роли:
-//   service  — сервисный аккаунт: полный контроль (создание любых аккаунтов,
-//              журнал целиком, включая очистку и отмену). Защищённая учётка,
-//              её нельзя удалить и понизить в правах — всегда должен
-//              оставаться хотя бы один способ управлять системой.
-//   boss     — начальник: те же права, что у service (создание аккаунтов,
-//              полный журнал с очисткой/отменой), кроме удаления service.
-//   warehouse_manager — завсклад: доступ ко всем основным функциям склада,
-//              журнал — только чтение (без очистки/отмены), пользователями
-//              не управляет.
-//   employee — сотрудник: доступ ко всем основным функциям склада, но без
-//              журнала и без управления пользователями/ролями.
-const ROLES = ['service', 'boss', 'warehouse_manager', 'employee'];
+// Роли больше не зашиты в коде — они хранятся в таблице `roles` и полностью
+// настраиваются: можно переименовать любую (включая встроенные), поменять
+// набор прав (canManageUsers / canManageActivity / canReadActivity) или
+// добавить свою. Единственное исключение — системная роль "service": она
+// одна на систему, её нельзя удалить, а права всегда остаются полными,
+// чтобы доступ к управлению системой нельзя было потерять случайно.
+
+function rowToRole(r) {
+  if (!r) return null;
+  return {
+    key: r.key,
+    label: r.label,
+    isSystem: !!r.is_system,
+    perms: {
+      canManageUsers: !!r.can_manage_users,
+      canManageActivity: !!r.can_manage_activity,
+      canReadActivity: !!r.can_read_activity
+    },
+    createdAt: r.created_at
+  };
+}
+
+function listRoles() {
+  return db.prepare('SELECT * FROM roles ORDER BY (key = \'service\') DESC, created_at ASC').all().map(rowToRole);
+}
+
+function getRole(key) {
+  return rowToRole(db.prepare('SELECT * FROM roles WHERE key = ?').get(key));
+}
+
+function roleExists(key) {
+  return !!db.prepare('SELECT 1 FROM roles WHERE key = ?').get(key);
+}
+
+function slugifyRoleKey(raw) {
+  const key = String(raw || '').trim().toLowerCase()
+    .replace(/[^a-z0-9а-яё_]+/gi, '_')
+    .replace(/^_+|_+$/g, '');
+  return key;
+}
+
+function createRole({ key, label, perms }) {
+  const k = slugifyRoleKey(key || label);
+  if (!k) throw new Error('Не удалось определить идентификатор роли — укажите название латиницей или цифрами');
+  if (k === 'service') throw new Error('Название "service" зарезервировано');
+  if (roleExists(k)) throw new Error('Роль с таким идентификатором уже существует');
+  if (!label || !String(label).trim()) throw new Error('Укажите название роли');
+  const p = perms || {};
+  db.prepare(`INSERT INTO roles (key, label, can_manage_users, can_manage_activity, can_read_activity, is_system)
+              VALUES (?, ?, ?, ?, ?, 0)`)
+    .run(k, String(label).trim(), p.canManageUsers ? 1 : 0, p.canManageActivity ? 1 : 0, p.canReadActivity ? 1 : 0);
+  return getRole(k);
+}
+
+// Переименование — доступно для ЛЮБОЙ роли, включая системную "service".
+function renameRole(key, label) {
+  if (!label || !String(label).trim()) throw new Error('Укажите название роли');
+  const info = db.prepare('UPDATE roles SET label = ? WHERE key = ?').run(String(label).trim(), key);
+  if (!info.changes) throw new Error('Роль не найдена');
+  return getRole(key);
+}
+
+// Права системной роли ("service") менять нельзя — это единственная гарантия,
+// что управление системой не потеряется из-за случайной/ошибочной правки.
+function updateRolePerms(key, perms) {
+  const role = getRole(key);
+  if (!role) throw new Error('Роль не найдена');
+  if (role.isSystem) throw new Error('Права сервисной роли изменить нельзя');
+  const p = perms || {};
+  db.prepare(`UPDATE roles SET can_manage_users = ?, can_manage_activity = ?, can_read_activity = ? WHERE key = ?`)
+    .run(p.canManageUsers ? 1 : 0, p.canManageActivity ? 1 : 0, p.canReadActivity ? 1 : 0, key);
+  return getRole(key);
+}
+
+function countUsersWithRole(key) {
+  return db.prepare('SELECT COUNT(*) AS n FROM users WHERE role = ?').get(key).n;
+}
+
+function deleteRole(key) {
+  const role = getRole(key);
+  if (!role) throw new Error('Роль не найдена');
+  if (role.isSystem) throw new Error('Сервисную роль удалить нельзя');
+  const inUse = countUsersWithRole(key);
+  if (inUse > 0) throw new Error(`Роль назначена ${inUse} пользователю(-ям) — сначала смените им роль`);
+  db.prepare('DELETE FROM roles WHERE key = ?').run(key);
+  return { key };
+}
 
 function listUsers() {
   return db.prepare('SELECT id, username, display_name, role, created_at, created_by, disabled FROM users ORDER BY id ASC').all();
@@ -833,7 +931,7 @@ function countUsers() {
 function insertUser({ username, displayName, passwordHash, role, createdBy }) {
   const uname = String(username || '').trim().toLowerCase();
   if (!uname) throw new Error('Логин не может быть пустым');
-  if (!ROLES.includes(role)) throw new Error('Некорректная роль');
+  if (!roleExists(role)) throw new Error('Некорректная роль');
   const existing = getUserByUsername(uname);
   if (existing) throw new Error('Пользователь с таким логином уже существует');
   const info = db.prepare('INSERT INTO users (username, display_name, password_hash, role, created_by) VALUES (?, ?, ?, ?, ?)')
@@ -842,11 +940,14 @@ function insertUser({ username, displayName, passwordHash, role, createdBy }) {
 }
 
 function updateUserRole(id, role) {
-  if (!ROLES.includes(role)) throw new Error('Некорректная роль');
+  if (!roleExists(role)) throw new Error('Некорректная роль');
   const user = getUserById(id);
   if (!user) throw new Error('Пользователь не найден');
   if (user.role === 'service' && role !== 'service') {
     throw new Error('Нельзя понизить в правах единственный сервисный аккаунт');
+  }
+  if (role === 'service' && user.role !== 'service') {
+    throw new Error('Назначить сервисную роль нельзя — она одна на систему и задаётся только при первом запуске');
   }
   db.prepare('UPDATE users SET role = ? WHERE id = ?').run(role, id);
   return getUserById(id);
@@ -912,7 +1013,8 @@ module.exports = {
   seedAbcClasses, getAbcClasses,
   ensureZonesFromData, listZones, createZone, renameZone, setZoneIsolate, deleteZone,
   setCurrentActor,
-  ROLES, listUsers, getUserByUsername, getUserById, countUsers, insertUser, updateUserRole,
+  listRoles, getRole, roleExists, createRole, renameRole, updateRolePerms, deleteRole,
+  listUsers, getUserByUsername, getUserById, countUsers, insertUser, updateUserRole,
   setUserPasswordHash, setUserDisabled, deleteUser,
   createSession, getSession, deleteSession, deleteAllSessionsForUser
 };

@@ -13,12 +13,7 @@
   window.__whenAuthed = new Promise((resolve) => { resolveAuthed = resolve; });
 
   let currentUser = null;
-
-  const ROLE_OPTIONS = [
-    { value: 'boss', label: 'Начальник' },
-    { value: 'warehouse_manager', label: 'Завсклад' },
-    { value: 'employee', label: 'Сотрудник' }
-  ];
+  let cachedRoles = []; // роли (кроме service) — подгружаются лениво при первом открытии модалки
 
   const $ = (id) => document.getElementById(id);
 
@@ -162,7 +157,7 @@
     });
   });
 
-  // ---------- управление пользователями (сервисный аккаунт / начальник) ----------
+  // ---------- управление пользователями и ролями (сервисный аккаунт / начальник) ----------
   async function loadUsers() {
     const res = await fetch(API_BASE + '/api/users');
     const payload = await res.json().catch(() => ({}));
@@ -170,9 +165,19 @@
     return payload.users || [];
   }
 
-  function roleSelectHtml(selected, disabled) {
+  async function loadRoles(force) {
+    if (cachedRoles.length && !force) return cachedRoles;
+    const res = await fetch(API_BASE + '/api/roles');
+    const payload = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(payload.error || 'Не удалось загрузить список ролей');
+    cachedRoles = payload.roles || [];
+    return cachedRoles;
+  }
+
+  function roleSelectHtml(roles, selected, disabled) {
+    const assignable = roles.filter(r => r.key !== 'service');
     return `<select ${disabled ? 'disabled' : ''} class="u-role-select">` +
-      ROLE_OPTIONS.map(o => `<option value="${o.value}" ${o.value === selected ? 'selected' : ''}>${o.label}</option>`).join('') +
+      assignable.map(r => `<option value="${escHtml(r.key)}" ${r.key === selected ? 'selected' : ''}>${escHtml(r.label)}</option>`).join('') +
       `</select>`;
   }
 
@@ -181,7 +186,7 @@
     if (!listEl) return;
     listEl.innerHTML = '<div style="padding:10px; color:var(--ink-soft); font-size:12.5px;">Загрузка…</div>';
     try {
-      const users = await loadUsers();
+      const [users, roles] = await Promise.all([loadUsers(), loadRoles()]);
       if (!users.length) {
         listEl.innerHTML = '<div style="padding:10px; color:var(--ink-soft); font-size:12.5px;">Пока нет ни одного аккаунта.</div>';
         return;
@@ -195,8 +200,8 @@
             <div class="u-name">${escHtml(u.display_name || u.username)}${isSelf ? ' <span style="color:var(--ink-soft); font-weight:400;">(вы)</span>' : ''}</div>
             <div class="u-login">@${escHtml(u.username)}</div>
           </div>
-          ${isService ? `<span class="role-badge" style="background:var(--accent-soft); color:var(--accent); font-size:11px; padding:3px 9px; border-radius:999px;">Сервисный</span>`
-            : roleSelectHtml(u.role, false)}
+          ${isService ? `<span class="role-badge" style="background:var(--accent-soft); color:var(--accent); font-size:11px; padding:3px 9px; border-radius:999px;">${escHtml(u.roleLabel)}</span>`
+            : roleSelectHtml(roles, u.role, false)}
           ${!isService ? `<button type="button" class="icon-btn" data-action="reset-pw" title="Сбросить пароль">🔑</button>` : ''}
           ${!isService ? `<button type="button" class="icon-btn" data-action="toggle-disabled" title="${u.disabled ? 'Разблокировать' : 'Заблокировать'}">${u.disabled ? '✅' : '⛔'}</button>` : ''}
           ${!isService && !isSelf ? `<button type="button" class="icon-btn danger" data-action="delete" title="Удалить">🗑</button>` : ''}
@@ -261,20 +266,171 @@
     }
   }
 
+  async function fillNewUserRoleSelect() {
+    const roles = await loadRoles();
+    const sel = $('nu-role');
+    if (!sel) return;
+    sel.innerHTML = roles.filter(r => r.key !== 'service')
+      .map(r => `<option value="${escHtml(r.key)}">${escHtml(r.label)}</option>`).join('');
+  }
+
+  // ---------- вкладка «Роли»: переименование, права, создание, удаление ----------
+  function permCheckboxes(role) {
+    const dis = role.isSystem ? 'disabled' : '';
+    const rows = [
+      ['canManageUsers', 'Управлять аккаунтами и ролями'],
+      ['canManageActivity', 'Очищать журнал и отменять действия'],
+      ['canReadActivity', 'Видеть журнал (чтение)']
+    ];
+    return rows.map(([key, label]) => `
+      <label style="display:flex; align-items:center; gap:6px; font-size:12px; font-weight:400; padding:4px 0;">
+        <input type="checkbox" data-perm="${key}" ${role.perms[key] ? 'checked' : ''} ${dis}>
+        ${label}
+      </label>`).join('');
+  }
+
+  async function renderRolesList() {
+    const listEl = $('roles-list');
+    if (!listEl) return;
+    listEl.innerHTML = '<div style="padding:10px; color:var(--ink-soft); font-size:12.5px;">Загрузка…</div>';
+    try {
+      const roles = await loadRoles(true);
+      listEl.innerHTML = roles.map(r => `
+        <div class="role-row" data-key="${escHtml(r.key)}" style="border-bottom:1px solid var(--line); padding:12px 4px;">
+          <div style="display:flex; align-items:center; gap:8px;">
+            <input type="text" class="role-label-input" value="${escHtml(r.label)}" style="flex:1; padding:7px 9px; border:1px solid var(--line); border-radius:7px; font-size:13px; background:var(--panel); color:var(--ink);">
+            <button type="button" class="icon-btn" data-action="save-label" title="Сохранить название">💾</button>
+            ${r.isSystem ? `<span class="role-badge" style="background:var(--accent-soft); color:var(--accent); font-size:10.5px; padding:3px 8px; border-radius:999px;">системная</span>` : ''}
+            ${!r.isSystem ? `<button type="button" class="icon-btn danger" data-action="delete-role" title="Удалить роль">🗑</button>` : ''}
+          </div>
+          <div style="display:flex; gap:16px; flex-wrap:wrap; margin-top:6px;">
+            ${permCheckboxes(r)}
+          </div>
+          ${!r.isSystem ? `<button type="button" class="btn" data-action="save-perms" style="margin-top:6px; font-size:11.5px; padding:6px 10px;">Сохранить права</button>` : `<div style="font-size:11px; color:var(--ink-soft); margin-top:4px;">Права сервисной роли всегда полные и не редактируются.</div>`}
+        </div>
+      `).join('');
+
+      listEl.querySelectorAll('.role-row').forEach(row => {
+        const key = row.dataset.key;
+        const labelInput = row.querySelector('.role-label-input');
+        row.querySelectorAll('.icon-btn, .btn').forEach(btn => {
+          btn.addEventListener('click', async () => {
+            const action = btn.dataset.action;
+            try {
+              if (action === 'save-label') {
+                const res = await fetch(`${API_BASE}/api/roles/${encodeURIComponent(key)}`, {
+                  method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ label: labelInput.value.trim() })
+                });
+                const payload = await res.json().catch(() => ({}));
+                if (!res.ok) throw new Error(payload.error || 'Не удалось переименовать роль');
+                if (currentUser && currentUser.role === key) {
+                  currentUser.roleLabel = payload.role.label;
+                  applyUserToUI();
+                }
+              } else if (action === 'save-perms') {
+                const perms = {};
+                row.querySelectorAll('[data-perm]').forEach(cb => { perms[cb.dataset.perm] = cb.checked; });
+                const res = await fetch(`${API_BASE}/api/roles/${encodeURIComponent(key)}`, {
+                  method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ perms })
+                });
+                const payload = await res.json().catch(() => ({}));
+                if (!res.ok) throw new Error(payload.error || 'Не удалось сохранить права');
+                if (currentUser && currentUser.role === key) {
+                  currentUser.perms = payload.role.perms;
+                  applyUserToUI();
+                }
+              } else if (action === 'delete-role') {
+                if (!confirm(`Удалить роль «${labelInput.value}»? Это возможно только если она никому не назначена.`)) return;
+                const res = await fetch(`${API_BASE}/api/roles/${encodeURIComponent(key)}`, { method: 'DELETE' });
+                const payload = await res.json().catch(() => ({}));
+                if (!res.ok) throw new Error(payload.error || 'Не удалось удалить роль');
+              }
+              cachedRoles = [];
+              renderRolesList();
+              fillNewUserRoleSelect();
+            } catch (err) {
+              alert(err.message);
+            }
+          });
+        });
+      });
+    } catch (err) {
+      listEl.innerHTML = `<div style="padding:10px; color:var(--danger); font-size:12.5px;">${escHtml(err.message)}</div>`;
+    }
+  }
+
+  function switchUsersTab(tab) {
+    $('users-tab-users').classList.toggle('active', tab === 'users');
+    $('users-tab-roles').classList.toggle('active', tab === 'roles');
+    $('users-panel-users').style.display = tab === 'users' ? '' : 'none';
+    $('users-panel-roles').style.display = tab === 'roles' ? '' : 'none';
+    if (tab === 'roles') renderRolesList();
+  }
+
   function openUsersModal() {
     $('profile-widget').classList.remove('open');
+    cachedRoles = [];
     openAuthModal('Пользователи и роли', `
-      <form class="new-user-form" id="new-user-form">
-        <input type="text" id="nu-username" placeholder="Логин" required>
-        <input type="text" id="nu-displayname" placeholder="Имя (необязательно)">
-        <input type="password" id="nu-password" placeholder="Пароль (от 6 символов)" required>
-        ${roleSelectHtml('employee', false).replace('class="u-role-select"', 'id="nu-role"')}
-        <div id="nu-error" class="full" style="display:none; color:var(--danger); font-size:12px;"></div>
-        <button type="submit" class="btn primary full" id="nu-submit">+ Создать аккаунт</button>
-      </form>
-      <div id="users-list"></div>
+      <div class="um-tabs" style="display:flex; gap:6px; margin-bottom:14px; border-bottom:1px solid var(--line); padding-bottom:10px;">
+        <button type="button" class="btn um-tab active" id="users-tab-users">👤 Пользователи</button>
+        <button type="button" class="btn um-tab" id="users-tab-roles">🏷 Роли</button>
+      </div>
+      <div id="users-panel-users">
+        <form class="new-user-form" id="new-user-form">
+          <input type="text" id="nu-username" placeholder="Логин" required>
+          <input type="text" id="nu-displayname" placeholder="Имя (необязательно)">
+          <input type="password" id="nu-password" placeholder="Пароль (от 6 символов)" required>
+          <select id="nu-role"></select>
+          <div id="nu-error" class="full" style="display:none; color:var(--danger); font-size:12px;"></div>
+          <button type="submit" class="btn primary full" id="nu-submit">+ Создать аккаунт</button>
+        </form>
+        <div id="users-list"></div>
+      </div>
+      <div id="users-panel-roles" style="display:none;">
+        <form class="new-user-form" id="new-role-form">
+          <input type="text" id="nr-key" placeholder="Идентификатор (латиницей, напр. kladovshik)">
+          <input type="text" id="nr-label" placeholder="Название роли" required>
+          <div class="full" style="display:flex; gap:16px; flex-wrap:wrap; padding:4px 0;">
+            <label style="display:flex; align-items:center; gap:6px; font-size:12px; font-weight:400;"><input type="checkbox" id="nr-perm-users"> Управлять аккаунтами и ролями</label>
+            <label style="display:flex; align-items:center; gap:6px; font-size:12px; font-weight:400;"><input type="checkbox" id="nr-perm-manage-activity"> Очищать/отменять в журнале</label>
+            <label style="display:flex; align-items:center; gap:6px; font-size:12px; font-weight:400;"><input type="checkbox" id="nr-perm-read-activity"> Видеть журнал</label>
+          </div>
+          <div id="nr-error" class="full" style="display:none; color:var(--danger); font-size:12px;"></div>
+          <button type="submit" class="btn primary full">+ Добавить роль</button>
+        </form>
+        <div id="roles-list"></div>
+      </div>
     `, `<button class="btn" id="users-close">Закрыть</button>`);
     $('users-close').addEventListener('click', closeAuthModal);
+    $('users-tab-users').addEventListener('click', () => switchUsersTab('users'));
+    $('users-tab-roles').addEventListener('click', () => switchUsersTab('roles'));
+    $('new-role-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const errEl = $('nr-error');
+      errEl.style.display = 'none';
+      const perms = {
+        canManageUsers: $('nr-perm-users').checked,
+        canManageActivity: $('nr-perm-manage-activity').checked,
+        canReadActivity: $('nr-perm-read-activity').checked
+      };
+      try {
+        const res = await fetch(API_BASE + '/api/roles', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ key: $('nr-key').value.trim(), label: $('nr-label').value.trim(), perms })
+        });
+        const payload = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(payload.error || 'Не удалось создать роль');
+        $('new-role-form').reset();
+        cachedRoles = [];
+        renderRolesList();
+        fillNewUserRoleSelect();
+      } catch (err) {
+        errEl.textContent = err.message;
+        errEl.style.display = 'block';
+      }
+    });
     $('new-user-form').addEventListener('submit', async (e) => {
       e.preventDefault();
       const errEl = $('nu-error');
@@ -298,6 +454,7 @@
         errEl.style.display = 'block';
       }
     });
+    fillNewUserRoleSelect();
     renderUsersList();
   }
   $('profile-manage-users-btn').addEventListener('click', openUsersModal);

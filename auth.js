@@ -59,25 +59,22 @@ function clearSessionCookie(res) {
 }
 
 // ---------- права по ролям ----------
-// canManageUsers      — создавать/редактировать/удалять аккаунты и роли
-// canManageActivity    — очищать журнал и отменять чужие/старые действия из него
-// canReadActivity      — видеть журнал (хотя бы для чтения)
-const ROLE_PERMS = {
-  service:           { canManageUsers: true,  canManageActivity: true,  canReadActivity: true },
-  boss:               { canManageUsers: true,  canManageActivity: true,  canReadActivity: true },
-  warehouse_manager:  { canManageUsers: false, canManageActivity: false, canReadActivity: true },
-  employee:           { canManageUsers: false, canManageActivity: false, canReadActivity: false }
-};
+// Роли и их права больше не зашиты здесь — они хранятся в таблице `roles`
+// (см. db.js) и настраиваются через /api/roles или cli.js. Три права,
+// которые реально на что-то влияют в этом приложении:
+//   canManageUsers      — создавать/редактировать/удалять аккаунты и роли
+//   canManageActivity    — очищать журнал и отменять чужие/старые действия
+//   canReadActivity      — видеть журнал (хотя бы для чтения)
+const EMPTY_PERMS = { canManageUsers: false, canManageActivity: false, canReadActivity: false };
 
-const ROLE_LABELS = {
-  service: 'Сервисный аккаунт',
-  boss: 'Начальник',
-  warehouse_manager: 'Завсклад',
-  employee: 'Сотрудник'
-};
+function permsFor(roleKey) {
+  const role = db.getRole(roleKey);
+  return role ? role.perms : EMPTY_PERMS;
+}
 
-function permsFor(role) {
-  return ROLE_PERMS[role] || ROLE_PERMS.employee;
+function labelFor(roleKey) {
+  const role = db.getRole(roleKey);
+  return role ? role.label : roleKey;
 }
 
 function publicUser(u) {
@@ -87,7 +84,7 @@ function publicUser(u) {
     username: u.username,
     displayName: u.display_name,
     role: u.role,
-    roleLabel: ROLE_LABELS[u.role] || u.role,
+    roleLabel: labelFor(u.role),
     perms: permsFor(u.role),
     createdAt: u.created_at
   };
@@ -102,7 +99,7 @@ function attachUser(req, res, next) {
   const user = token ? db.getSession(token) : null;
   req.user = user || null;
   req.sessionToken = token || null;
-  db.setCurrentActor(user ? `${user.display_name || user.username} · ${ROLE_LABELS[user.role] || user.role}` : null);
+  db.setCurrentActor(user ? `${user.display_name || user.username} · ${labelFor(user.role)}` : null);
   next();
 }
 
@@ -129,6 +126,6 @@ module.exports = {
   COOKIE_NAME, SESSION_TTL_MS,
   hashPassword, verifyPassword, validatePasswordStrength,
   parseCookies, setSessionCookie, clearSessionCookie,
-  ROLE_PERMS, ROLE_LABELS, permsFor, publicUser,
+  permsFor, labelFor, publicUser,
   attachUser, requireAuth, requirePerm, newToken
 };

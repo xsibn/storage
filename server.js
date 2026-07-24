@@ -564,7 +564,7 @@ app.post('/api/auth/change-password', auth.requireAuth, (req, res) => {
 
 // GET /api/users — список аккаунтов
 app.get('/api/users', auth.requirePerm('canManageUsers'), (req, res) => {
-  res.json({ users: db.listUsers().map(u => ({ ...u, roleLabel: auth.ROLE_LABELS[u.role] || u.role })) });
+  res.json({ users: db.listUsers().map(u => ({ ...u, roleLabel: auth.labelFor(u.role) })) });
 });
 
 // POST /api/users — создать аккаунт
@@ -576,7 +576,7 @@ app.post('/api/users', auth.requirePerm('canManageUsers'), (req, res) => {
   if (role === 'service') {
     return res.status(400).json({ error: 'Создать ещё один сервисный аккаунт нельзя — он один на систему' });
   }
-  if (!auth.ROLE_PERMS[role]) return res.status(400).json({ error: 'Некорректная роль' });
+  if (!db.roleExists(role)) return res.status(400).json({ error: 'Некорректная роль' });
   const pwErr = auth.validatePasswordStrength(password);
   if (pwErr) return res.status(400).json({ error: pwErr });
   try {
@@ -631,6 +631,54 @@ app.delete('/api/users/:id', auth.requirePerm('canManageUsers'), (req, res) => {
   if (id === req.user.id) return res.status(400).json({ error: 'Нельзя удалить собственный аккаунт' });
   try {
     db.deleteUser(id);
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+// ---------- Управление ролями (сервисный аккаунт / начальник) ----------
+// Роли хранятся в базе, а не в коде: можно добавлять свои, менять набор
+// прав и переименовывать любую роль, включая встроенные и даже "Сервисный
+// аккаунт" (её права при этом всё равно неприкосновенны — см. db.js).
+
+// GET /api/roles — список ролей с правами
+app.get('/api/roles', auth.requirePerm('canManageUsers'), (req, res) => {
+  res.json({ roles: db.listRoles() });
+});
+
+// POST /api/roles — создать новую роль
+app.post('/api/roles', auth.requirePerm('canManageUsers'), (req, res) => {
+  const { key, label, perms } = req.body || {};
+  if (!label) return res.status(400).json({ error: 'Укажите название роли' });
+  try {
+    const role = db.createRole({ key, label, perms });
+    res.status(201).json({ role });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+// PATCH /api/roles/:key — переименовать роль и/или изменить её права
+app.patch('/api/roles/:key', auth.requirePerm('canManageUsers'), (req, res) => {
+  const { label, perms } = req.body || {};
+  try {
+    let role;
+    if (label !== undefined) role = db.renameRole(req.params.key, label);
+    if (perms !== undefined) role = db.updateRolePerms(req.params.key, perms);
+    if (!role) role = db.getRole(req.params.key);
+    if (!role) return res.status(404).json({ error: 'Роль не найдена' });
+    res.json({ role });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+// DELETE /api/roles/:key — удалить роль (нельзя удалить системную или ту,
+// что ещё назначена хотя бы одному пользователю)
+app.delete('/api/roles/:key', auth.requirePerm('canManageUsers'), (req, res) => {
+  try {
+    db.deleteRole(req.params.key);
     res.json({ ok: true });
   } catch (err) {
     res.status(400).json({ error: err.message });
