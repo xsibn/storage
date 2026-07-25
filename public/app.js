@@ -1092,7 +1092,11 @@
     }
   }
   async function openActivityLog(){
-    openModal('Журнал изменений', '<div id="activity-log-hint">Хранится за последние 14 дней. У каждого действия, которое можно отменить, есть кнопка ↺ — не обязательно отменять всё по порядку. Кнопка ✕ убирает запись из журнала, не отменяя само действие.</div><div id="activity-log-list"><div id="activity-log-empty">Загрузка…</div></div>', '<button class="btn danger" id="activity-log-clear-all">🗑 Очистить журнал</button><button class="btn" id="activity-log-close">Закрыть</button>');
+    const canManage = !!(window.__currentUser && window.__currentUser.perms && window.__currentUser.perms.canManageActivity);
+    const hint = canManage
+      ? 'Хранится за последние 14 дней. У каждого действия, которое можно отменить, есть кнопка ↺ — не обязательно отменять всё по порядку. Кнопка ✕ убирает запись из журнала, не отменяя само действие.'
+      : 'Хранится за последние 14 дней.';
+    openModal('Журнал изменений', `<div id="activity-log-hint">${hint}</div><div id="activity-log-list"><div id="activity-log-empty">Загрузка…</div></div>`, '<button class="btn danger" id="activity-log-clear-all">🗑 Очистить журнал</button><button class="btn" id="activity-log-close">Закрыть</button>');
     document.getElementById('activity-log-close').addEventListener('click', closeModal);
     document.getElementById('activity-log-clear-all').addEventListener('click', clearActivityLog);
     try{
@@ -1171,10 +1175,10 @@
           <span class="a-time">${fmtActivityTime(e.ts)}</span>
           <span class="a-action">${escHtml(ACTIVITY_LABELS[e.action] || e.action)}</span>
           <span class="a-summary">${escHtml(e.summary)}</span>
-          ${e.undoable ? `<button class="btn a-undo-btn" data-id="${e.id}" data-latest="${idx===0}" title="Отменить это действие">↺ Отменить</button>` : ''}
+          ${e.undoable ? `<button class="btn my-a-undo-btn" data-id="${e.id}" data-latest="${idx===0}" title="Отменить это действие">↺ Отменить</button>` : ''}
         </div>
       `).join('');
-      listEl.querySelectorAll('.a-undo-btn').forEach(btn=>{
+      listEl.querySelectorAll('.my-a-undo-btn').forEach(btn=>{
         btn.addEventListener('click', ()=> undoMyActivityEntry(btn.dataset.id, btn.dataset.latest==='true'));
       });
     }catch(err){
