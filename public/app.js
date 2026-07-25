@@ -1095,6 +1095,7 @@
   // открытиями модалки (в т.ч. когда она перерисовывается после отмены
   // действия), чтобы выбор не сбрасывался на "Все".
   let activityUserFilter = 'all';
+  let activityUserSearch = '';
   // Достаёт подпись автора из текста записи — она уже добавляется туда
   // при записи в журнал (см. logActivity в db.js: "[Имя · Роль] ...").
   function actorLabelFromSummary(summary){
@@ -1106,11 +1107,12 @@
     if(!listEl) return;
     const clearAllBtn = document.getElementById('activity-log-clear-all');
     if(clearAllBtn) clearAllBtn.style.display = entries.length ? '' : 'none';
-    const filtered = activityUserFilter === 'all'
-      ? entries
-      : entries.filter(e => String(e.userId == null ? 'none' : e.userId) === activityUserFilter);
+    const term = activityUserSearch.trim().toLowerCase();
+    const filtered = entries
+      .filter(e => activityUserFilter === 'all' || String(e.userId == null ? 'none' : e.userId) === activityUserFilter)
+      .filter(e => !term || (actorLabelFromSummary(e.summary) || '').toLowerCase().includes(term));
     if(!filtered.length){
-      listEl.innerHTML = `<div id="activity-log-empty">${entries.length ? 'Ничего не найдено для выбранного пользователя.' : 'За последние 14 дней изменений не было.'}</div>`;
+      listEl.innerHTML = `<div id="activity-log-empty">${entries.length ? 'Ничего не найдено по выбранным условиям.' : 'За последние 14 дней изменений не было.'}</div>`;
       return;
     }
     listEl.innerHTML = filtered.map((e, idx) => `
@@ -1134,7 +1136,7 @@
     const hint = canManage
       ? 'Хранится за последние 14 дней. У каждого действия, которое можно отменить, есть кнопка ↺ — не обязательно отменять всё по порядку. Кнопка ✕ убирает запись из журнала, не отменяя само действие.'
       : 'Хранится за последние 14 дней.';
-    openModal('Журнал изменений', `<div id="activity-log-hint">${hint}</div><div class="toolbar" style="margin:0 0 10px;"><select id="activity-log-user-filter" style="max-width:260px;"><option value="all">Все пользователи</option></select></div><div id="activity-log-list"><div id="activity-log-empty">Загрузка…</div></div>`, '<button class="btn danger" id="activity-log-clear-all">🗑 Очистить журнал</button><button class="btn" id="activity-log-close">Закрыть</button>');
+    openModal('Журнал изменений', `<div id="activity-log-hint">${hint}</div><div class="toolbar" style="margin:0 0 10px; flex-wrap:wrap;"><div class="search" style="flex:1 1 200px;"><input type="text" id="activity-log-user-search" placeholder="Поиск по пользователю…" autocomplete="off"><button class="clear-inline-btn" id="activity-log-user-search-clear" type="button" title="Очистить">✕</button></div><select id="activity-log-user-filter" style="max-width:260px;"><option value="all">Все пользователи</option></select></div><div id="activity-log-list"><div id="activity-log-empty">Загрузка…</div></div>`, '<button class="btn danger" id="activity-log-clear-all">🗑 Очистить журнал</button><button class="btn" id="activity-log-close">Закрыть</button>');
     document.getElementById('activity-log-close').addEventListener('click', closeModal);
     document.getElementById('activity-log-clear-all').addEventListener('click', clearActivityLog);
     try{
@@ -1168,6 +1170,22 @@
         if(filterEl.value !== activityUserFilter) activityUserFilter = filterEl.value; // на случай несуществующей опции (напр. пользователь удалён из списка)
         filterEl.addEventListener('change', ()=>{
           activityUserFilter = filterEl.value;
+          renderActivityRows(entries);
+        });
+      }
+      const searchEl = document.getElementById('activity-log-user-search');
+      const searchClearBtn = document.getElementById('activity-log-user-search-clear');
+      if(searchEl){
+        searchEl.value = activityUserSearch;
+        searchEl.addEventListener('input', ()=>{
+          activityUserSearch = searchEl.value;
+          renderActivityRows(entries);
+        });
+      }
+      if(searchClearBtn){
+        searchClearBtn.addEventListener('click', ()=>{
+          activityUserSearch = '';
+          if(searchEl) searchEl.value = '';
           renderActivityRows(entries);
         });
       }
