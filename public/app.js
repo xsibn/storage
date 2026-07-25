@@ -3355,6 +3355,30 @@
     }
   }
 
+  function fmtFileSize(bytes){
+    if(!bytes && bytes !== 0) return '';
+    if(bytes < 1024) return `${bytes} Б`;
+    if(bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} КБ`;
+    return `${(bytes / (1024 * 1024)).toFixed(1)} МБ`;
+  }
+
+  function chatAttachmentHtml(m){
+    if(!m.attachmentUrl) return '';
+    const url = escHtml(m.attachmentUrl);
+    const type = m.attachmentType || '';
+    const name = escHtml(m.attachmentName || 'файл');
+    if(type.startsWith('image/')){
+      return `<a class="cm-attachment" href="${url}" target="_blank" rel="noopener"><img src="${url}" alt="${name}" loading="lazy"></a>`;
+    }
+    if(type.startsWith('video/')){
+      return `<div class="cm-attachment"><video src="${url}" controls preload="metadata"></video></div>`;
+    }
+    if(type.startsWith('audio/')){
+      return `<div class="cm-attachment"><audio src="${url}" controls></audio></div>`;
+    }
+    return `<a class="cm-attachment cm-file-link" href="${url}" target="_blank" rel="noopener" download="${name}">📄 <span>${name}${m.attachmentSize ? ` · ${fmtFileSize(m.attachmentSize)}` : ''}</span></a>`;
+  }
+
   function renderChatMessages(messages, prepend){
     const box = document.getElementById('chat-messages');
     const me = window.__currentUser;
@@ -3371,9 +3395,11 @@
       }
       const mine = me && m.userId === me.id;
       const showAuthor = !mine && (activeChatInfo?.isGeneral || activeChatInfo?.isGroup);
+      const attachmentHtml = chatAttachmentHtml(m);
+      const textHtml = m.text ? escHtml(m.text) : '';
       return `${sep}<div class="chat-msg${mine ? ' mine' : ''}" data-msg-id="${m.id}">
         ${showAuthor ? `<div class="cm-author">${escHtml(m.authorName)}</div>` : ''}
-        <div class="cm-bubble">${escHtml(m.text)}</div>
+        <div class="cm-bubble">${attachmentHtml}${textHtml}</div>
         <div class="cm-time">${fmtChatTime(m.createdAt)}</div>
       </div>`;
     }).join('');
@@ -3448,30 +3474,82 @@
     }catch(_e){ /* тихо игнорируем */ } finally { chatMessagesLoading = false; }
   });
 
+  let pendingAttachment = null; // File выбранный через 📎, ждёт отправки вместе с сообщением
+
+  const chatAttachInput = document.getElementById('chat-attach-input');
+  const chatAttachPreview = document.getElementById('chat-attach-preview');
+
+  document.getElementById('chat-attach-btn').addEventListener('click', () => {
+    if(!activeChatId) return;
+    chatAttachInput.click();
+  });
+
+  chatAttachInput.addEventListener('change', () => {
+    const file = chatAttachInput.files && chatAttachInput.files[0];
+    if(!file) return;
+    if(file.size > 25 * 1024 * 1024){
+      alert('Файл слишком большой (максимум 25 МБ)');
+      chatAttachInput.value = '';
+      return;
+    }
+    pendingAttachment = file;
+    renderAttachPreview();
+  });
+
+  function renderAttachPreview(){
+    if(!pendingAttachment){
+      chatAttachPreview.style.display = 'none';
+      chatAttachPreview.innerHTML = '';
+      return;
+    }
+    const isImage = pendingAttachment.type.startsWith('image/');
+    const thumb = isImage ? `<img src="${URL.createObjectURL(pendingAttachment)}" alt="">` : '📎';
+    chatAttachPreview.style.display = 'flex';
+    chatAttachPreview.innerHTML = `${thumb}<span class="cap-name">${escHtml(pendingAttachment.name)}</span><button type="button" class="cap-remove" id="cap-remove-btn" title="Убрать">✕</button>`;
+    document.getElementById('cap-remove-btn').addEventListener('click', () => {
+      pendingAttachment = null;
+      chatAttachInput.value = '';
+      renderAttachPreview();
+    });
+  }
+
   document.getElementById('chat-input-form').addEventListener('submit', async (e) => {
     e.preventDefault();
     if(!activeChatId) return;
     const input = document.getElementById('chat-input');
     const text = input.value.trim();
-    if(!text) return;
+    const attachment = pendingAttachment;
+    if(!text && !attachment) return;
     input.value = '';
     input.disabled = true;
+    document.getElementById('chat-attach-btn').disabled = true;
     try{
-      const res = await fetch(`${API_BASE}/api/chats/${activeChatId}/messages`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text })
-      });
+      let body, headers;
+      if(attachment){
+        const fd = new FormData();
+        fd.append('text', text);
+        fd.append('attachment', attachment);
+        body = fd; headers = undefined; // браузер сам проставит multipart boundary
+      } else {
+        body = JSON.stringify({ text });
+        headers = { 'Content-Type': 'application/json' };
+      }
+      const res = await fetch(`${API_BASE}/api/chats/${activeChatId}/messages`, { method: 'POST', headers, body });
       const payload = await res.json().catch(() => ({}));
       if(!res.ok) throw new Error(payload.error || 'Не удалось отправить сообщение');
       renderChatMessages([payload.message], false);
       const box = document.getElementById('chat-messages');
       box.scrollTop = box.scrollHeight;
+      pendingAttachment = null;
+      chatAttachInput.value = '';
+      renderAttachPreview();
       loadChats(); // обновить превью/сортировку списка чатов
     }catch(err){
       alert(err.message);
       input.value = text;
     } finally {
       input.disabled = false;
+      document.getElementById('chat-attach-btn').disabled = false;
       input.focus();
     }
   });

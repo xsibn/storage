@@ -644,6 +644,35 @@ app.delete('/api/profile/avatar', auth.requireAuth, (req, res) => {
   res.json({ user: auth.publicUser(updated) });
 });
 
+// ---------- Медиа-вложения в чате ----------
+// Как и аватарки — храним файл на диске в public/chat-uploads/, а в БД
+// только путь и метаданные (см. ensureColumn('chat_messages', ...) в db.js).
+const CHAT_UPLOADS_DIR = path.join(__dirname, 'public', 'chat-uploads');
+fs.mkdirSync(CHAT_UPLOADS_DIR, { recursive: true });
+const CHAT_ATTACHMENT_MAX_BYTES = 25 * 1024 * 1024; // 25 МБ — фото/видео/голосовые
+const CHAT_ATTACHMENT_MIME_RE = /^(image\/(jpeg|png|webp|gif)|video\/(mp4|webm|quicktime)|audio\/(mpeg|mp4|ogg|webm|wav)|application\/pdf)$/;
+const chatUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: CHAT_ATTACHMENT_MAX_BYTES },
+  fileFilter: (req, file, cb) => {
+    if (!CHAT_ATTACHMENT_MIME_RE.test(file.mimetype)) {
+      return cb(new Error('Этот тип файла не поддерживается'));
+    }
+    cb(null, true);
+  }
+});
+function extForAttachment(mimetype, originalName) {
+  const fromName = (originalName || '').split('.').pop();
+  if (fromName && fromName.length <= 5 && /^[a-zA-Z0-9]+$/.test(fromName)) return fromName.toLowerCase();
+  const map = {
+    'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp', 'image/gif': 'gif',
+    'video/mp4': 'mp4', 'video/webm': 'webm', 'video/quicktime': 'mov',
+    'audio/mpeg': 'mp3', 'audio/mp4': 'm4a', 'audio/ogg': 'ogg', 'audio/webm': 'weba', 'audio/wav': 'wav',
+    'application/pdf': 'pdf'
+  };
+  return map[mimetype] || 'bin';
+}
+
 // ---------- Управление пользователями (сервисный аккаунт / начальник) ----------
 
 // GET /api/users — список аккаунтов
@@ -1034,15 +1063,31 @@ app.get('/api/chats/:id/messages', (req, res) => {
   }
 });
 
-// POST /api/chats/:id/messages — отправить сообщение
+// POST /api/chats/:id/messages — отправить сообщение (текст и/или медиа-вложение).
+// Если запрос multipart/form-data — разбираем файл через multer; если обычный
+// JSON — multer его не трогает, и req.file просто остаётся пустым.
 app.post('/api/chats/:id/messages', (req, res) => {
-  const id = parseInt(req.params.id, 10);
-  try {
-    const message = db.sendChatMessage(id, req.user.id, (req.body || {}).text);
-    res.status(201).json({ message });
-  } catch (err) {
-    res.status(400).json({ error: err.message });
-  }
+  chatUpload.single('attachment')(req, res, (uploadErr) => {
+    if (uploadErr) return res.status(400).json({ error: uploadErr.message || 'Не удалось загрузить файл' });
+    const id = parseInt(req.params.id, 10);
+    let attachment = null;
+    try {
+      if (req.file) {
+        const filename = `${id}-${Date.now()}-${crypto.randomBytes(6).toString('hex')}.${extForAttachment(req.file.mimetype, req.file.originalname)}`;
+        fs.writeFileSync(path.join(CHAT_UPLOADS_DIR, filename), req.file.buffer);
+        attachment = {
+          path: `chat-uploads/${filename}`,
+          name: req.file.originalname || filename,
+          type: req.file.mimetype,
+          size: req.file.size
+        };
+      }
+      const message = db.sendChatMessage(id, req.user.id, (req.body || {}).text, attachment);
+      res.status(201).json({ message });
+    } catch (err) {
+      res.status(400).json({ error: err.message });
+    }
+  });
 });
 
 // POST /api/chats/:id/read — отметить чат прочитанным

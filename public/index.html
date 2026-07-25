@@ -465,10 +465,25 @@
   }
   .chat-msg.mine .cm-bubble{background:var(--accent); color:#fff; border-color:var(--accent);}
   .chat-msg .cm-time{font-size:9.5px; color:var(--ink-soft); padding:0 3px;}
-  .chat-input-row{display:flex; gap:8px; padding:10px 14px; border-top:1px solid var(--line);}
-  .chat-input-row input{
+  .cm-attachment{display:block; margin-bottom:4px;}
+  .cm-attachment img, .cm-attachment video{max-width:240px; max-height:240px; border-radius:10px; display:block; cursor:pointer;}
+  .cm-attachment audio{max-width:240px;}
+  .cm-attachment.cm-file-link{
+    display:flex; align-items:center; gap:6px; background:rgba(0,0,0,.05); border-radius:10px; padding:8px 10px;
+    font-size:12.5px; text-decoration:none; color:inherit;
+  }
+  .chat-msg.mine .cm-attachment.cm-file-link{background:rgba(255,255,255,.18);}
+  .chat-input-row{display:flex; gap:8px; padding:10px 14px; border-top:1px solid var(--line); align-items:center;}
+  .chat-input-row input[type="text"]{
     flex:1; padding:10px 14px; border:1px solid var(--line); border-radius:999px; font-family:var(--sans); font-size:13px; background:var(--bg);
   }
+  #chat-attach-btn{flex:0 0 auto; padding:8px 10px; font-size:16px; line-height:1; border-radius:999px;}
+  .chat-attach-preview{
+    display:flex; align-items:center; gap:8px; padding:8px 14px; border-top:1px solid var(--line); font-size:12px; color:var(--ink-soft);
+  }
+  .chat-attach-preview img{width:40px; height:40px; object-fit:cover; border-radius:8px;}
+  .chat-attach-preview .cap-name{flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
+  .chat-attach-preview .cap-remove{background:none; border:none; color:var(--danger, #d33); font-size:16px; cursor:pointer; padding:2px 6px;}
   .chats-empty{padding:20px 4px; color:var(--ink-soft); font-size:13px; text-align:center;}
   #chat-members-list{display:flex; flex-direction:column; gap:6px; max-height:50vh; overflow-y:auto;}
   .cm-member-row{display:flex; align-items:center; gap:8px; padding:6px 4px;}
@@ -1373,7 +1388,10 @@
               <button class="btn" id="chat-members-btn" title="Участники" style="display:none;">👥</button>
             </div>
             <div class="chat-messages" id="chat-messages"></div>
+            <div class="chat-attach-preview" id="chat-attach-preview" style="display:none;"></div>
             <form class="chat-input-row" id="chat-input-form">
+              <input type="file" id="chat-attach-input" accept="image/*,video/*,audio/*,.pdf" style="display:none;">
+              <button type="button" class="btn" id="chat-attach-btn" title="Прикрепить медиа">📎</button>
               <input type="text" id="chat-input" placeholder="Написать сообщение…" autocomplete="off" maxlength="4000">
               <button type="submit" class="btn primary" id="chat-send-btn">Отправить</button>
             </form>

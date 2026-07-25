@@ -177,6 +177,12 @@ ensureColumn('users', 'avatar_path', 'TEXT');
 // Для статуса "онлайн/офлайн" и времени последнего входа/активности.
 ensureColumn('users', 'last_login_at', 'TEXT');
 ensureColumn('users', 'last_seen_at', 'TEXT');
+// Вложения в сообщениях чата: сам файл лежит на диске в public/chat-uploads/
+// (см. server.js), в БД — только путь и метаданные, аналогично avatar_path.
+ensureColumn('chat_messages', 'attachment_path', 'TEXT');
+ensureColumn('chat_messages', 'attachment_name', 'TEXT');
+ensureColumn('chat_messages', 'attachment_type', 'TEXT');
+ensureColumn('chat_messages', 'attachment_size', 'INTEGER');
 
 // Порядок пользователей в списке управления — свободно задаваемый вручную
 // (перетаскиванием/кнопками), а не только по id/алфавиту. На новой базе
@@ -325,13 +331,13 @@ function computeLayout(rows) {
 // Old stored shape was {minRack, maxRack, levels}; convert on read so an
 // already-deployed database keeps working without a manual migration step.
 function normalizeLayoutEntry(entry) {
-  if (entry.racks) return { racks: entry.racks.slice(), levels: (entry.levels || []).slice() };
+  if (entry.racks) return { racks: entry.racks.slice(), levels: (entry.levels || []).slice(), manual: !!entry.manual };
   if (entry.minRack != null && entry.maxRack != null) {
     const racks = [];
     for (let i = entry.minRack; i <= entry.maxRack; i++) racks.push(i);
-    return { racks, levels: (entry.levels || []).slice() };
+    return { racks, levels: (entry.levels || []).slice(), manual: !!entry.manual };
   }
-  return { racks: [], levels: (entry.levels || []).slice() };
+  return { racks: [], levels: (entry.levels || []).slice(), manual: !!entry.manual };
 }
 
 function getLayout() {
@@ -357,7 +363,7 @@ function mergeLayouts(a, b) {
       const seen = new Set(la.racks);
       const racks = [...la.racks];
       for (const rk of lb.racks) if (!seen.has(rk)) { racks.push(rk); seen.add(rk); }
-      out[row] = { racks, levels: Array.from(new Set([...la.levels, ...lb.levels])) };
+      out[row] = { racks, levels: Array.from(new Set([...la.levels, ...lb.levels])), manual: !!(la.manual || lb.manual) };
     } else {
       out[row] = la || lb;
     }
@@ -424,7 +430,19 @@ const replaceAll = db.transaction((rows, sourceLabel) => {
   }
   setMeta('source_label', sourceLabel || 'база данных');
   setMeta('imported_at', new Date().toISOString());
-  setLayout(mergeLayouts(getLayout(), computeLayout(rows)));
+  // Импорт полностью заменяет данные, поэтому раскладку тоже нужно свести к
+  // тому, что реально есть в новом файле: merge (как и раньше) сохраняет
+  // порядок стеллажей для рядов, которые остались, но ряды, которых в новом
+  // файле вовсе нет (а значит и остатков там теперь ноль), удаляем — иначе
+  // после каждой следующей загрузки файла в раскладке копятся пустые
+  // «Ряд N · 0» от всех прошлых версий файла.
+  const importedLayout = computeLayout(rows);
+  const merged = mergeLayouts(getLayout(), importedLayout);
+  const reconciled = {};
+  for (const row of Object.keys(merged)) {
+    if (importedLayout[row] || merged[row].manual) reconciled[row] = merged[row];
+  }
+  setLayout(reconciled);
   logActivity('import', `Загружен файл «${sourceLabel || 'без имени'}» (${rows.length} строк, вся база заменена)`, null);
 });
 
@@ -593,7 +611,7 @@ function createRow(row, racks, levels) {
 
   const cleanLevels = (levels && levels.length) ? levels.slice() : ['01'];
 
-  layout[row] = { racks: cleanRacks, levels: cleanLevels };
+  layout[row] = { racks: cleanRacks, levels: cleanLevels, manual: true };
   setLayout(layout);
 
   logActivity('create-row', `Создан ряд ${row} (стеллажи: ${cleanRacks.join(', ')})`, { row });
@@ -1454,16 +1472,28 @@ function rowToChatMessage(r) {
     authorName: author ? (author.display_name || author.username) : 'Система',
     authorAvatarUrl: author && author.avatar_path ? `/${author.avatar_path}` : null,
     text: r.text,
-    createdAt: r.created_at
+    createdAt: r.created_at,
+    attachmentUrl: r.attachment_path ? `/${r.attachment_path}` : null,
+    attachmentName: r.attachment_name || null,
+    attachmentType: r.attachment_type || null,
+    attachmentSize: r.attachment_size || null
   };
 }
 
-function sendChatMessage(chatId, userId, text) {
+function sendChatMessage(chatId, userId, text, attachment) {
   const t = String(text || '').trim();
-  if (!t) throw new Error('Сообщение не может быть пустым');
+  if (!t && !attachment) throw new Error('Сообщение не может быть пустым');
   if (t.length > 4000) throw new Error('Сообщение слишком длинное');
   if (!isChatMember(chatId, userId)) throw new Error('Вы не состоите в этом чате');
-  const info = db.prepare('INSERT INTO chat_messages (chat_id, user_id, text) VALUES (?, ?, ?)').run(chatId, userId, t);
+  const info = db.prepare(
+    'INSERT INTO chat_messages (chat_id, user_id, text, attachment_path, attachment_name, attachment_type, attachment_size) VALUES (?, ?, ?, ?, ?, ?, ?)'
+  ).run(
+    chatId, userId, t,
+    attachment ? attachment.path : null,
+    attachment ? attachment.name : null,
+    attachment ? attachment.type : null,
+    attachment ? attachment.size : null
+  );
   markChatRead(chatId, userId, info.lastInsertRowid);
   return rowToChatMessage(db.prepare('SELECT * FROM chat_messages WHERE id = ?').get(info.lastInsertRowid));
 }
