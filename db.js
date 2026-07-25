@@ -66,8 +66,7 @@ db.exec(`
     role          TEXT NOT NULL DEFAULT 'employee',
     created_at    TEXT NOT NULL DEFAULT (datetime('now')),
     created_by    TEXT,
-    disabled      INTEGER NOT NULL DEFAULT 0,
-    sort_order    INTEGER
+    disabled      INTEGER NOT NULL DEFAULT 0
   );
 
   CREATE TABLE IF NOT EXISTS sessions (
@@ -148,15 +147,6 @@ if (importMigrated) {
 // пережимает/уменьшает картинку перед сохранением, так что место на диске
 // не разрастается от исходников в несколько мегабайт).
 ensureColumn('users', 'avatar_path', 'TEXT');
-// Порядок пользователей в списке "Аккаунты" — по умолчанию не задан
-// (NULL), тогда список сортируется по id (порядку создания), как раньше.
-// Как только кто-то с правом canManageUsers один раз перетащит строку,
-// весь список получает явные значения sort_order и дальше сортируется по
-// ним, а не по id.
-const sortOrderMigrated = ensureColumn('users', 'sort_order', 'INTEGER');
-if (sortOrderMigrated) {
-  db.prepare(`UPDATE users SET sort_order = id`).run();
-}
 
 // Базовые роли — создаются один раз при первом запуске (INSERT OR IGNORE),
 // дальше их можно свободно переименовывать и менять права через API/CLI;
@@ -986,21 +976,7 @@ function deleteRole(key) {
 }
 
 function listUsers() {
-  return db.prepare('SELECT id, username, display_name, role, created_at, created_by, disabled, avatar_path, sort_order FROM users ORDER BY COALESCE(sort_order, id) ASC, id ASC').all();
-}
-
-function reorderUsers(orderedIds) {
-  const ids = (orderedIds || []).map(Number).filter(n => Number.isInteger(n));
-  if (!ids.length) throw new Error('Пустой список порядка');
-  const existing = new Set(db.prepare('SELECT id FROM users').all().map(r => r.id));
-  const unknown = ids.find(id => !existing.has(id));
-  if (unknown !== undefined) throw new Error(`Пользователь #${unknown} не найден`);
-  const stmt = db.prepare('UPDATE users SET sort_order = ? WHERE id = ?');
-  const txn = db.transaction((list) => {
-    list.forEach((id, i) => stmt.run(i + 1, id));
-  });
-  txn(ids);
-  return listUsers();
+  return db.prepare('SELECT id, username, display_name, role, created_at, created_by, disabled, avatar_path FROM users ORDER BY id ASC').all();
 }
 
 function getUserByUsername(username) {
@@ -1325,7 +1301,7 @@ module.exports = {
   ensureZonesFromData, listZones, createZone, renameZone, setZoneIsolate, deleteZone,
   setCurrentActor,
   listRoles, getRole, roleExists, createRole, renameRole, updateRolePerms, deleteRole,
-  listUsers, reorderUsers, getUserByUsername, getUserById, countUsers, insertUser, updateUserRole,
+  listUsers, getUserByUsername, getUserById, countUsers, insertUser, updateUserRole,
   setUserPasswordHash, setUserDisabled, deleteUser, listAssignableUsers, setUserAvatar, updateUserIdentity,
   createTask, getTask, listAllTasks, listMyTasks, markMyNewTasksRead, countMyNewTasks, setMyTaskStatus, deleteTask,
   createRegistrationRequest, listRegistrationRequests, countRegistrationRequests, approveRegistrationRequest, rejectRegistrationRequest,
