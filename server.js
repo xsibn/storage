@@ -642,6 +642,24 @@ app.delete('/api/profile/avatar', auth.requireAuth, (req, res) => {
 // ---------- Управление пользователями (сервисный аккаунт / начальник) ----------
 
 // GET /api/users — список аккаунтов
+// GET /api/users/directory — упрощённый список коллег и их ролей, доступный
+// любому вошедшему сотруднику (в отличие от /api/users — там ещё и данные
+// для управления аккаунтами, это только для canManageUsers).
+app.get('/api/users/directory', auth.requireAuth, (req, res) => {
+  res.json({
+    users: db.listUsers()
+      .filter(u => !u.disabled)
+      .map(u => ({
+        id: u.id,
+        username: u.username,
+        displayName: u.display_name || u.username,
+        role: u.role,
+        roleLabel: auth.labelFor(u.role),
+        avatarUrl: u.avatar_path ? `/${u.avatar_path}` : null
+      }))
+  });
+});
+
 app.get('/api/users', auth.requirePerm('canManageUsers'), (req, res) => {
   res.json({
     users: db.listUsers().map(u => ({

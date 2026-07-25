@@ -394,8 +394,13 @@
     border:2px solid var(--panel); box-sizing:content-box;
   }
   body.perm-no-manage-tasks #manage-tasks-panel{display:none !important;}
-  body.perm-no-manage-users [data-view="accounts"],
-  body.perm-no-manage-users .bn-btn[data-bn="accounts"]{display:none !important;}
+  /* "Аккаунты" теперь доступен всем — заявки на регистрацию и управление
+     аккаунтами/ролями видны только тем, у кого есть canManageUsers;
+     остальные видят вместо этого простой список коллег с ролями
+     (см. #accounts-directory-panel ниже). */
+  body.perm-no-manage-users #reg-requests-panel,
+  body.perm-no-manage-users #manage-users-panel{display:none !important;}
+  body:not(.perm-no-manage-users) #accounts-directory-panel{display:none !important;}
   .tasks-empty{padding:20px 4px; color:var(--ink-soft); font-size:13px; text-align:center;}
   .task-card{border:1px solid var(--line); border-radius:10px; padding:14px; background:var(--bg); margin-bottom:10px;}
   .task-card:last-child{margin-bottom:0;}
@@ -913,6 +918,20 @@
   .user-row.editing [data-action="delete"]{display:none;}
   .user-row .edit-save-btn, .user-row .edit-cancel-btn{display:none;}
   .user-row.editing .edit-save-btn, .user-row.editing .edit-cancel-btn{display:inline-flex;}
+  /* ---------- Раздел "Сотрудники" — упрощённый список для тех, у кого нет
+     прав на управление аккаунтами: просто увидеть коллег и их роли. ---------- */
+  .dir-row{
+    display:flex; align-items:center; gap:10px; padding:9px 4px; border-bottom:1px solid var(--line);
+  }
+  .dir-row:last-child{border-bottom:none;}
+  .dir-row .u-avatar{
+    flex:none; width:32px; height:32px; border-radius:50%; background:var(--accent); color:#fff;
+    display:flex; align-items:center; justify-content:center; font-size:12px; font-weight:700;
+    background-size:cover; background-position:center;
+  }
+  .dir-row .u-info{flex:1; min-width:0;}
+  .dir-row .u-info .u-name{font-size:13px; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+  .dir-row .u-info .u-login{font-size:11px; color:var(--ink-soft); font-family:var(--mono);}
   .icon-btn{
     border:1px solid var(--line); background:var(--panel); border-radius:6px; padding:5px 8px;
     font-size:12px; cursor:pointer; color:var(--ink-soft);
@@ -1233,7 +1252,15 @@
 
     <!-- ACCOUNTS VIEW (только для тех, кто может управлять аккаунтами) -->
     <section class="view" id="view-accounts">
-      <div class="panel">
+      <div class="panel" id="accounts-directory-panel">
+        <div class="toolbar">
+          <h2 style="margin:0; flex:1 1 auto;">Сотрудники</h2>
+        </div>
+        <p style="font-size:12px; color:var(--ink-soft); margin:0 0 12px;">Все, кто есть в системе, и их роли.</p>
+        <div id="accounts-directory-list"><div class="tasks-empty">Загрузка…</div></div>
+      </div>
+
+      <div class="panel" id="reg-requests-panel">
         <div class="toolbar">
           <h2 style="margin:0; flex:1 1 auto;">Заявки на регистрацию</h2>
         </div>
@@ -1241,7 +1268,7 @@
         <div id="reg-requests-list"><div class="tasks-empty">Загрузка…</div></div>
       </div>
 
-      <div class="panel">
+      <div class="panel" id="manage-users-panel">
         <div class="toolbar">
           <h2 style="margin:0; flex:1 1 auto;">Пользователи и роли</h2>
         </div>

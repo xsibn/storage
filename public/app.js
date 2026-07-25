@@ -2782,8 +2782,12 @@
     if(WAREHOUSE_VIEWS.includes(view)) lastWarehouseView = view;
     if(view === 'tasks') loadTasks();
     if(view === 'accounts'){
-      loadAccounts();
-      if(window.__loadUsersRolesPanel) window.__loadUsersRolesPanel();
+      if(document.body.classList.contains('perm-no-manage-users')){
+        loadAccountsDirectory();
+      } else {
+        loadAccounts();
+        if(window.__loadUsersRolesPanel) window.__loadUsersRolesPanel();
+      }
     }
     document.querySelectorAll('.bn-btn[data-bn]').forEach(b=>{
       b.classList.toggle('active', b.dataset.bn === 'warehouse' ? WAREHOUSE_VIEWS.includes(view) : b.dataset.bn === view);
@@ -3492,6 +3496,39 @@
     }
   }
 
+  // ---------- «Сотрудники»: простой список коллег и их ролей для тех, у
+  // кого нет прав на управление аккаунтами (см. #accounts-directory-panel). ----------
+  function renderAccountsDirectory(users){
+    const wrap = document.getElementById('accounts-directory-list');
+    if(!wrap) return;
+    if(!users.length){
+      wrap.innerHTML = '<div class="tasks-empty">Пока нет ни одного аккаунта.</div>';
+      return;
+    }
+    wrap.innerHTML = users.map(u => `
+      <div class="dir-row">
+        <div class="u-avatar"${u.avatarUrl ? ` style="background-image:url('${escHtml(u.avatarUrl)}')"` : ''}>${u.avatarUrl ? '' : escHtml(initials(u.displayName))}</div>
+        <div class="u-info">
+          <div class="u-name">${escHtml(u.displayName)}</div>
+          <div class="u-login">@${escHtml(u.username)}</div>
+        </div>
+        <span class="role-badge" style="background:var(--accent-soft); color:var(--accent); font-size:11px; padding:3px 9px; border-radius:999px;">${escHtml(u.roleLabel)}</span>
+      </div>
+    `).join('');
+  }
+
+  async function loadAccountsDirectory(){
+    const wrap = document.getElementById('accounts-directory-list');
+    try{
+      const res = await fetch(API_BASE + '/api/users/directory');
+      if(!res.ok) throw new Error('Сервер вернул ошибку ' + res.status);
+      const data = await res.json();
+      renderAccountsDirectory(data.users || []);
+    }catch(err){
+      if(wrap) wrap.innerHTML = `<div class="tasks-empty">${escHtml(err.message)}</div>`;
+    }
+  }
+
   // Живая синхронизация — как у заданий: пока открыт раздел "Аккаунты",
   // подтягиваем заявки каждые несколько секунд.
   let accountsPollInFlight = false;
@@ -3502,7 +3539,10 @@
     if(document.getElementById('modal-backdrop')?.classList.contains('open')) return;
     if(document.getElementById('auth-modal-backdrop')?.classList.contains('show')) return;
     accountsPollInFlight = true;
-    try{ await loadAccounts(); } finally { accountsPollInFlight = false; }
+    try{
+      if(document.body.classList.contains('perm-no-manage-users')) await loadAccountsDirectory();
+      else await loadAccounts();
+    } finally { accountsPollInFlight = false; }
   }
   setInterval(pollAccountsIfOnAccountsView, TASKS_POLL_MS);
   setInterval(() => { if(!document.hidden) refreshAccountsBadge(); }, TASKS_BADGE_POLL_MS);
