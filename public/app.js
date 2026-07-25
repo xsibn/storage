@@ -3656,13 +3656,30 @@
       const data = await res.json();
       const members = data.members || [];
       const canAdd = activeChatInfo.isGroup;
+      const me = window.__currentUser;
+      const canDelete = activeChatInfo.isGroup && me && activeChatInfo.createdBy === me.id;
       openModal(activeChatInfo.isGeneral ? 'Участники общего чата' : 'Участники группы', `
         <div id="chat-members-list">
-          ${members.map(u => `<div class="cm-member-row">${chatAvatarHtml({ title: u.displayName, avatarUrl: u.avatarUrl })}<span>${escHtml(u.displayName)}</span></div>`).join('')}
+          ${members.map(u => `<div class="cm-member-row">${chatAvatarHtml({ title: u.displayName, avatarUrl: u.avatarUrl })}<span>${escHtml(u.displayName)}</span>${(activeChatInfo.isGroup && u.id === activeChatInfo.createdBy) ? '<span class="role-badge" style="margin-left:auto; background:var(--accent-soft); color:var(--accent); font-size:11px; padding:3px 9px; border-radius:999px;">Владелец</span>' : ''}</div>`).join('')}
         </div>
       `, canAdd
-        ? `<button class="btn" id="cm-leave">Покинуть группу</button><button class="btn primary" id="cm-add">+ Добавить участников</button>`
+        ? `${canDelete ? '<button class="btn danger" id="cm-delete-group">🗑 Удалить группу</button>' : ''}<button class="btn" id="cm-leave">Покинуть группу</button><button class="btn primary" id="cm-add">+ Добавить участников</button>`
         : '');
+      if(canDelete){
+        document.getElementById('cm-delete-group').addEventListener('click', async () => {
+          if(!confirm('Удалить группу целиком? Вся переписка и вложения будут удалены безвозвратно, для всех участников.')) return;
+          try{
+            const r = await fetch(`${API_BASE}/api/chats/${activeChatId}`, { method: 'DELETE' });
+            if(!r.ok) throw new Error((await r.json().catch(()=>({}))).error || 'Не удалось удалить группу');
+            closeModal();
+            activeChatId = null; activeChatInfo = null;
+            document.getElementById('chat-window').style.display = 'none';
+            document.getElementById('chats-empty-state').style.display = '';
+            closeChatMobile();
+            await loadChats();
+          }catch(err){ alert(err.message); }
+        });
+      }
       if(canAdd){
         document.getElementById('cm-leave').addEventListener('click', async () => {
           if(!confirm('Покинуть эту группу?')) return;

@@ -1370,6 +1370,7 @@ function listMyChats(userId) {
       isGeneral: info.isGeneral,
       isGroup: info.isGroup,
       otherUserId: info.otherUserId || null,
+      createdBy: r.created_by || null,
       membersCount: r.type === 'group' ? membersCountStmt.get(r.id).n : null,
       lastMessage: lastMsg ? { text: lastMsg.text, createdAt: lastMsg.created_at, authorName: lastAuthor, mine: lastMsg.user_id === userId } : null,
       lastActivityAt: lastMsg ? lastMsg.created_at : r.created_at,
@@ -1432,11 +1433,56 @@ function addGroupMembers(chatId, userId, memberIds) {
   return true;
 }
 
+// Выход из группы. Если выходит именно создатель группы:
+//  - если в группе остаются другие участники — право владения (created_by,
+//    от него зависит право удалить группу) передаётся тому, кто состоит в
+//    группе дольше всех остальных (следующий по дате вступления);
+//  - если после выхода участников не остаётся — группа целиком удаляется
+//    сама (бесхозная группа, которую больше некому ни удалить, ни покинуть,
+//    иначе так и висела бы пустой в базе навсегда). Возвращает пути
+//    вложений, которые нужно удалить с диска, если группа была удалена.
 function leaveGroupChat(chatId, userId) {
   const chat = db.prepare('SELECT * FROM chats WHERE id = ?').get(chatId);
   if (!chat || chat.type !== 'group') throw new Error('Группа не найдена');
   db.prepare('DELETE FROM chat_members WHERE chat_id = ? AND user_id = ?').run(chatId, userId);
-  return true;
+
+  if (chat.created_by !== userId) return { deleted: false, attachmentPaths: [] };
+
+  const nextOwner = db.prepare(
+    'SELECT user_id FROM chat_members WHERE chat_id = ? ORDER BY joined_at ASC, user_id ASC LIMIT 1'
+  ).get(chatId);
+
+  if (nextOwner) {
+    db.prepare('UPDATE chats SET created_by = ? WHERE id = ?').run(nextOwner.user_id, chatId);
+    return { deleted: false, attachmentPaths: [], newOwnerId: nextOwner.user_id };
+  }
+
+  // Участников не осталось — группа стала бесхозной, удаляем её целиком.
+  const attachments = db.prepare('SELECT attachment_path FROM chat_messages WHERE chat_id = ? AND attachment_path IS NOT NULL').all(chatId);
+  const txn = db.transaction(() => {
+    db.prepare('DELETE FROM chat_messages WHERE chat_id = ?').run(chatId);
+    db.prepare('DELETE FROM chats WHERE id = ?').run(chatId);
+  });
+  txn();
+  return { deleted: true, attachmentPaths: attachments.map(a => a.attachment_path) };
+}
+
+// Удаление группового чата целиком — только создателем группы. Возвращает
+// список относительных путей вложений (public/<path>), которые вызывающий
+// код должен удалить с диска (сама функция файлов не трогает — это I/O,
+// а не работа с БД).
+function deleteGroupChat(chatId, userId) {
+  const chat = db.prepare('SELECT * FROM chats WHERE id = ?').get(chatId);
+  if (!chat || chat.type !== 'group') throw new Error('Группа не найдена');
+  if (chat.created_by !== userId) throw new Error('Удалить группу может только тот, кто её создал');
+  const attachments = db.prepare('SELECT attachment_path FROM chat_messages WHERE chat_id = ? AND attachment_path IS NOT NULL').all(chatId);
+  const txn = db.transaction(() => {
+    db.prepare('DELETE FROM chat_messages WHERE chat_id = ?').run(chatId);
+    db.prepare('DELETE FROM chat_members WHERE chat_id = ?').run(chatId);
+    db.prepare('DELETE FROM chats WHERE id = ?').run(chatId);
+  });
+  txn();
+  return attachments.map(a => a.attachment_path);
 }
 
 function listChatMembers(chatId) {
@@ -1614,7 +1660,7 @@ module.exports = {
   setUserPasswordHash, setUserDisabled, deleteUser, listAssignableUsers, setUserAvatar, updateUserIdentity,
   createTask, getTask, listAllTasks, listMyTasks, markMyNewTasksRead, countMyNewTasks, setMyTaskStatus, deleteTask,
   ensureGeneralChat, addUserToGeneralChat, isChatMember, listMyChats, totalUnreadChats, getOrCreateDm,
-  createGroupChat, addGroupMembers, leaveGroupChat, listChatMembers, listChatMessages, sendChatMessage, markChatRead,
+  createGroupChat, addGroupMembers, leaveGroupChat, deleteGroupChat, listChatMembers, listChatMessages, sendChatMessage, markChatRead,
   createRegistrationRequest, listRegistrationRequests, countRegistrationRequests, approveRegistrationRequest, rejectRegistrationRequest,
   createSession, getSession, deleteSession, deleteAllSessionsForUser
 };

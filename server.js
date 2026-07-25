@@ -1042,7 +1042,32 @@ app.post('/api/chats/:id/members', (req, res) => {
 app.post('/api/chats/:id/leave', (req, res) => {
   const id = parseInt(req.params.id, 10);
   try {
-    db.leaveGroupChat(id, req.user.id);
+    const result = db.leaveGroupChat(id, req.user.id);
+    if (result.deleted) {
+      result.attachmentPaths.forEach(p => {
+        if (!p) return;
+        const full = path.join(__dirname, 'public', p);
+        if (full.startsWith(CHAT_UPLOADS_DIR)) fs.unlink(full, () => {});
+      });
+    }
+    res.json({ ok: true, groupDeleted: !!result.deleted, newOwnerId: result.newOwnerId || null });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+// DELETE /api/chats/:id — удалить групповой чат целиком (только создатель
+// группы). Общий чат и личные переписки этим путём не удаляются —
+// db.deleteGroupChat сам откажет, если чат не типа 'group'.
+app.delete('/api/chats/:id', (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  try {
+    const attachmentPaths = db.deleteGroupChat(id, req.user.id);
+    attachmentPaths.forEach(p => {
+      if (!p) return;
+      const full = path.join(__dirname, 'public', p);
+      if (full.startsWith(CHAT_UPLOADS_DIR)) fs.unlink(full, () => {});
+    });
     res.json({ ok: true });
   } catch (err) {
     res.status(400).json({ error: err.message });
