@@ -2762,13 +2762,32 @@
   document.getElementById('move-to-zone-btn').addEventListener('click', openMoveToZoneForm);
 
   // ---------- TABS ----------
+  let lastWarehouseView = 'map'; // склад: какую под-вкладку показать при возврате из "Задания"
+
+  function activateView(view){
+    document.querySelectorAll('nav.tabs button').forEach(b=>b.classList.toggle('active', b.dataset.view === view));
+    document.querySelectorAll('.view').forEach(v=>v.classList.remove('active'));
+    document.getElementById('view-'+view).classList.add('active');
+    if(view === 'tasks'){
+      document.body.classList.add('bn-tasks-mode');
+      loadTasks();
+    } else {
+      document.body.classList.remove('bn-tasks-mode');
+      lastWarehouseView = view;
+    }
+    document.querySelectorAll('.bn-btn').forEach(b=>{
+      b.classList.toggle('active', (b.dataset.bn === 'tasks') === (view === 'tasks'));
+    });
+  }
+
   document.querySelectorAll('nav.tabs button').forEach(btn=>{
+    btn.addEventListener('click', ()=> activateView(btn.dataset.view));
+  });
+
+  // ---------- НИЖНЯЯ ПАНЕЛЬ (телефон): Склад / Задания, как разделы в ТГ ----------
+  document.querySelectorAll('.bn-btn').forEach(btn=>{
     btn.addEventListener('click', ()=>{
-      document.querySelectorAll('nav.tabs button').forEach(b=>b.classList.remove('active'));
-      btn.classList.add('active');
-      document.querySelectorAll('.view').forEach(v=>v.classList.remove('active'));
-      document.getElementById('view-'+btn.dataset.view).classList.add('active');
-      if(btn.dataset.view === 'tasks') loadTasks();
+      activateView(btn.dataset.bn === 'tasks' ? 'tasks' : lastWarehouseView);
     });
   });
 
@@ -3086,10 +3105,11 @@
       const res = await fetch(API_BASE + '/api/tasks/unread-count');
       if(!res.ok) return;
       const { count } = await res.json();
-      const badge = document.getElementById('tasks-badge');
-      if(!badge) return;
-      if(count > 0){ badge.textContent = count; badge.style.display = ''; }
-      else badge.style.display = 'none';
+      [document.getElementById('tasks-badge'), document.getElementById('bn-tasks-badge')].forEach(badge => {
+        if(!badge) return;
+        if(count > 0){ badge.textContent = count; badge.style.display = ''; }
+        else badge.style.display = 'none';
+      });
     }catch(_e){ /* тихо игнорируем — это лишь бейдж */ }
   }
 

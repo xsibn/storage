@@ -514,6 +514,7 @@
   .order-chip.drag-over{outline:2px dashed var(--accent); outline-offset:1px;}
 
   .empty-note{color:var(--ink-soft); font-size:12.5px; padding:24px; text-align:center;}
+  .bottom-nav{display:none;} /* виден только на телефоне — см. мобильный @media ниже */
   footer.upload-hint{
     font-size:11px; color:var(--ink-soft); padding:12px 20px; text-align:center;
     background:var(--panel); border:1px solid var(--line); border-radius:12px;
@@ -565,6 +566,34 @@
     nav.tabs{overflow-x:auto; -webkit-overflow-scrolling:touch; padding:0 12px; scrollbar-width:none; border-radius:10px;}
     nav.tabs::-webkit-scrollbar{display:none;}
     nav.tabs button{padding:11px 12px; white-space:nowrap; flex-shrink:0; font-size:12.5px;}
+
+    /* Задания теперь отдельный раздел нижней панели — не дублируем его в
+       горизонтальных вкладках склада, и прячем сами эти вкладки, пока
+       открыт раздел "Задания" (полноценное переключение разделов, как в ТГ). */
+    nav.tabs button[data-view="tasks"]{display:none;}
+    body.bn-tasks-mode nav.tabs{display:none;}
+    body.bn-tasks-mode main{padding-top:0;}
+
+    body{padding-bottom:calc(58px + env(safe-area-inset-bottom));}
+    .bottom-nav{
+      display:flex; position:fixed; left:0; right:0; bottom:0; z-index:60;
+      background:var(--panel); border-top:1px solid var(--line);
+      padding:6px 8px calc(6px + env(safe-area-inset-bottom));
+      gap:4px; box-shadow:0 -4px 16px rgba(0,0,0,.08);
+    }
+    .bn-btn{
+      flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:2px;
+      padding:6px 4px; border:none; background:none; border-radius:10px;
+      color:var(--ink-soft); font-family:var(--sans); position:relative; cursor:pointer;
+    }
+    .bn-btn.active{color:var(--accent); background:var(--accent-soft);}
+    .bn-icon{font-size:19px; line-height:1;}
+    .bn-label{font-size:10.5px; font-weight:700;}
+    .bn-badge{
+      position:absolute; top:0; right:22%; min-width:16px; height:16px; padding:0 4px;
+      border-radius:999px; background:var(--danger); color:#fff; font-size:10px; font-weight:700;
+      display:flex; align-items:center; justify-content:center;
+    }
 
     main{gap:12px;}
     .panel{padding:12px; border-radius:10px;}
@@ -1097,6 +1126,18 @@
     </section>
 
   </main>
+
+  <!-- Нижняя панель (только на телефоне) — быстрое переключение между
+       складом и заданиями, как разделы в Telegram. -->
+  <nav class="bottom-nav" id="bottom-nav">
+    <button type="button" class="bn-btn active" data-bn="warehouse">
+      <span class="bn-icon">📦</span><span class="bn-label">Склад</span>
+    </button>
+    <button type="button" class="bn-btn" data-bn="tasks">
+      <span class="bn-icon">📋</span><span class="bn-label">Задания</span>
+      <span class="bn-badge" id="bn-tasks-badge" style="display:none;"></span>
+    </button>
+  </nav>
 
   <footer class="upload-hint">
     <div>Данные хранятся в базе на сервере — все, кто открывает сайт, видят одно и то же. Правки в таблице сохраняются сразу на сервере. «Загрузить новые данные» полностью заменяет сток в базе новым файлом (видно всем). Кнопка «Синхронизировать» подтягивает последние изменения, если их внёс кто-то другой.</div>
