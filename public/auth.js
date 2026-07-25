@@ -291,6 +291,47 @@
     });
   });
 
+  // ---------- редактирование собственного имени и логина ----------
+  // Доступно вообще любому вошедшему пользователю, а не только тем, у кого
+  // есть право управлять аккаунтами — сервер разрешает PATCH /api/users/:id
+  // для self-запросов отдельно от canManageUsers (см. server.js).
+  $('pp-edit-identity').addEventListener('click', () => {
+    if (!currentUser) return;
+    openAuthModal('Изменить имя и логин', `
+      <div class="auth-field">
+        <label>Отображаемое имя</label>
+        <input type="text" id="ei-name" value="${escHtml(currentUser.displayName || '')}">
+      </div>
+      <div class="auth-field">
+        <label>Логин</label>
+        <input type="text" id="ei-login" value="${escHtml(currentUser.username || '')}">
+      </div>
+      <div id="ei-error" style="display:none; color:var(--danger); font-size:12.5px; margin-top:4px;"></div>
+    `, `<button class="btn" id="ei-cancel">Отмена</button><button class="btn primary" id="ei-submit">Сохранить</button>`);
+    $('ei-cancel').addEventListener('click', closeAuthModal);
+    $('ei-submit').addEventListener('click', async () => {
+      const displayName = $('ei-name').value.trim();
+      const username = $('ei-login').value.trim();
+      const errEl = $('ei-error');
+      errEl.style.display = 'none';
+      if (!username) { errEl.textContent = 'Логин не может быть пустым'; errEl.style.display = 'block'; return; }
+      try {
+        const res = await fetch(`${API_BASE}/api/users/${currentUser.id}`, {
+          method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ username, displayName })
+        });
+        const payload = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(payload.error || 'Не удалось сохранить изменения');
+        currentUser = payload.user;
+        applyUserToUI();
+        closeAuthModal();
+      } catch (err) {
+        errEl.textContent = err.message;
+        errEl.style.display = 'block';
+      }
+    });
+  });
+
   // ---------- управление пользователями и ролями (сервисный аккаунт / начальник) ----------
   async function loadUsers() {
     const res = await fetch(API_BASE + '/api/users');
@@ -328,14 +369,30 @@
       listEl.innerHTML = users.map(u => {
         const isService = u.role === 'service';
         const isSelf = currentUser && u.id === currentUser.id;
+        const label = u.display_name || u.username;
+        const avatarInner = u.avatarUrl
+          ? ''
+          : escHtml(initials(label));
+        const avatarStyle = u.avatarUrl ? ` style="background-image:url('${escHtml(u.avatarUrl)}')"` : '';
         return `
         <div class="user-row ${u.disabled ? 'disabled' : ''}" data-id="${u.id}">
+          <div class="u-avatar"${avatarStyle}>${avatarInner}</div>
           <div class="u-info">
-            <div class="u-name">${escHtml(u.display_name || u.username)}${isSelf ? ' <span style="color:var(--ink-soft); font-weight:400;">(вы)</span>' : ''}</div>
-            <div class="u-login">@${escHtml(u.username)}</div>
+            <div class="u-view">
+              <div class="u-name">${escHtml(label)}${isSelf ? ' <span style="color:var(--ink-soft); font-weight:400;">(вы)</span>' : ''}</div>
+              <div class="u-login">@${escHtml(u.username)}</div>
+            </div>
+            <div class="u-edit">
+              <input type="text" class="u-edit-name" value="${escHtml(u.display_name || '')}" placeholder="Имя">
+              <input type="text" class="u-edit-login" value="${escHtml(u.username)}" placeholder="Логин">
+              <div class="u-edit-error" style="display:none;"></div>
+            </div>
           </div>
           ${isService ? `<span class="role-badge" style="background:var(--accent-soft); color:var(--accent); font-size:11px; padding:3px 9px; border-radius:999px;">${escHtml(u.roleLabel)}</span>`
             : roleSelectHtml(roles, u.role, false)}
+          ${!isService ? `<button type="button" class="icon-btn" data-action="edit-identity" title="Изменить логин и имя">✏</button>` : ''}
+          <button type="button" class="icon-btn edit-save-btn" data-action="save-identity" title="Сохранить">💾</button>
+          <button type="button" class="icon-btn edit-cancel-btn" data-action="cancel-identity" title="Отмена">✕</button>
           ${!isService ? `<button type="button" class="icon-btn" data-action="reset-pw" title="Сбросить пароль">🔑</button>` : ''}
           ${!isService ? `<button type="button" class="icon-btn" data-action="toggle-disabled" title="${u.disabled ? 'Разблокировать' : 'Заблокировать'}">${u.disabled ? '✅' : '⛔'}</button>` : ''}
           ${!isService && !isSelf ? `<button type="button" class="icon-btn danger" data-action="delete" title="Удалить">🗑</button>` : ''}
@@ -363,8 +420,41 @@
         row.querySelectorAll('.icon-btn').forEach(btn => {
           btn.addEventListener('click', async () => {
             const action = btn.dataset.action;
+            // Редактирование логина/имени — отдельная, не сетевая логика для
+            // edit/cancel (просто переключают режим строки); сеть только на save.
+            if (action === 'edit-identity') {
+              row.classList.add('editing');
+              row.querySelector('.u-edit-name').focus();
+              return;
+            }
+            if (action === 'cancel-identity') {
+              row.classList.remove('editing');
+              row.querySelector('.u-edit-error').style.display = 'none';
+              return;
+            }
             try {
-              if (action === 'delete') {
+              if (action === 'save-identity') {
+                const errEl = row.querySelector('.u-edit-error');
+                errEl.style.display = 'none';
+                const displayName = row.querySelector('.u-edit-name').value.trim();
+                const username = row.querySelector('.u-edit-login').value.trim();
+                if (!username) { errEl.textContent = 'Логин не может быть пустым'; errEl.style.display = 'block'; return; }
+                const res = await fetch(`${API_BASE}/api/users/${id}`, {
+                  method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ username, displayName })
+                });
+                const payload = await res.json().catch(() => ({}));
+                if (!res.ok) {
+                  errEl.textContent = payload.error || 'Не удалось сохранить изменения';
+                  errEl.style.display = 'block';
+                  return;
+                }
+                if (currentUser && Number(id) === currentUser.id) {
+                  currentUser.username = payload.user.username;
+                  currentUser.displayName = payload.user.displayName;
+                  applyUserToUI();
+                }
+              } else if (action === 'delete') {
                 if (!confirm('Удалить этот аккаунт? Это действие необратимо.')) return;
                 const res = await fetch(`${API_BASE}/api/users/${id}`, { method: 'DELETE' });
                 const payload = await res.json().catch(() => ({}));

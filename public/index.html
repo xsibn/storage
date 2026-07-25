@@ -882,6 +882,11 @@
     display:flex; align-items:center; gap:10px; padding:9px 4px; border-bottom:1px solid var(--line);
   }
   .user-row:last-child{border-bottom:none;}
+  .user-row .u-avatar{
+    flex:none; width:32px; height:32px; border-radius:50%; background:var(--accent); color:#fff;
+    display:flex; align-items:center; justify-content:center; font-size:12px; font-weight:700;
+    background-size:cover; background-position:center;
+  }
   .user-row .u-info{flex:1; min-width:0;}
   .user-row .u-info .u-name{font-size:13px; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
   .user-row .u-info .u-login{font-size:11px; color:var(--ink-soft); font-family:var(--mono);}
@@ -890,6 +895,23 @@
     background:var(--panel); color:var(--ink);
   }
   .user-row.disabled .u-name{color:var(--ink-soft); text-decoration:line-through;}
+  /* ---------- Инлайн-редактирование логина/имени в списке аккаунтов ---------- */
+  .user-row .u-edit{display:none; flex-direction:column; gap:5px; padding:2px 0;}
+  .user-row .u-edit input{
+    padding:6px 8px; border:1px solid var(--line); border-radius:6px; font-size:12.5px;
+    font-family:var(--sans); background:var(--panel); color:var(--ink); width:100%; box-sizing:border-box;
+  }
+  .user-row .u-edit input:focus{outline:2px solid var(--accent); outline-offset:1px;}
+  .user-row .u-edit-error{color:var(--danger); font-size:11.5px;}
+  .user-row.editing .u-view{display:none;}
+  .user-row.editing .u-edit{display:flex;}
+  .user-row.editing select,
+  .user-row.editing [data-action="edit-identity"],
+  .user-row.editing [data-action="reset-pw"],
+  .user-row.editing [data-action="toggle-disabled"],
+  .user-row.editing [data-action="delete"]{display:none;}
+  .user-row .edit-save-btn, .user-row .edit-cancel-btn{display:none;}
+  .user-row.editing .edit-save-btn, .user-row.editing .edit-cancel-btn{display:inline-flex;}
   .icon-btn{
     border:1px solid var(--line); background:var(--panel); border-radius:6px; padding:5px 8px;
     font-size:12px; cursor:pointer; color:var(--ink-soft);
@@ -909,7 +931,7 @@
   @media (max-width: 480px){
     .new-user-form{ grid-template-columns:1fr; }
     .user-row{ flex-wrap:wrap; row-gap:8px; }
-    .user-row .u-info{ flex:1 1 100%; min-width:0; }
+    .user-row .u-info{ flex:1 1 auto; min-width:0; }
     .user-row .u-info .u-name{ white-space:normal; overflow:visible; text-overflow:clip; }
     .user-row select{ flex:1; min-width:0; }
     .user-row .icon-btn{ padding:6px 9px; }
@@ -1305,6 +1327,7 @@
       <div class="pp-name" id="pp-name">…</div>
       <div class="pp-role" id="pp-role">…</div>
       <div class="pp-list">
+        <button type="button" id="pp-edit-identity">✏ <span>Изменить имя и логин</span></button>
         <button type="button" id="pp-change-password">🔑 <span>Сменить пароль</span></button>
         <button type="button" id="pp-manage-users" style="display:none;">👥 <span>Пользователи и роли</span></button>
       </div>

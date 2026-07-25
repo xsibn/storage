@@ -643,7 +643,13 @@ app.delete('/api/profile/avatar', auth.requireAuth, (req, res) => {
 
 // GET /api/users — список аккаунтов
 app.get('/api/users', auth.requirePerm('canManageUsers'), (req, res) => {
-  res.json({ users: db.listUsers().map(u => ({ ...u, roleLabel: auth.labelFor(u.role) })) });
+  res.json({
+    users: db.listUsers().map(u => ({
+      ...u,
+      roleLabel: auth.labelFor(u.role),
+      avatarUrl: u.avatar_path ? `/${u.avatar_path}` : null
+    }))
+  });
 });
 
 // POST /api/users — создать аккаунт
@@ -670,15 +676,32 @@ app.post('/api/users', auth.requirePerm('canManageUsers'), (req, res) => {
   }
 });
 
-// PATCH /api/users/:id — изменить роль и/или заблокировать/разблокировать
-app.patch('/api/users/:id', auth.requirePerm('canManageUsers'), (req, res) => {
+// PATCH /api/users/:id — изменить роль/блокировку и/или логин с именем.
+// Роль и блокировку может менять только тот, у кого есть canManageUsers.
+// А вот логин и отображаемое имя разрешено менять ещё и самому себе —
+// даже без права управления аккаунтами, чтобы любой сотрудник мог
+// поправить своё имя или логин, не обращаясь к начальнику.
+app.patch('/api/users/:id', auth.requireAuth, (req, res) => {
   const id = parseInt(req.params.id, 10);
   if (!Number.isInteger(id)) return res.status(400).json({ error: 'bad id' });
-  const { role, disabled } = req.body || {};
+  const { role, disabled, username, displayName } = req.body || {};
+  const isSelf = req.user.id === id;
+  const canManage = auth.permsFor(req.user.role).canManageUsers;
+
+  if ((role !== undefined || disabled !== undefined) && !canManage) {
+    return res.status(403).json({ error: 'Недостаточно прав для этого действия' });
+  }
+  if ((username !== undefined || displayName !== undefined) && !canManage && !isSelf) {
+    return res.status(403).json({ error: 'Недостаточно прав для этого действия' });
+  }
+
   try {
     let updated;
     if (role !== undefined) updated = db.updateUserRole(id, role);
     if (disabled !== undefined) updated = db.setUserDisabled(id, !!disabled);
+    if (username !== undefined || displayName !== undefined) {
+      updated = db.updateUserIdentity(id, { username, displayName });
+    }
     if (!updated) updated = db.getUserById(id);
     if (!updated) return res.status(404).json({ error: 'not found' });
     res.json({ user: auth.publicUser(updated) });

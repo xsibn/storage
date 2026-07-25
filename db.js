@@ -1012,6 +1012,36 @@ function setUserPasswordHash(id, passwordHash) {
   return getUserById(id);
 }
 
+// updateUserIdentity — изменить логин и/или отображаемое имя. Разрешено
+// как администратору (для любого аккаунта), так и самому пользователю
+// (для себя) — оба случая проходят через один и тот же PATCH-эндпоинт.
+// username, если передан, нормализуется так же, как при регистрации
+// (обрезка пробелов + нижний регистр) и проверяется на уникальность.
+function updateUserIdentity(id, { username, displayName }) {
+  const user = getUserById(id);
+  if (!user) throw new Error('Пользователь не найден');
+
+  let newUsername = user.username;
+  if (username !== undefined) {
+    newUsername = String(username || '').trim().toLowerCase();
+    if (!newUsername) throw new Error('Логин не может быть пустым');
+    if (newUsername !== user.username) {
+      const existing = getUserByUsername(newUsername);
+      if (existing && existing.id !== id) throw new Error('Пользователь с таким логином уже существует');
+    }
+  }
+
+  let newDisplayName = user.display_name;
+  if (displayName !== undefined) {
+    newDisplayName = String(displayName || '').trim();
+  }
+  if (!newDisplayName) newDisplayName = newUsername;
+
+  db.prepare('UPDATE users SET username = ?, display_name = ? WHERE id = ?')
+    .run(newUsername, newDisplayName, id);
+  return getUserById(id);
+}
+
 // avatarPath — просто относительный путь вида "avatars/3-a1b2c3d4.webp"
 // (или null, чтобы вернуть аватарку по умолчанию — инициалы). Сам файл
 // на диске создаёт/удаляет server.js, здесь только ссылка в БД.
@@ -1262,7 +1292,7 @@ module.exports = {
   setCurrentActor,
   listRoles, getRole, roleExists, createRole, renameRole, updateRolePerms, deleteRole,
   listUsers, getUserByUsername, getUserById, countUsers, insertUser, updateUserRole,
-  setUserPasswordHash, setUserDisabled, deleteUser, listAssignableUsers, setUserAvatar,
+  setUserPasswordHash, setUserDisabled, deleteUser, listAssignableUsers, setUserAvatar, updateUserIdentity,
   createTask, getTask, listAllTasks, listMyTasks, markMyNewTasksRead, countMyNewTasks, setMyTaskStatus, deleteTask,
   createRegistrationRequest, listRegistrationRequests, countRegistrationRequests, approveRegistrationRequest, rejectRegistrationRequest,
   createSession, getSession, deleteSession, deleteAllSessionsForUser
