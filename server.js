@@ -560,7 +560,16 @@ app.post('/api/auth/logout', (req, res) => {
 // GET /api/auth/me — кто я сейчас (для восстановления сессии на фронте)
 app.get('/api/auth/me', (req, res) => {
   if (!req.user) return res.status(401).json({ error: 'Не авторизован' });
-  res.json({ user: auth.publicUser(req.user) });
+  try {
+    res.json({ user: auth.publicUser(req.user) });
+  } catch (err) {
+    // Эта ручка — первый запрос, который делает фронт при загрузке страницы
+    // (см. auth.js: initAuth ждёт именно её). Если тут что-то бросит
+    // исключение без try/catch, ответ никогда не уйдёт, и интерфейс
+    // навечно останется на экране «подключение…».
+    console.error('/api/auth/me:', err.message);
+    res.status(500).json({ error: 'Ошибка сервера' });
+  }
 });
 
 // POST /api/auth/change-password — сменить собственный пароль

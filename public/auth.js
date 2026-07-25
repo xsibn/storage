@@ -62,10 +62,13 @@
       const payload = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(payload.error || 'Не удалось войти');
       currentUser = payload.user;
-      applyUserToUI();
+      // resolveAuthed — раньше стоял после applyUserToUI()/hideAuthScreen():
+      // ошибка рендера там навечно подвешивала window.__whenAuthed, хотя
+      // логин уже прошёл успешно на сервере.
+      resolveAuthed(currentUser);
       hideAuthScreen();
       $('auth-login-password').value = '';
-      resolveAuthed(currentUser);
+      try { applyUserToUI(); } catch (uiErr) { console.error('applyUserToUI:', uiErr); }
     } catch (err) {
       setAuthError(err.message);
     } finally {
@@ -800,17 +803,36 @@
   };
 
   // ---------- старт ----------
+  // app.js вешает всю загрузку данных на window.__whenAuthed — если этот
+  // промис никогда не резолвится, шапка навечно висит на «подключение…»,
+  // даже если сервер давно ответил. Раньше это могло случиться двумя
+  // способами:
+  //   1) сервер/БД не отвечает вовсе — fetch висел без таймаута;
+  //   2) сервер ответил (сессия валидна), но ошибка внутри applyUserToUI()
+  //      (например, из-за отсутствующего в DOM элемента) вылетала ДО
+  //      строки resolveAuthed(...) и тихо съедалась общим catch — промис
+  //      оставался висеть навсегда, хотя пользователь уже вошёл.
+  // Ниже добавлен таймаут на сам запрос, и resolveAuthed вызывается сразу
+  // после получения пользователя, а не после отрисовки UI — так ошибка
+  // рендера может испортить внешний вид профиля, но не подвесит всё
+  // приложение.
   (async function initAuth() {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 10000);
     try {
-      const res = await nativeFetch(API_BASE + '/api/auth/me');
+      const res = await nativeFetch(API_BASE + '/api/auth/me', { signal: controller.signal });
       if (res.ok) {
         const payload = await res.json();
         currentUser = payload.user;
-        applyUserToUI();
         resolveAuthed(currentUser);
+        try { applyUserToUI(); } catch (uiErr) { console.error('applyUserToUI:', uiErr); }
         return;
       }
-    } catch (_) {}
+    } catch (err) {
+      console.error('initAuth: не удалось проверить сессию:', err.message);
+    } finally {
+      clearTimeout(timer);
+    }
     showAuthScreen();
   })();
 })();
