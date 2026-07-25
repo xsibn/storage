@@ -3590,7 +3590,9 @@
       const res = await fetch(API_BASE + '/api/users/directory');
       if(!res.ok) throw new Error('Сервер вернул ошибку ' + res.status);
       const data = await res.json();
-      lastDirUsers = data.users || [];
+      // Сервисный аккаунт — служебная запись для системы, не сотрудник;
+      // не показываем его ни в списке, ни в фильтре по ролям.
+      lastDirUsers = (data.users || []).filter(u => u.role !== 'service');
       renderAccountsDirectory(lastDirUsers);
     }catch(err){
       if(wrap) wrap.innerHTML = `<div class="tasks-empty">${escHtml(err.message)}</div>`;
