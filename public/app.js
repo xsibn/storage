@@ -3280,7 +3280,7 @@
     const rowHtml = (u) => `
       <label class="assign-user-row" data-uid="${u.id}">
         <input type="checkbox" value="${u.id}">
-        <span class="au-avatar">${escHtml(initials(u.displayName))}</span>
+        <span class="au-avatar"${u.avatarUrl ? ` style="background-image:url('${escHtml(u.avatarUrl)}')"` : ''}>${u.avatarUrl ? '' : escHtml(initials(u.displayName))}</span>
         <span class="au-name">${escHtml(u.displayName)}</span>
         <span class="role">${escHtml(u.roleLabel)}</span>
       </label>

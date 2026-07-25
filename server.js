@@ -854,7 +854,8 @@ app.get('/api/tasks/assignable-users', auth.requirePerm('canManageTasks'), (req,
   res.json({
     users: db.listAssignableUsers().map(u => ({
       id: u.id, username: u.username, displayName: u.display_name || u.username,
-      role: u.role, roleLabel: auth.labelFor(u.role)
+      role: u.role, roleLabel: auth.labelFor(u.role),
+      avatarUrl: u.avatar_path ? `/${u.avatar_path}` : null
     }))
   });
 });

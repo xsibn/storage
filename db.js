@@ -1170,7 +1170,7 @@ function deleteTask(id) {
 }
 
 function listAssignableUsers() {
-  return db.prepare(`SELECT id, username, display_name, role, disabled FROM users WHERE disabled = 0 ORDER BY display_name ASC, username ASC`).all();
+  return db.prepare(`SELECT id, username, display_name, role, disabled, avatar_path FROM users WHERE disabled = 0 ORDER BY display_name ASC, username ASC`).all();
 }
 
 function setUserDisabled(id, disabled) {
