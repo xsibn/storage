@@ -3497,33 +3497,101 @@
   }
 
   // ---------- «Сотрудники»: простой список коллег и их ролей для тех, у
-  // кого нет прав на управление аккаунтами (см. #accounts-directory-panel). ----------
-  function renderAccountsDirectory(users){
+  // кого нет прав на управление аккаунтами (см. #accounts-directory-panel).
+  // Поддерживает поиск по имени/логину и фильтр по роли, с группировкой
+  // списка по ролям. ----------
+  let lastDirUsers = [];
+  let dirControlsWired = false;
+
+  function matchesDirSearch(u, term){
+    if(!term) return true;
+    const label = (u.displayName || u.username || '').toLowerCase();
+    const login = (u.username || '').toLowerCase();
+    return label.includes(term) || login.includes(term);
+  }
+
+  function fillDirRoleFilter(users){
+    const sel = document.getElementById('dir-role-filter');
+    if(!sel) return;
+    const prevValue = sel.value;
+    const seen = new Set();
+    const opts = ['<option value="">Все роли</option>'];
+    users.forEach(u => {
+      if(seen.has(u.role)) return;
+      seen.add(u.role);
+      opts.push(`<option value="${escHtml(u.role)}">${escHtml(u.roleLabel)}</option>`);
+    });
+    sel.innerHTML = opts.join('');
+    if(seen.has(prevValue)) sel.value = prevValue;
+  }
+
+  function wireDirControlsOnce(){
+    if(dirControlsWired) return;
+    const search = document.getElementById('dir-search');
+    const roleFilter = document.getElementById('dir-role-filter');
+    if(!search || !roleFilter) return;
+    dirControlsWired = true;
+    search.addEventListener('input', () => renderAccountsDirectory(lastDirUsers, { keepFilterOptions: true }));
+    roleFilter.addEventListener('change', () => renderAccountsDirectory(lastDirUsers, { keepFilterOptions: true }));
+  }
+
+  function renderAccountsDirectory(users, opts){
+    opts = opts || {};
     const wrap = document.getElementById('accounts-directory-list');
     if(!wrap) return;
     if(!users.length){
       wrap.innerHTML = '<div class="tasks-empty">Пока нет ни одного аккаунта.</div>';
       return;
     }
-    wrap.innerHTML = users.map(u => `
-      <div class="dir-row">
-        <div class="u-avatar"${u.avatarUrl ? ` style="background-image:url('${escHtml(u.avatarUrl)}')"` : ''}>${u.avatarUrl ? '' : escHtml(initials(u.displayName))}</div>
-        <div class="u-info">
-          <div class="u-name">${escHtml(u.displayName)}</div>
-          <div class="u-login">@${escHtml(u.username)}</div>
-        </div>
-        <span class="role-badge" style="background:var(--accent-soft); color:var(--accent); font-size:11px; padding:3px 9px; border-radius:999px;">${escHtml(u.roleLabel)}</span>
-      </div>
-    `).join('');
+    if(!opts.keepFilterOptions) fillDirRoleFilter(users);
+
+    const searchTerm = (document.getElementById('dir-search')?.value || '').trim().toLowerCase();
+    const roleFilterValue = document.getElementById('dir-role-filter')?.value || '';
+    const filtered = users.filter(u =>
+      matchesDirSearch(u, searchTerm) && (!roleFilterValue || u.role === roleFilterValue)
+    );
+    if(!filtered.length){
+      wrap.innerHTML = '<div class="tasks-empty">Ничего не найдено.</div>';
+      return;
+    }
+
+    // Группируем по роли, порядок категорий — по первому появлению роли в
+    // исходном списке (он приходит от сервера уже в стабильном порядке).
+    const roleOrder = [];
+    const roleLabelByKey = {};
+    users.forEach(u => {
+      if(!roleLabelByKey[u.role]){ roleLabelByKey[u.role] = u.roleLabel; roleOrder.push(u.role); }
+    });
+
+    wrap.innerHTML = roleOrder.map(roleKey => {
+      const inRole = filtered.filter(u => u.role === roleKey);
+      if(!inRole.length) return '';
+      return `
+        <div class="users-role-group">
+          <div class="users-role-heading">${escHtml(roleLabelByKey[roleKey])} <span class="users-role-count">${inRole.length}</span></div>
+          ${inRole.map(u => `
+            <div class="dir-row">
+              <div class="u-avatar"${u.avatarUrl ? ` style="background-image:url('${escHtml(u.avatarUrl)}')"` : ''}>${u.avatarUrl ? '' : escHtml(initials(u.displayName))}</div>
+              <div class="u-info">
+                <div class="u-name">${escHtml(u.displayName)}</div>
+                <div class="u-login">@${escHtml(u.username)}</div>
+              </div>
+              <span class="role-badge" style="background:var(--accent-soft); color:var(--accent); font-size:11px; padding:3px 9px; border-radius:999px;">${escHtml(u.roleLabel)}</span>
+            </div>
+          `).join('')}
+        </div>`;
+    }).join('');
   }
 
   async function loadAccountsDirectory(){
     const wrap = document.getElementById('accounts-directory-list');
     try{
+      wireDirControlsOnce();
       const res = await fetch(API_BASE + '/api/users/directory');
       if(!res.ok) throw new Error('Сервер вернул ошибку ' + res.status);
       const data = await res.json();
-      renderAccountsDirectory(data.users || []);
+      lastDirUsers = data.users || [];
+      renderAccountsDirectory(lastDirUsers);
     }catch(err){
       if(wrap) wrap.innerHTML = `<div class="tasks-empty">${escHtml(err.message)}</div>`;
     }
