@@ -169,6 +169,10 @@ const importMigrated = ensureColumn('roles', 'can_import_data', 'INTEGER NOT NUL
 if (importMigrated) {
   db.prepare(`UPDATE roles SET can_import_data = 1 WHERE key IN ('service', 'boss', 'warehouse_manager')`).run();
 }
+// «Мой журнал»: чтобы каждый видел и мог откатить именно свои действия,
+// записи журнала должны хранить id автора, а не только текстовую метку
+// внутри summary. На старых базах колонки ещё нет — добавляем миграцией.
+ensureColumn('activity_log', 'user_id', 'INTEGER');
 // Аватарки пользователей: храним не сам файл в БД, а только имя файла на
 // диске (см. public/avatars/ — отдельная папка, обработка в server.js
 // пережимает/уменьшает картинку перед сохранением, так что место на диске
@@ -236,12 +240,15 @@ function purgeOldActivity() {
 // журнала. Все вызовы db.js в рамках одного запроса синхронны, поэтому
 // между установкой актора и записью в журнал event loop не переключается
 // на другой запрос — конфликтов между параллельными запросами нет.
+// auth.js передаёт сюда объект { id, label } текущего пользователя (или
+// null, если запрос не авторизован) — id нужен, чтобы «Мой журнал» мог
+// отобрать записи именно этого пользователя, label — для подписи в тексте.
 let currentActor = null;
-function setCurrentActor(label) { currentActor = label || null; }
+function setCurrentActor(actor) { currentActor = actor || null; }
 function logActivity(action, summary, undoData) {
-  const withActor = currentActor ? `[${currentActor}] ${summary}` : summary;
-  db.prepare('INSERT INTO activity_log (action, summary, undo_data) VALUES (?, ?, ?)')
-    .run(action, withActor, undoData ? JSON.stringify(undoData) : null);
+  const withActor = currentActor ? `[${currentActor.label}] ${summary}` : summary;
+  db.prepare('INSERT INTO activity_log (action, summary, undo_data, user_id) VALUES (?, ?, ?, ?)')
+    .run(action, withActor, undoData ? JSON.stringify(undoData) : null, currentActor ? currentActor.id : null);
   purgeOldActivity();
 }
 // Also sweep once on startup, so entries older than the retention window
