@@ -3583,3 +3583,11 @@ if(themeToggleBtn) {
     });
 }
 
+// Регистрация service worker — нужна для того, чтобы Chrome и Яндекс.Браузер
+// предлагали "Установить приложение". Данные склада тут не кэшируются,
+// сервис-воркер только формально присутствует и прозрачно пропускает запросы.
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('/sw.js').catch(() => {});
+  });
+}

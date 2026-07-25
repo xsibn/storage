@@ -5,6 +5,21 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>Адресное хранение склада</title>
 <script src="/html5-qrcode.min.js" defer></script>
+
+<!-- PWA: установка как приложение (Chrome, Яндекс.Браузер) -->
+<link rel="manifest" href="/manifest.json">
+<meta name="theme-color" content="#2C5CE0">
+
+<!-- PWA: установка на iOS (Safari игнорирует manifest.json, нужны свои теги) -->
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="Склад">
+<link rel="apple-touch-icon" href="/icon-192.png">
+
+<link rel="icon" href="/favicon.ico" sizes="any">
+<link rel="icon" href="/favicon-32.png" type="image/png" sizes="32x32">
+<link rel="icon" href="/favicon-16.png" type="image/png" sizes="16x16">
+<link rel="icon" href="/icon-192.png" type="image/png" sizes="192x192">
 <style>
   :root{
     --bg: #E9ECF2;
@@ -435,14 +450,14 @@
     position:relative; margin-bottom:8px;
   }
   .assign-user-search input{
-    width:100%; box-sizing:border-box; padding:8px 10px 8px 32px;
+    width:100%; box-sizing:border-box; padding:8px 10px 8px 36px;
     border:1px solid var(--line); border-radius:8px; font-family:var(--sans);
     font-size:13px; background:var(--panel); color:var(--ink);
   }
   .assign-user-search input:focus{outline:2px solid var(--accent); outline-offset:1px;}
   .assign-user-search::before{
-    content:"🔎"; position:absolute; left:9px; top:50%; transform:translateY(-50%);
-    font-size:12px; opacity:.55; pointer-events:none;
+    content:"🔎"; position:absolute; left:10px; top:50%; transform:translateY(-50%);
+    font-size:13px; line-height:1; opacity:.55; pointer-events:none;
   }
   .assign-user-count{font-size:11px; color:var(--ink-soft); margin-bottom:6px;}
   .assign-user-list{max-height:280px; overflow-y:auto; border:1px solid var(--line); border-radius:10px; padding:5px; display:flex; flex-direction:column; gap:2px;}
@@ -898,6 +913,7 @@
   .user-row .u-info{flex:1; min-width:0;}
   .user-row .u-info .u-name{font-size:13px; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
   .user-row .u-info .u-login{font-size:11px; color:var(--ink-soft); font-family:var(--mono);}
+  .user-row .u-actions{display:flex; align-items:center; gap:6px; flex:none;}
   .user-row select{
     font-size:12px; padding:5px 6px; border-radius:6px; border:1px solid var(--line);
     background:var(--panel); color:var(--ink);
@@ -957,6 +973,7 @@
     .user-row .u-info .u-name{ white-space:normal; overflow:visible; text-overflow:clip; }
     .user-row select{ flex:1; min-width:0; }
     .user-row .icon-btn{ padding:6px 9px; }
+    .user-row .u-actions{ flex:1 1 100%; justify-content:flex-end; }
   }
   /* Скрытие функций журнала по правам роли (классы вешает auth.js на <body>) */
   body.perm-no-read-activity #activity-log-btn,
