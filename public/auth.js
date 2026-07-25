@@ -77,8 +77,11 @@
   // ---------- заявка на регистрацию ----------
   function showAuthCard(which) {
     $('auth-login-form').style.display = which === 'login' ? '' : 'none';
-    $('auth-register-form').style.display = which === 'register' ? '' : 'none';
-    $('auth-register-success').style.display = which === 'success' ? '' : 'none';
+    // Обе карточки ниже имеют в CSS явный display:none по умолчанию —
+    // сброс инлайн-стиля в '' просто вернул бы их к этому правилу и они
+    // остались бы невидимыми, поэтому при показе выставляем display явно.
+    $('auth-register-form').style.display = which === 'register' ? 'block' : 'none';
+    $('auth-register-success').style.display = which === 'success' ? 'block' : 'none';
   }
   function setRegisterError(msg) {
     const el = $('auth-register-error');
