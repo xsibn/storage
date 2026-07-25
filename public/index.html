@@ -904,6 +904,12 @@
   .user-row{
     display:flex; align-items:center; gap:10px; padding:9px 4px; border-bottom:1px solid var(--line);
   }
+  .user-row.dragging{opacity:.4;}
+  .user-row .u-drag{
+    flex:none; cursor:grab; color:var(--ink-soft); font-size:15px; line-height:1; padding:2px 2px;
+    user-select:none; touch-action:none;
+  }
+  .user-row .u-drag:active{cursor:grabbing;}
   .user-row:last-child{border-bottom:none;}
   .user-row .u-avatar{
     flex:none; width:32px; height:32px; border-radius:50%; background:var(--accent); color:#fff;
@@ -974,6 +980,7 @@
     .user-row select{ flex:1; min-width:0; }
     .user-row .icon-btn{ padding:6px 9px; }
     .user-row .u-actions{ flex:1 1 100%; justify-content:flex-end; }
+    .user-row .u-drag{ display:none; }
   }
   /* Скрытие функций журнала по правам роли (классы вешает auth.js на <body>) */
   body.perm-no-read-activity #activity-log-btn,
@@ -1304,6 +1311,9 @@
             <div id="nu-error" class="full" style="display:none; color:var(--danger); font-size:12px;"></div>
             <button type="submit" class="btn primary full" id="nu-submit">+ Создать аккаунт</button>
           </form>
+          <div class="assign-user-search" style="margin-top:12px;">
+            <input type="text" id="users-search" placeholder="Поиск по имени, логину или роли…" autocomplete="off">
+          </div>
           <div id="users-list"></div>
         </div>
         <div id="users-panel-roles" style="display:none;">
@@ -1346,15 +1356,7 @@
     </button>
   </nav>
 
-  <footer class="upload-hint">
-    <div>Подробнее ознакомиться с возможностями</div>
-    <a class="btn" href="https://github.com/xsibn/storage" target="_blank" rel="noopener" style="display:inline-flex; align-items:center; gap:7px; margin-top:12px; text-decoration:none; width:fit-content;">
-      <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8z"/></svg>
-      GitHub
-    </a>
-  </footer>
 
-  <div id="drawer-backdrop"></div>
   <div id="drawer">
     <div class="dh"><h3 id="drawer-title">Ячейка</h3><button id="drawer-close">✕</button></div>
     <div class="db" id="drawer-body"></div>
@@ -1378,6 +1380,12 @@
         <button type="button" id="pp-edit-identity">✏ <span>Изменить имя и логин</span></button>
         <button type="button" id="pp-change-password">🔑 <span>Сменить пароль</span></button>
         <button type="button" id="pp-manage-users" style="display:none;">👥 <span>Пользователи и роли</span></button>
+      </div>
+      <div class="pp-list" id="pp-github-wrap" style="display:none;">
+        <a href="https://github.com/xsibn/storage" target="_blank" rel="noopener" id="pp-github-link" style="display:flex; align-items:center; gap:8px; text-decoration:none;">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8z"/></svg>
+          <span>GitHub</span>
+        </a>
       </div>
       <div class="pp-list">
         <button type="button" class="danger" id="pp-logout">↪ <span>Выйти</span></button>
