@@ -904,6 +904,12 @@
   .user-row{
     display:flex; align-items:center; gap:10px; padding:9px 4px; border-bottom:1px solid var(--line);
   }
+  .user-row.dragging{opacity:.4;}
+  .user-row .u-drag{
+    flex:none; cursor:grab; color:var(--ink-soft); font-size:15px; line-height:1; padding:2px 2px;
+    user-select:none; touch-action:none;
+  }
+  .user-row .u-drag:active{cursor:grabbing;}
   .user-row:last-child{border-bottom:none;}
   .user-row .u-avatar{
     flex:none; width:32px; height:32px; border-radius:50%; background:var(--accent); color:#fff;
@@ -974,6 +980,7 @@
     .user-row select{ flex:1; min-width:0; }
     .user-row .icon-btn{ padding:6px 9px; }
     .user-row .u-actions{ flex:1 1 100%; justify-content:flex-end; }
+    .user-row .u-drag{ display:none; }
   }
   /* Скрытие функций журнала по правам роли (классы вешает auth.js на <body>) */
   body.perm-no-read-activity #activity-log-btn,
@@ -1304,6 +1311,9 @@
             <div id="nu-error" class="full" style="display:none; color:var(--danger); font-size:12px;"></div>
             <button type="submit" class="btn primary full" id="nu-submit">+ Создать аккаунт</button>
           </form>
+          <div class="assign-user-search" style="margin-top:12px;">
+            <input type="text" id="users-search" placeholder="Поиск по имени, логину или роли…" autocomplete="off">
+          </div>
           <div id="users-list"></div>
         </div>
         <div id="users-panel-roles" style="display:none;">
