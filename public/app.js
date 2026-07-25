@@ -849,7 +849,7 @@
       title: 'Справка · Задания',
       items: [
         '«Мои задания» — то, что назначили лично вам; отмечайте статус по ходу выполнения.',
-        'Если у вас есть право ставить задания — ниже появится ещё и панель «Все задания команды» с кнопкой «+ Новое задание», чтобы назначить работу сотрудникам.'
+        { perm: 'canManageTasks', text: 'Ниже — панель «Все задания команды» с кнопкой «+ Новое задание», чтобы назначить работу сотрудникам.' }
       ]
     },
     chats: {
@@ -864,7 +864,7 @@
       title: 'Справка · Аккаунты',
       items: [
         '«Сотрудники» — общий список всех, кто есть в системе, с ролями; доступен поиск и фильтр по роли.',
-        'Если у вас есть право управлять аккаунтами — дополнительно видны «Заявки на регистрацию» (одобрить с выбором роли или отклонить) и «Пользователи и роли» (создать аккаунт, назначить роль, а во вкладке «🏷 Роли» — завести свою роль с нужным набором прав).'
+        { perm: 'canManageUsers', text: 'Ниже — «Заявки на регистрацию» (одобрить с выбором роли или отклонить) и «Пользователи и роли» (создать аккаунт, назначить роль, а во вкладке «🏷 Роли» — завести свою роль с нужным набором прав).' }
       ]
     }
   };
@@ -872,8 +872,12 @@
     const active = document.querySelector('nav.tabs button.active');
     const view = (active && active.dataset.view) || 'map';
     const help = HELP_CONTENT[view] || HELP_CONTENT.map;
+    const perms = (window.__currentUser && window.__currentUser.perms) || {};
+    const items = help.items
+      .filter(it => typeof it === 'string' || perms[it.perm])
+      .map(it => typeof it === 'string' ? it : it.text);
     const body = `<ul style="margin:0; padding-left:20px; display:flex; flex-direction:column; gap:8px; font-size:13px; line-height:1.5;">${
-      help.items.map(t => `<li>${escHtml(t)}</li>`).join('')
+      items.map(t => `<li>${escHtml(t)}</li>`).join('')
     }</ul>`;
     openModal(help.title, body, '<button class="btn" id="help-close-btn">Закрыть</button>');
     document.getElementById('help-close-btn').addEventListener('click', closeModal);
@@ -1125,6 +1129,7 @@
     }
   }
   document.getElementById('activity-log-btn').addEventListener('click', openActivityLog);
+  document.getElementById('bn-journal-btn').addEventListener('click', openActivityLog);
 
   // ---------- Мой журнал (свои действия, доступно всем — без прав на общий журнал) ----------
   async function undoMyActivityEntry(id, isLatest){

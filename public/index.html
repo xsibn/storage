@@ -680,6 +680,13 @@
     .stat .lbl{font-size:8.5px;}
     #sync-status{display:none;}
     header .btn{padding:8px 10px; font-size:12px;}
+    /* На телефоне синк полностью автоматический — отдельная кнопка не
+       нужна и только занимает место; «Журнал» переезжает в нижний навбар
+       (см. #bn-journal-btn), поэтому здесь его прячем. «Мой журнал»
+       оставляем — он нужен ровно тем ролям, кому доступа к общему журналу
+       не хватает (или не хватает прав на управление им), и не должен
+       превращать нижний навбар в ещё одну перегруженную панель. */
+    #sync-btn, #activity-log-btn{display:none !important;}
 
     nav.tabs{overflow-x:auto; -webkit-overflow-scrolling:touch; padding:0 12px; scrollbar-width:none; border-radius:10px;}
     nav.tabs::-webkit-scrollbar{display:none;}
@@ -1069,7 +1076,8 @@
   }
   /* Скрытие функций журнала по правам роли (классы вешает auth.js на <body>) */
   body.perm-no-read-activity #activity-log-btn,
-  body.perm-no-read-activity #undo-btn{display:none !important;}
+  body.perm-no-read-activity #undo-btn,
+  body.perm-no-read-activity #bn-journal-btn{display:none !important;}
   /* «Мой журнал» скрываем только тем, у кого есть ОБА права на общий журнал —
      и читать, и управлять (отменять/удалять записи): для них общий журнал
      полностью дублирует «свой», включая возможность отката. Роли вроде
@@ -1487,6 +1495,9 @@
     <button type="button" class="bn-btn" data-bn="chats">
       <span class="bn-icon">💬</span><span class="bn-label">Чаты</span>
       <span class="bn-badge" id="bn-chats-badge" style="display:none;"></span>
+    </button>
+    <button type="button" class="bn-btn" id="bn-journal-btn">
+      <span class="bn-icon">📋</span><span class="bn-label">Журнал</span>
     </button>
     <button type="button" class="bn-btn" data-bn="accounts">
       <span class="bn-icon">👥</span><span class="bn-label" id="bn-accounts-label">Аккаунты</span>
