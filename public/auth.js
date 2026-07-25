@@ -365,52 +365,135 @@
       `</select>`;
   }
 
-  async function renderUsersList() {
+  // Полный (нефильтрованный) список пользователей — от него зависит, что
+  // именно значит "переместить вверх/вниз": стрелки всегда переставляют
+  // соседей в РЕАЛЬНОМ порядке, даже если сейчас применён поиск и на экране
+  // видна только часть строк. Кэшируется здесь же, чтобы фильтрация по
+  // поиску не дёргала сеть на каждое нажатие клавиши.
+  let lastUsersFull = [];
+  let lastRoles = [];
+
+  function matchesUsersSearch(u, term) {
+    if (!term) return true;
+    const label = (u.display_name || u.username || '').toLowerCase();
+    const login = (u.username || '').toLowerCase();
+    return label.includes(term) || login.includes(term);
+  }
+
+  // Найти ближайшего соседа той же роли в ПОЛНОМ списке (в одну или другую
+  // сторону) — так стрелки ↑/↓ переставляют пользователя только в пределах
+  // его категории по роли, не трогая порядок других ролей.
+  function sameRoleNeighborIndex(users, idx, dir) {
+    const role = users[idx].role;
+    for (let j = idx + dir; j >= 0 && j < users.length; j += dir) {
+      if (users[j].role === role) return j;
+    }
+    return -1;
+  }
+
+  function renderUserRowHtml(u, roles, users) {
+    const isService = u.role === 'service';
+    const isSelf = currentUser && u.id === currentUser.id;
+    const label = u.display_name || u.username;
+    const avatarInner = u.avatarUrl
+      ? ''
+      : escHtml(initials(label));
+    const avatarStyle = u.avatarUrl ? ` style="background-image:url('${escHtml(u.avatarUrl)}')"` : '';
+    const fullIdx = users.findIndex(x => x.id === u.id);
+    const canMoveUp = !isService && sameRoleNeighborIndex(users, fullIdx, -1) !== -1;
+    const canMoveDown = !isService && sameRoleNeighborIndex(users, fullIdx, 1) !== -1;
+    return `
+    <div class="user-row ${u.disabled ? 'disabled' : ''}" data-id="${u.id}">
+      <div class="u-order-actions">
+        <button type="button" class="icon-btn" data-action="move-up" title="Переместить вверх" ${canMoveUp ? '' : 'disabled'}>↑</button>
+        <button type="button" class="icon-btn" data-action="move-down" title="Переместить вниз" ${canMoveDown ? '' : 'disabled'}>↓</button>
+      </div>
+      <div class="u-avatar"${avatarStyle}>${avatarInner}</div>
+      <div class="u-info">
+        <div class="u-view">
+          <div class="u-name">${escHtml(label)}${isSelf ? ' <span style="color:var(--ink-soft); font-weight:400;">(вы)</span>' : ''}</div>
+          <div class="u-login">@${escHtml(u.username)}</div>
+        </div>
+        <div class="u-edit">
+          <input type="text" class="u-edit-name" value="${escHtml(u.display_name || '')}" placeholder="Имя">
+          <input type="text" class="u-edit-login" value="${escHtml(u.username)}" placeholder="Логин">
+          <div class="u-edit-error" style="display:none;"></div>
+        </div>
+      </div>
+      ${isService ? `<span class="role-badge" style="background:var(--accent-soft); color:var(--accent); font-size:11px; padding:3px 9px; border-radius:999px;">${escHtml(u.roleLabel)}</span>`
+        : roleSelectHtml(roles, u.role, false)}
+      <div class="u-actions">
+        ${!isService ? `<button type="button" class="icon-btn" data-action="edit-identity" title="Изменить логин и имя">✏</button>` : ''}
+        <button type="button" class="icon-btn edit-save-btn" data-action="save-identity" title="Сохранить">💾</button>
+        <button type="button" class="icon-btn edit-cancel-btn" data-action="cancel-identity" title="Отмена">✕</button>
+        ${!isService ? `<button type="button" class="icon-btn" data-action="reset-pw" title="Сбросить пароль">🔑</button>` : ''}
+        ${!isService ? `<button type="button" class="icon-btn" data-action="toggle-disabled" title="${u.disabled ? 'Разблокировать' : 'Заблокировать'}">${u.disabled ? '✅' : '⛔'}</button>` : ''}
+        ${!isService && !isSelf ? `<button type="button" class="icon-btn danger" data-action="delete" title="Удалить">🗑</button>` : ''}
+      </div>
+    </div>`;
+  }
+
+  function renderUsersRows(users, roles) {
     const listEl = $('users-list');
     if (!listEl) return;
-    listEl.innerHTML = '<div style="padding:10px; color:var(--ink-soft); font-size:12.5px;">Загрузка…</div>';
-    try {
-      const [users, roles] = await Promise.all([loadUsers(), loadRoles()]);
-      if (!users.length) {
-        listEl.innerHTML = '<div style="padding:10px; color:var(--ink-soft); font-size:12.5px;">Пока нет ни одного аккаунта.</div>';
-        return;
-      }
-      listEl.innerHTML = users.map(u => {
-        const isService = u.role === 'service';
-        const isSelf = currentUser && u.id === currentUser.id;
-        const label = u.display_name || u.username;
-        const avatarInner = u.avatarUrl
-          ? ''
-          : escHtml(initials(label));
-        const avatarStyle = u.avatarUrl ? ` style="background-image:url('${escHtml(u.avatarUrl)}')"` : '';
-        return `
-        <div class="user-row ${u.disabled ? 'disabled' : ''}" data-id="${u.id}">
-          <div class="u-avatar"${avatarStyle}>${avatarInner}</div>
-          <div class="u-info">
-            <div class="u-view">
-              <div class="u-name">${escHtml(label)}${isSelf ? ' <span style="color:var(--ink-soft); font-weight:400;">(вы)</span>' : ''}</div>
-              <div class="u-login">@${escHtml(u.username)}</div>
-            </div>
-            <div class="u-edit">
-              <input type="text" class="u-edit-name" value="${escHtml(u.display_name || '')}" placeholder="Имя">
-              <input type="text" class="u-edit-login" value="${escHtml(u.username)}" placeholder="Логин">
-              <div class="u-edit-error" style="display:none;"></div>
-            </div>
-          </div>
-          ${isService ? `<span class="role-badge" style="background:var(--accent-soft); color:var(--accent); font-size:11px; padding:3px 9px; border-radius:999px;">${escHtml(u.roleLabel)}</span>`
-            : roleSelectHtml(roles, u.role, false)}
-          <div class="u-actions">
-            ${!isService ? `<button type="button" class="icon-btn" data-action="edit-identity" title="Изменить логин и имя">✏</button>` : ''}
-            <button type="button" class="icon-btn edit-save-btn" data-action="save-identity" title="Сохранить">💾</button>
-            <button type="button" class="icon-btn edit-cancel-btn" data-action="cancel-identity" title="Отмена">✕</button>
-            ${!isService ? `<button type="button" class="icon-btn" data-action="reset-pw" title="Сбросить пароль">🔑</button>` : ''}
-            ${!isService ? `<button type="button" class="icon-btn" data-action="toggle-disabled" title="${u.disabled ? 'Разблокировать' : 'Заблокировать'}">${u.disabled ? '✅' : '⛔'}</button>` : ''}
-            ${!isService && !isSelf ? `<button type="button" class="icon-btn danger" data-action="delete" title="Удалить">🗑</button>` : ''}
-          </div>
-        </div>`;
-      }).join('');
+    const searchTerm = ($('users-search') && $('users-search').value.trim().toLowerCase()) || '';
+    const filtered = users.filter(u => matchesUsersSearch(u, searchTerm));
+    if (!users.length) {
+      listEl.innerHTML = '<div style="padding:10px; color:var(--ink-soft); font-size:12.5px;">Пока нет ни одного аккаунта.</div>';
+      return;
+    }
+    if (!filtered.length) {
+      listEl.innerHTML = '<div style="padding:10px; color:var(--ink-soft); font-size:12.5px;">Ничего не найдено.</div>';
+      return;
+    }
+    // Группируем по роли — порядок категорий берём из списка ролей (тот же,
+    // что и в выпадающих списках: сервисная роль первая, дальше по порядку
+    // создания), внутри категории сохраняется порядок из общего списка.
+    const roleLabelByKey = {};
+    roles.forEach(r => { roleLabelByKey[r.key] = r.label; });
+    const roleOrder = roles.map(r => r.key);
+    filtered.forEach(u => { if (!roleOrder.includes(u.role)) roleOrder.push(u.role); });
 
-      listEl.querySelectorAll('.user-row').forEach(row => {
+    listEl.innerHTML = roleOrder.map(roleKey => {
+      const usersInRole = filtered.filter(u => u.role === roleKey);
+      if (!usersInRole.length) return '';
+      const heading = escHtml(roleLabelByKey[roleKey] || usersInRole[0].roleLabel || roleKey);
+      return `
+        <div class="users-role-group">
+          <div class="users-role-heading">${heading} <span class="users-role-count">${usersInRole.length}</span></div>
+          ${usersInRole.map(u => renderUserRowHtml(u, roles, users)).join('')}
+        </div>`;
+    }).join('');
+
+    listEl.querySelectorAll('[data-action="move-up"], [data-action="move-down"]').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        if (btn.disabled) return;
+        const row = btn.closest('.user-row');
+        const id = Number(row.dataset.id);
+        const idx = lastUsersFull.findIndex(x => x.id === id);
+        if (idx === -1) return;
+        const swapWith = sameRoleNeighborIndex(lastUsersFull, idx, btn.dataset.action === 'move-up' ? -1 : 1);
+        if (swapWith === -1) return;
+        const reordered = lastUsersFull.slice();
+        [reordered[idx], reordered[swapWith]] = [reordered[swapWith], reordered[idx]];
+        const order = reordered.map(u => u.id);
+        btn.disabled = true;
+        try {
+          const res = await fetch(`${API_BASE}/api/users/reorder`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ order })
+          });
+          const payload = await res.json().catch(() => ({}));
+          if (!res.ok) throw new Error(payload.error || 'Не удалось изменить порядок');
+        } catch (err) {
+          alert(err.message);
+        } finally {
+          renderUsersList();
+        }
+      });
+    });
+
+    listEl.querySelectorAll('.user-row').forEach(row => {
         const id = row.dataset.id;
         const select = row.querySelector('.u-role-select');
         if (select) {
@@ -496,6 +579,29 @@
           });
         });
       });
+  }
+
+  let usersSearchWired = false;
+  function wireUsersSearchOnce() {
+    if (usersSearchWired) return;
+    const input = $('users-search');
+    if (!input) return;
+    usersSearchWired = true;
+    input.addEventListener('input', () => renderUsersRows(lastUsersFull, lastRoles));
+  }
+
+  async function renderUsersList() {
+    const listEl = $('users-list');
+    if (!listEl) return;
+    wireUsersSearchOnce();
+    listEl.innerHTML = '<div style="padding:10px; color:var(--ink-soft); font-size:12.5px;">Загрузка…</div>';
+    try {
+      const [users, roles] = await Promise.all([loadUsers(), loadRoles()]);
+      // Сервисный аккаунт — служебная запись для самой системы, не сотрудник;
+      // в списке управления пользователями его не показываем.
+      lastUsersFull = users.filter(u => u.role !== 'service');
+      lastRoles = roles;
+      renderUsersRows(lastUsersFull, roles);
     } catch (err) {
       listEl.innerHTML = `<div style="padding:10px; color:var(--danger); font-size:12.5px;">${escHtml(err.message)}</div>`;
     }

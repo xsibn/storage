@@ -670,6 +670,20 @@ app.get('/api/users', auth.requirePerm('canManageUsers'), (req, res) => {
   });
 });
 
+// POST /api/users/reorder — сохранить порядок пользователей в списке
+// (перемещение стрелками вверх/вниз в панели «Пользователи и роли»).
+// Принимает полный список id в новом порядке.
+app.post('/api/users/reorder', auth.requirePerm('canManageUsers'), (req, res) => {
+  const { order } = req.body || {};
+  if (!Array.isArray(order)) return res.status(400).json({ error: 'поле "order" должно быть массивом id' });
+  try {
+    const users = db.reorderUsers(order);
+    res.json({ users: users.map(u => ({ ...u, roleLabel: auth.labelFor(u.role), avatarUrl: u.avatar_path ? `/${u.avatar_path}` : null })) });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
 // POST /api/users — создать аккаунт
 app.post('/api/users', auth.requirePerm('canManageUsers'), (req, res) => {
   const { username, displayName, password, role } = req.body || {};

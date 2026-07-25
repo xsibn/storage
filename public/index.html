@@ -914,6 +914,19 @@
   .user-row .u-info .u-name{font-size:13px; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
   .user-row .u-info .u-login{font-size:11px; color:var(--ink-soft); font-family:var(--mono);}
   .user-row .u-actions{display:flex; align-items:center; gap:6px; flex:none;}
+  .users-role-group + .users-role-group{margin-top:6px;}
+  .users-role-heading{
+    display:flex; align-items:center; gap:8px;
+    font-size:11.5px; font-weight:700; text-transform:uppercase; letter-spacing:.03em;
+    color:var(--ink-soft); padding:10px 4px 4px;
+  }
+  .users-role-count{
+    background:var(--panel-2, var(--line)); color:var(--ink-soft);
+    font-size:10.5px; font-weight:600; padding:1px 7px; border-radius:999px;
+  }
+  .user-row .u-order-actions{display:flex; flex-direction:column; gap:2px; flex:none;}
+  .user-row .u-order-actions .icon-btn{padding:1px 6px; line-height:1.3; font-size:11px;}
+  .user-row .u-order-actions .icon-btn:disabled{opacity:.3; cursor:default;}
   .user-row select{
     font-size:12px; padding:5px 6px; border-radius:6px; border:1px solid var(--line);
     background:var(--panel); color:var(--ink);
@@ -1304,6 +1317,7 @@
             <div id="nu-error" class="full" style="display:none; color:var(--danger); font-size:12px;"></div>
             <button type="submit" class="btn primary full" id="nu-submit">+ Создать аккаунт</button>
           </form>
+          <input type="text" id="users-search" placeholder="Поиск по имени или логину…" style="width:100%; box-sizing:border-box; padding:8px 10px; border:1px solid var(--line); border-radius:8px; font-size:13px; background:var(--panel); color:var(--ink); margin:12px 0;">
           <div id="users-list"></div>
         </div>
         <div id="users-panel-roles" style="display:none;">

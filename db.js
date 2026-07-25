@@ -66,7 +66,8 @@ db.exec(`
     role          TEXT NOT NULL DEFAULT 'employee',
     created_at    TEXT NOT NULL DEFAULT (datetime('now')),
     created_by    TEXT,
-    disabled      INTEGER NOT NULL DEFAULT 0
+    disabled      INTEGER NOT NULL DEFAULT 0,
+    sort_order    INTEGER
   );
 
   CREATE TABLE IF NOT EXISTS sessions (
@@ -147,6 +148,16 @@ if (importMigrated) {
 // пережимает/уменьшает картинку перед сохранением, так что место на диске
 // не разрастается от исходников в несколько мегабайт).
 ensureColumn('users', 'avatar_path', 'TEXT');
+
+// Порядок пользователей в списке управления — свободно задаваемый вручную
+// (перетаскиванием/кнопками), а не только по id/алфавиту. На новой базе
+// колонка сразу создаётся через CREATE TABLE ниже; на существующей —
+// заполняем её текущим порядком по id, чтобы после миграции ничего не
+// «прыгнуло» местами.
+const sortOrderMigrated = ensureColumn('users', 'sort_order', 'INTEGER');
+if (sortOrderMigrated) {
+  db.prepare('UPDATE users SET sort_order = id WHERE sort_order IS NULL').run();
+}
 
 // Базовые роли — создаются один раз при первом запуске (INSERT OR IGNORE),
 // дальше их можно свободно переименовывать и менять права через API/CLI;
@@ -976,7 +987,28 @@ function deleteRole(key) {
 }
 
 function listUsers() {
-  return db.prepare('SELECT id, username, display_name, role, created_at, created_by, disabled, avatar_path FROM users ORDER BY id ASC').all();
+  return db.prepare('SELECT id, username, display_name, role, created_at, created_by, disabled, avatar_path, sort_order FROM users ORDER BY COALESCE(sort_order, id) ASC, id ASC').all();
+}
+
+// reorderUsers — сохранить порядок, заданный вручную (кнопками вверх/вниз)
+// в панели «Пользователи и роли». `order` должен быть перестановкой уже
+// существующих id — лишние/пропущенные id игнорируются молча (страховка от
+// рассинхронизации со списком на клиенте), но ни один пользователь не
+// теряется: все, кого нет в `order`, сохраняют текущее относительное
+// положение и уходят в конец списка.
+function reorderUsers(order) {
+  const all = listUsers();
+  const known = new Set(all.map(u => u.id));
+  const cleanOrder = (order || []).map(Number).filter(id => known.has(id));
+  const seen = new Set(cleanOrder);
+  const rest = all.map(u => u.id).filter(id => !seen.has(id));
+  const finalOrder = [...cleanOrder, ...rest];
+  const stmt = db.prepare('UPDATE users SET sort_order = ? WHERE id = ?');
+  const tx = db.transaction((ids) => {
+    ids.forEach((id, idx) => stmt.run(idx + 1, id));
+  });
+  tx(finalOrder);
+  return listUsers();
 }
 
 function getUserByUsername(username) {
@@ -997,8 +1029,9 @@ function insertUser({ username, displayName, passwordHash, role, createdBy }) {
   if (!roleExists(role)) throw new Error('Некорректная роль');
   const existing = getUserByUsername(uname);
   if (existing) throw new Error('Пользователь с таким логином уже существует');
-  const info = db.prepare('INSERT INTO users (username, display_name, password_hash, role, created_by) VALUES (?, ?, ?, ?, ?)')
-    .run(uname, displayName || uname, passwordHash, role, createdBy || null);
+  const maxOrder = db.prepare('SELECT MAX(sort_order) AS m FROM users').get().m || 0;
+  const info = db.prepare('INSERT INTO users (username, display_name, password_hash, role, created_by, sort_order) VALUES (?, ?, ?, ?, ?, ?)')
+    .run(uname, displayName || uname, passwordHash, role, createdBy || null, maxOrder + 1);
   return getUserById(info.lastInsertRowid);
 }
 
@@ -1301,7 +1334,7 @@ module.exports = {
   ensureZonesFromData, listZones, createZone, renameZone, setZoneIsolate, deleteZone,
   setCurrentActor,
   listRoles, getRole, roleExists, createRole, renameRole, updateRolePerms, deleteRole,
-  listUsers, getUserByUsername, getUserById, countUsers, insertUser, updateUserRole,
+  listUsers, reorderUsers, getUserByUsername, getUserById, countUsers, insertUser, updateUserRole,
   setUserPasswordHash, setUserDisabled, deleteUser, listAssignableUsers, setUserAvatar, updateUserIdentity,
   createTask, getTask, listAllTasks, listMyTasks, markMyNewTasksRead, countMyNewTasks, setMyTaskStatus, deleteTask,
   createRegistrationRequest, listRegistrationRequests, countRegistrationRequests, approveRegistrationRequest, rejectRegistrationRequest,
