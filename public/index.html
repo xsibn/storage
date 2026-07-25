@@ -394,6 +394,8 @@
     border:2px solid var(--panel); box-sizing:content-box;
   }
   body.perm-no-manage-tasks #manage-tasks-panel{display:none !important;}
+  body.perm-no-import-data label[for="file-input"],
+  body.perm-no-import-data #file-input{display:none !important;}
   /* "Аккаунты" теперь доступен всем — заявки на регистрацию и управление
      аккаунтами/ролями видны только тем, у кого есть canManageUsers;
      остальные видят вместо этого простой список коллег с ролями
@@ -1073,7 +1075,7 @@
     <button data-view="zones">Служебные зоны</button>
     <button data-view="reco">Рекомендация пикинга</button>
     <button data-view="tasks">📋 Задания<span class="tab-badge" id="tasks-badge" style="display:none;"></span></button>
-    <button data-view="accounts">👥 Аккаунты<span class="tab-badge" id="accounts-badge" style="display:none;"></span></button>
+    <button data-view="accounts"><span id="nav-accounts-label">👥 Аккаунты</span><span class="tab-badge" id="accounts-badge" style="display:none;"></span></button>
   </nav>
 
   <main>
@@ -1296,6 +1298,7 @@
               <label style="display:flex; align-items:center; gap:6px; font-size:12px; font-weight:400;"><input type="checkbox" id="nr-perm-manage-activity"> Очищать/отменять в журнале</label>
               <label style="display:flex; align-items:center; gap:6px; font-size:12px; font-weight:400;"><input type="checkbox" id="nr-perm-read-activity"> Видеть журнал</label>
               <label style="display:flex; align-items:center; gap:6px; font-size:12px; font-weight:400;"><input type="checkbox" id="nr-perm-tasks"> Ставить задания сотрудникам</label>
+              <label style="display:flex; align-items:center; gap:6px; font-size:12px; font-weight:400;"><input type="checkbox" id="nr-perm-import"> Импортировать данные</label>
             </div>
             <div id="nr-error" class="full" style="display:none; color:var(--danger); font-size:12px;"></div>
             <button type="submit" class="btn primary full">+ Добавить роль</button>
@@ -1318,7 +1321,7 @@
       <span class="bn-badge" id="bn-tasks-badge" style="display:none;"></span>
     </button>
     <button type="button" class="bn-btn" data-bn="accounts">
-      <span class="bn-icon">👥</span><span class="bn-label">Аккаунты</span>
+      <span class="bn-icon">👥</span><span class="bn-label" id="bn-accounts-label">Аккаунты</span>
       <span class="bn-badge" id="bn-accounts-badge" style="display:none;"></span>
     </button>
     <button type="button" class="bn-btn" id="bn-profile-btn">

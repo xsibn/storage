@@ -67,7 +67,8 @@ function clearSessionCookie(res) {
 //   canReadActivity      — видеть журнал (хотя бы для чтения)
 //   canManageTasks       — ставить задания сотрудникам (создавать/удалять,
 //                          видеть прогресс по всей команде)
-const EMPTY_PERMS = { canManageUsers: false, canManageActivity: false, canReadActivity: false, canManageTasks: false };
+//   canImportData        — загружать новый .xlsx, полностью заменяя сток
+const EMPTY_PERMS = { canManageUsers: false, canManageActivity: false, canReadActivity: false, canManageTasks: false, canImportData: false };
 
 function permsFor(roleKey) {
   const role = db.getRole(roleKey);

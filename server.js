@@ -445,7 +445,7 @@ app.post('/api/records/swap-racks', (req, res) => {
 });
 
 // POST /api/import — загрузка нового .xlsx: полностью заменяет текущие данные в базе
-app.post('/api/import', upload.single('file'), (req, res) => {
+app.post('/api/import', auth.requirePerm('canImportData'), upload.single('file'), (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'file is required (field name "file")' });
   try {
     const wb = XLSX.read(req.file.buffer, { type: 'buffer', cellDates: true });

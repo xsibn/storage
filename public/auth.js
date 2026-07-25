@@ -156,6 +156,15 @@
     document.body.classList.toggle('perm-no-manage-activity', !currentUser.perms.canManageActivity);
     document.body.classList.toggle('perm-no-manage-tasks', !currentUser.perms.canManageTasks);
     document.body.classList.toggle('perm-no-manage-users', !currentUser.perms.canManageUsers);
+    document.body.classList.toggle('perm-no-import-data', !currentUser.perms.canImportData);
+
+    // Для тех, у кого нет прав на управление аккаунтами, раздел показывает
+    // только список коллег и их ролей — переименовываем пункт меню, чтобы
+    // это было понятно сразу, не открывая его.
+    const accountsLabel = currentUser.perms.canManageUsers ? '👥 Аккаунты' : '👥 Сотрудники';
+    const bnAccountsLabel = currentUser.perms.canManageUsers ? 'Аккаунты' : 'Сотрудники';
+    if ($('nav-accounts-label')) $('nav-accounts-label').textContent = accountsLabel;
+    if ($('bn-accounts-label')) $('bn-accounts-label').textContent = bnAccountsLabel;
   }
 
   function openProfilePage() {
@@ -505,7 +514,8 @@
       ['canManageUsers', 'Управлять аккаунтами и ролями'],
       ['canManageActivity', 'Очищать журнал и отменять действия'],
       ['canReadActivity', 'Видеть журнал (чтение)'],
-      ['canManageTasks', 'Ставить задания сотрудникам']
+      ['canManageTasks', 'Ставить задания сотрудникам'],
+      ['canImportData', 'Импортировать данные (загружать новый файл)']
     ];
     return rows.map(([key, label]) => `
       <label style="display:flex; align-items:center; gap:6px; font-size:12px; font-weight:400; padding:4px 0;">
@@ -615,7 +625,8 @@
         canManageUsers: $('nr-perm-users').checked,
         canManageActivity: $('nr-perm-manage-activity').checked,
         canReadActivity: $('nr-perm-read-activity').checked,
-        canManageTasks: $('nr-perm-tasks').checked
+        canManageTasks: $('nr-perm-tasks').checked,
+        canImportData: $('nr-perm-import').checked
       };
       try {
         const res = await fetch(API_BASE + '/api/roles', {

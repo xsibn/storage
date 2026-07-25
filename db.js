@@ -83,6 +83,7 @@ db.exec(`
     can_manage_activity  INTEGER NOT NULL DEFAULT 0,
     can_read_activity    INTEGER NOT NULL DEFAULT 0,
     can_manage_tasks     INTEGER NOT NULL DEFAULT 0,
+    can_import_data      INTEGER NOT NULL DEFAULT 0,
     is_system            INTEGER NOT NULL DEFAULT 0,
     created_at           TEXT NOT NULL DEFAULT (datetime('now'))
   );
@@ -133,6 +134,14 @@ if (rolesMigrated) {
   // соответствует «завсклад и все роли выше».
   db.prepare(`UPDATE roles SET can_manage_tasks = 1 WHERE key IN ('service', 'boss', 'warehouse_manager')`).run();
 }
+// Право «Импортировать данные» — раньше загрузить новый .xlsx (полностью
+// заменив сток) мог кто угодно из вошедших, отдельного права не было. При
+// добавлении колонки на уже существующей базе включаем его тем же ролям,
+// что и «ставить задания» — обычным сотрудникам импорт остаётся недоступен.
+const importMigrated = ensureColumn('roles', 'can_import_data', 'INTEGER NOT NULL DEFAULT 0');
+if (importMigrated) {
+  db.prepare(`UPDATE roles SET can_import_data = 1 WHERE key IN ('service', 'boss', 'warehouse_manager')`).run();
+}
 // Аватарки пользователей: храним не сам файл в БД, а только имя файла на
 // диске (см. public/avatars/ — отдельная папка, обработка в server.js
 // пережимает/уменьшает картинку перед сохранением, так что место на диске
@@ -145,12 +154,12 @@ ensureColumn('users', 'avatar_path', 'TEXT');
 // "service" — системная роль, отмечена is_system: её нельзя удалить и её
 // права всегда остаются полными (гарантия, что доступ к системе не потеряют).
 const DEFAULT_ROLES = [
-  { key: 'service', label: 'Сервисный аккаунт', canManageUsers: 1, canManageActivity: 1, canReadActivity: 1, canManageTasks: 1, isSystem: 1 },
-  { key: 'boss', label: 'Начальник', canManageUsers: 1, canManageActivity: 1, canReadActivity: 1, canManageTasks: 1, isSystem: 0 },
-  { key: 'warehouse_manager', label: 'Завсклад', canManageUsers: 0, canManageActivity: 0, canReadActivity: 1, canManageTasks: 1, isSystem: 0 },
-  { key: 'employee', label: 'Сотрудник', canManageUsers: 0, canManageActivity: 0, canReadActivity: 0, canManageTasks: 0, isSystem: 0 }
+  { key: 'service', label: 'Сервисный аккаунт', canManageUsers: 1, canManageActivity: 1, canReadActivity: 1, canManageTasks: 1, canImportData: 1, isSystem: 1 },
+  { key: 'boss', label: 'Начальник', canManageUsers: 1, canManageActivity: 1, canReadActivity: 1, canManageTasks: 1, canImportData: 1, isSystem: 0 },
+  { key: 'warehouse_manager', label: 'Завсклад', canManageUsers: 0, canManageActivity: 0, canReadActivity: 1, canManageTasks: 1, canImportData: 1, isSystem: 0 },
+  { key: 'employee', label: 'Сотрудник', canManageUsers: 0, canManageActivity: 0, canReadActivity: 0, canManageTasks: 0, canImportData: 0, isSystem: 0 }
 ];
-const insertRoleStmt = db.prepare(`INSERT OR IGNORE INTO roles (key, label, can_manage_users, can_manage_activity, can_read_activity, can_manage_tasks, is_system) VALUES (@key, @label, @canManageUsers, @canManageActivity, @canReadActivity, @canManageTasks, @isSystem)`);
+const insertRoleStmt = db.prepare(`INSERT OR IGNORE INTO roles (key, label, can_manage_users, can_manage_activity, can_read_activity, can_manage_tasks, can_import_data, is_system) VALUES (@key, @label, @canManageUsers, @canManageActivity, @canReadActivity, @canManageTasks, @canImportData, @isSystem)`);
 DEFAULT_ROLES.forEach(r => insertRoleStmt.run(r));
 
 // Every mutating operation calls this. undoData is a small JSON-serialisable
@@ -893,7 +902,8 @@ function rowToRole(r) {
       canManageUsers: !!r.can_manage_users,
       canManageActivity: !!r.can_manage_activity,
       canReadActivity: !!r.can_read_activity,
-      canManageTasks: !!r.can_manage_tasks
+      canManageTasks: !!r.can_manage_tasks,
+      canImportData: !!r.can_import_data
     },
     createdAt: r.created_at
   };
@@ -925,9 +935,9 @@ function createRole({ key, label, perms }) {
   if (roleExists(k)) throw new Error('Роль с таким идентификатором уже существует');
   if (!label || !String(label).trim()) throw new Error('Укажите название роли');
   const p = perms || {};
-  db.prepare(`INSERT INTO roles (key, label, can_manage_users, can_manage_activity, can_read_activity, can_manage_tasks, is_system)
-              VALUES (?, ?, ?, ?, ?, ?, 0)`)
-    .run(k, String(label).trim(), p.canManageUsers ? 1 : 0, p.canManageActivity ? 1 : 0, p.canReadActivity ? 1 : 0, p.canManageTasks ? 1 : 0);
+  db.prepare(`INSERT INTO roles (key, label, can_manage_users, can_manage_activity, can_read_activity, can_manage_tasks, can_import_data, is_system)
+              VALUES (?, ?, ?, ?, ?, ?, ?, 0)`)
+    .run(k, String(label).trim(), p.canManageUsers ? 1 : 0, p.canManageActivity ? 1 : 0, p.canReadActivity ? 1 : 0, p.canManageTasks ? 1 : 0, p.canImportData ? 1 : 0);
   return getRole(k);
 }
 
@@ -946,8 +956,8 @@ function updateRolePerms(key, perms) {
   if (!role) throw new Error('Роль не найдена');
   if (role.isSystem) throw new Error('Права сервисной роли изменить нельзя');
   const p = perms || {};
-  db.prepare(`UPDATE roles SET can_manage_users = ?, can_manage_activity = ?, can_read_activity = ?, can_manage_tasks = ? WHERE key = ?`)
-    .run(p.canManageUsers ? 1 : 0, p.canManageActivity ? 1 : 0, p.canReadActivity ? 1 : 0, p.canManageTasks ? 1 : 0, key);
+  db.prepare(`UPDATE roles SET can_manage_users = ?, can_manage_activity = ?, can_read_activity = ?, can_manage_tasks = ?, can_import_data = ? WHERE key = ?`)
+    .run(p.canManageUsers ? 1 : 0, p.canManageActivity ? 1 : 0, p.canReadActivity ? 1 : 0, p.canManageTasks ? 1 : 0, p.canImportData ? 1 : 0, key);
   return getRole(key);
 }
 
