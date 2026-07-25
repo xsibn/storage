@@ -150,7 +150,7 @@
     $('pp-name').textContent = label;
     $('pp-role').textContent = currentUser.roleLabel;
     $('pp-manage-users').style.display = currentUser.perms.canManageUsers ? '' : 'none';
-    $('pp-github-wrap').style.display = currentUser.roleLabel === 'Разработчик' ? '' : 'none';
+    if ($('pp-github-wrap')) $('pp-github-wrap').style.display = currentUser.roleLabel === 'Разработчик' ? '' : 'none';
     $('pp-avatar-remove-btn').style.display = currentUser.avatarUrl ? '' : 'none';
 
     document.body.classList.toggle('perm-no-read-activity', !currentUser.perms.canReadActivity);
