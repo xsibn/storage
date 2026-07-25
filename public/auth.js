@@ -423,42 +423,17 @@
     if (tab === 'roles') renderRolesList();
   }
 
-  function openUsersModal() {
-    closeProfilePage();
-    cachedRoles = [];
-    openAuthModal('Пользователи и роли', `
-      <div class="um-tabs" style="display:flex; gap:6px; margin-bottom:14px; border-bottom:1px solid var(--line); padding-bottom:10px;">
-        <button type="button" class="btn um-tab active" id="users-tab-users">👤 Пользователи</button>
-        <button type="button" class="btn um-tab" id="users-tab-roles">🏷 Роли</button>
-      </div>
-      <div id="users-panel-users">
-        <form class="new-user-form" id="new-user-form">
-          <input type="text" id="nu-username" placeholder="Логин" required>
-          <input type="text" id="nu-displayname" placeholder="Имя (необязательно)">
-          <input type="password" id="nu-password" placeholder="Пароль (от 6 символов)" required>
-          <select id="nu-role"></select>
-          <div id="nu-error" class="full" style="display:none; color:var(--danger); font-size:12px;"></div>
-          <button type="submit" class="btn primary full" id="nu-submit">+ Создать аккаунт</button>
-        </form>
-        <div id="users-list"></div>
-      </div>
-      <div id="users-panel-roles" style="display:none;">
-        <form class="new-user-form" id="new-role-form">
-          <input type="text" id="nr-key" placeholder="Идентификатор (латиницей, напр. kladovshik)">
-          <input type="text" id="nr-label" placeholder="Название роли" required>
-          <div class="full" style="display:flex; gap:16px; flex-wrap:wrap; padding:4px 0;">
-            <label style="display:flex; align-items:center; gap:6px; font-size:12px; font-weight:400;"><input type="checkbox" id="nr-perm-users"> Управлять аккаунтами и ролями</label>
-            <label style="display:flex; align-items:center; gap:6px; font-size:12px; font-weight:400;"><input type="checkbox" id="nr-perm-manage-activity"> Очищать/отменять в журнале</label>
-            <label style="display:flex; align-items:center; gap:6px; font-size:12px; font-weight:400;"><input type="checkbox" id="nr-perm-read-activity"> Видеть журнал</label>
-            <label style="display:flex; align-items:center; gap:6px; font-size:12px; font-weight:400;"><input type="checkbox" id="nr-perm-tasks"> Ставить задания сотрудникам</label>
-          </div>
-          <div id="nr-error" class="full" style="display:none; color:var(--danger); font-size:12px;"></div>
-          <button type="submit" class="btn primary full">+ Добавить роль</button>
-        </form>
-        <div id="roles-list"></div>
-      </div>
-    `, `<button class="btn" id="users-close">Закрыть</button>`);
-    $('users-close').addEventListener('click', closeAuthModal);
+  // ---------- панель «Пользователи и роли» теперь встроена прямо в раздел
+  // "Аккаунты" (а не всплывает модалкой) — разметка живёт в index.html
+  // статически, здесь только один раз навешиваем обработчики. Загрузка
+  // данных — по требованию, когда раздел действительно открыли
+  // (см. loadUsersRolesPanel, дёргается из app.js при переходе на "Аккаунты").
+  let usersRolesPanelWired = false;
+  function wireUsersRolesPanelOnce() {
+    if (usersRolesPanelWired) return;
+    if (!$('users-tab-users')) return; // раздел ещё не в DOM (не должно случиться, но на всякий случай)
+    usersRolesPanelWired = true;
+
     $('users-tab-users').addEventListener('click', () => switchUsersTab('users'));
     $('users-tab-roles').addEventListener('click', () => switchUsersTab('roles'));
     $('new-role-form').addEventListener('submit', async (e) => {
@@ -510,11 +485,27 @@
         errEl.style.display = 'block';
       }
     });
+  }
+
+  // Вызывается из app.js при каждом открытии раздела "Аккаунты" — обновляет
+  // список пользователей и селект ролей (дёшево, можно смело дёргать при
+  // каждом заходе на вкладку).
+  function loadUsersRolesPanel() {
+    wireUsersRolesPanelOnce();
+    cachedRoles = [];
     fillNewUserRoleSelect();
     renderUsersList();
+    // Если открыта вкладка "Роли" — обновим и её тоже.
+    if ($('users-tab-roles') && $('users-tab-roles').classList.contains('active')) renderRolesList();
   }
-  $('pp-manage-users').addEventListener('click', openUsersModal);
-  window.__openUsersModal = openUsersModal;
+  window.__loadUsersRolesPanel = loadUsersRolesPanel;
+
+  // Кнопка в профиле теперь просто открывает раздел "Аккаунты" (там всё —
+  // и заявки на регистрацию, и управление пользователями/ролями).
+  $('pp-manage-users').addEventListener('click', () => {
+    closeProfilePage();
+    if (window.__activateView) window.__activateView('accounts');
+  });
 
   // ---------- перехват истёкшей/недействительной сессии ----------
   // Если во время работы сессия истекла, любой запрос к /api/* (кроме

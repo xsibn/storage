@@ -2773,11 +2773,15 @@
     FULLSCREEN_VIEWS.forEach(v => document.body.classList.toggle(`bn-${v}-mode`, v === view));
     if(WAREHOUSE_VIEWS.includes(view)) lastWarehouseView = view;
     if(view === 'tasks') loadTasks();
-    if(view === 'accounts') loadAccounts();
+    if(view === 'accounts'){
+      loadAccounts();
+      if(window.__loadUsersRolesPanel) window.__loadUsersRolesPanel();
+    }
     document.querySelectorAll('.bn-btn[data-bn]').forEach(b=>{
       b.classList.toggle('active', b.dataset.bn === 'warehouse' ? WAREHOUSE_VIEWS.includes(view) : b.dataset.bn === view);
     });
   }
+  window.__activateView = activateView; // используется auth.js, чтобы открыть "Аккаунты" из карточки профиля
 
   document.querySelectorAll('nav.tabs button').forEach(btn=>{
     btn.addEventListener('click', ()=> activateView(btn.dataset.view));
@@ -3473,11 +3477,6 @@
       if(wrap) wrap.innerHTML = `<div class="tasks-empty">${escHtml(err.message)}</div>`;
     }
   }
-
-  const openFullUsersBtn = document.getElementById('open-full-users-btn');
-  if(openFullUsersBtn) openFullUsersBtn.addEventListener('click', () => {
-    if(window.__openUsersModal) window.__openUsersModal();
-  });
 
   // Живая синхронизация — как у заданий: пока открыт раздел "Аккаунты",
   // подтягиваем заявки каждые несколько секунд.
