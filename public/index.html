@@ -421,10 +421,38 @@
   .task-card.danger-del{cursor:default;}
   .tc-del{background:none; border:none; color:var(--ink-soft); cursor:pointer; font-size:14px; padding:2px 4px; flex:none;}
   .tc-del:hover{color:var(--danger);}
-  .assign-user-list{max-height:260px; overflow-y:auto; border:1px solid var(--line); border-radius:8px; padding:6px;}
-  .assign-user-row{display:flex; align-items:center; gap:8px; padding:7px 8px; border-radius:6px; font-size:13px; cursor:pointer;}
+  .assign-user-search{
+    position:relative; margin-bottom:8px;
+  }
+  .assign-user-search input{
+    width:100%; box-sizing:border-box; padding:8px 10px 8px 32px;
+    border:1px solid var(--line); border-radius:8px; font-family:var(--sans);
+    font-size:13px; background:var(--panel); color:var(--ink);
+  }
+  .assign-user-search input:focus{outline:2px solid var(--accent); outline-offset:1px;}
+  .assign-user-search::before{
+    content:"🔎"; position:absolute; left:9px; top:50%; transform:translateY(-50%);
+    font-size:12px; opacity:.55; pointer-events:none;
+  }
+  .assign-user-count{font-size:11px; color:var(--ink-soft); margin-bottom:6px;}
+  .assign-user-list{max-height:280px; overflow-y:auto; border:1px solid var(--line); border-radius:10px; padding:5px; display:flex; flex-direction:column; gap:2px;}
+  .form-field .assign-user-row{
+    display:flex !important; align-items:center; gap:10px; padding:8px 9px;
+    border-radius:8px; font-size:13px; cursor:pointer; margin:0; border:1px solid transparent;
+  }
   .assign-user-row:hover{background:var(--bg);}
-  .assign-user-row .role{margin-left:auto; font-size:11px; color:var(--ink-soft);}
+  .assign-user-row.checked{background:var(--accent-soft); border-color:var(--accent);}
+  .assign-user-row input[type=checkbox]{flex:none; width:16px; height:16px; accent-color:var(--accent); cursor:pointer;}
+  .assign-user-row .au-avatar{
+    flex:none; width:28px; height:28px; border-radius:50%; background:var(--accent); color:#fff;
+    display:flex; align-items:center; justify-content:center; font-size:11px; font-weight:700;
+  }
+  .assign-user-row .au-name{flex:1 1 auto; font-weight:600; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
+  .assign-user-row .role{
+    flex:none; font-size:10.5px; font-weight:600; color:var(--accent); background:var(--accent-soft);
+    padding:2px 8px; border-radius:999px; margin-left:0;
+  }
+  .assign-user-empty{padding:16px 8px; text-align:center; color:var(--ink-soft); font-size:12.5px;}
 
   /* Small inline pin button next to a cell input, opens the map picker */
   .pin-btn{

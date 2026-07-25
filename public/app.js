@@ -789,6 +789,12 @@
   });
 
   function escHtml(s){ return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+  function initials(name){
+    const parts = String(name || '').trim().split(/\s+/).filter(Boolean);
+    if (!parts.length) return '?';
+    if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+    return (parts[0][0] + parts[1][0]).toUpperCase();
+  }
 
   // ---------- BARCODE SCANNER (поиск товара по штрих-коду через камеру) ----------
   let barcodeScanner = null;
@@ -3201,40 +3207,89 @@
       alert(err.message);
       return;
     }
+    const rowHtml = (u) => `
+      <label class="assign-user-row" data-uid="${u.id}">
+        <input type="checkbox" value="${u.id}">
+        <span class="au-avatar">${escHtml(initials(u.displayName))}</span>
+        <span class="au-name">${escHtml(u.displayName)}</span>
+        <span class="role">${escHtml(u.roleLabel)}</span>
+      </label>
+    `;
     openModal('Новое задание', `
       <div class="form-field full" style="margin-bottom:10px;">
         <label style="display:block; font-size:12px; color:var(--ink-soft); margin-bottom:4px;">Текст задания</label>
-        <textarea id="nt-text" rows="4" style="width:100%; padding:9px 10px; border:1px solid var(--line); border-radius:7px; font-family:var(--sans); font-size:13.5px; background:var(--panel); color:var(--ink); resize:vertical;" placeholder="Что нужно сделать…"></textarea>
+        <textarea id="nt-text" rows="4" style="width:100%; padding:9px 10px; border:1px solid var(--line); border-radius:7px; font-family:var(--sans); font-size:13.5px; background:var(--panel); color:var(--ink); resize:vertical; box-sizing:border-box;" placeholder="Что нужно сделать…"></textarea>
       </div>
       <div class="form-field full">
-        <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:4px;">
-          <label style="font-size:12px; color:var(--ink-soft);">Кому (можно несколько)</label>
+        <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:6px;">
+          <label style="font-size:12px; color:var(--ink-soft); margin:0;">Кому (можно несколько)</label>
           <button type="button" class="btn" id="nt-select-all" style="padding:4px 8px; font-size:11px;">Выбрать всех</button>
         </div>
+        <div class="assign-user-search">
+          <input type="text" id="nt-search" placeholder="Поиск по имени…" autocomplete="off">
+        </div>
+        <div class="assign-user-count" id="nt-count">Выбрано: 0</div>
         <div class="assign-user-list" id="nt-user-list">
-          ${users.map(u => `
-            <label class="assign-user-row">
-              <input type="checkbox" value="${u.id}">
-              ${escHtml(u.displayName)}
-              <span class="role">${escHtml(u.roleLabel)}</span>
-            </label>
-          `).join('') || '<div style="padding:8px; color:var(--ink-soft); font-size:12.5px;">Нет доступных сотрудников</div>'}
+          ${users.map(rowHtml).join('') || '<div class="assign-user-empty">Нет доступных сотрудников</div>'}
         </div>
       </div>
       <div id="nt-error" style="display:none; color:var(--danger); font-size:12.5px; margin-top:8px;"></div>
     `, `<button class="btn" id="nt-cancel">Отмена</button><button class="btn primary" id="nt-submit">Отправить задание</button>`);
 
+    const listEl = document.getElementById('nt-user-list');
+    const countEl = document.getElementById('nt-count');
+
+    function updateRowState(row){
+      const box = row.querySelector('input[type=checkbox]');
+      row.classList.toggle('checked', box.checked);
+    }
+    function updateCount(){
+      const n = listEl.querySelectorAll('input[type=checkbox]:checked').length;
+      countEl.textContent = `Выбрано: ${n}`;
+    }
+    listEl.querySelectorAll('.assign-user-row').forEach(row => {
+      row.querySelector('input[type=checkbox]').addEventListener('change', () => { updateRowState(row); updateCount(); });
+    });
+
+    document.getElementById('nt-search').addEventListener('input', (e) => {
+      const q = e.target.value.trim().toLowerCase();
+      let visibleCount = 0;
+      listEl.querySelectorAll('.assign-user-row').forEach(row => {
+        const name = row.querySelector('.au-name').textContent.toLowerCase();
+        const role = row.querySelector('.role').textContent.toLowerCase();
+        const match = !q || name.includes(q) || role.includes(q);
+        row.style.display = match ? '' : 'none';
+        if(match) visibleCount++;
+      });
+      let emptyEl = listEl.querySelector('.assign-user-empty');
+      if(visibleCount === 0 && users.length){
+        if(!emptyEl){
+          emptyEl = document.createElement('div');
+          emptyEl.className = 'assign-user-empty';
+          emptyEl.textContent = 'Никого не нашлось';
+          listEl.appendChild(emptyEl);
+        }
+      } else if(emptyEl && emptyEl.textContent === 'Никого не нашлось'){
+        emptyEl.remove();
+      }
+    });
+
     document.getElementById('nt-cancel').addEventListener('click', closeModal);
     document.getElementById('nt-select-all').addEventListener('click', () => {
-      const boxes = document.querySelectorAll('#nt-user-list input[type=checkbox]');
-      const allChecked = Array.from(boxes).every(b => b.checked);
-      boxes.forEach(b => { b.checked = !allChecked; });
+      const rows = Array.from(listEl.querySelectorAll('.assign-user-row')).filter(r => r.style.display !== 'none');
+      const allChecked = rows.every(r => r.querySelector('input[type=checkbox]').checked);
+      rows.forEach(r => {
+        const box = r.querySelector('input[type=checkbox]');
+        box.checked = !allChecked;
+        updateRowState(r);
+      });
+      updateCount();
     });
     document.getElementById('nt-submit').addEventListener('click', async () => {
       const errEl = document.getElementById('nt-error');
       errEl.style.display = 'none';
       const text = document.getElementById('nt-text').value.trim();
-      const userIds = Array.from(document.querySelectorAll('#nt-user-list input[type=checkbox]:checked')).map(b => Number(b.value));
+      const userIds = Array.from(listEl.querySelectorAll('input[type=checkbox]:checked')).map(b => Number(b.value));
       if(!text){ errEl.textContent = 'Введите текст задания'; errEl.style.display = 'block'; return; }
       if(!userIds.length){ errEl.textContent = 'Выберите хотя бы одного сотрудника'; errEl.style.display = 'block'; return; }
       try{
