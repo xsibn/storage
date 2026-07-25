@@ -655,7 +655,8 @@ app.get('/api/users/directory', auth.requireAuth, (req, res) => {
         displayName: u.display_name || u.username,
         role: u.role,
         roleLabel: auth.labelFor(u.role),
-        avatarUrl: u.avatar_path ? `/${u.avatar_path}` : null
+        avatarUrl: u.avatar_path ? `/${u.avatar_path}` : null,
+        isDeveloper: auth.labelFor(u.role) === 'Разработчик'
       }))
   });
 });
@@ -665,7 +666,8 @@ app.get('/api/users', auth.requirePerm('canManageUsers'), (req, res) => {
     users: db.listUsers().map(u => ({
       ...u,
       roleLabel: auth.labelFor(u.role),
-      avatarUrl: u.avatar_path ? `/${u.avatar_path}` : null
+      avatarUrl: u.avatar_path ? `/${u.avatar_path}` : null,
+      isDeveloper: auth.labelFor(u.role) === 'Разработчик'
     }))
   });
 });
