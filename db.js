@@ -256,7 +256,7 @@ function logActivity(action, summary, undoData) {
 purgeOldActivity();
 
 function listActivity(limit) {
-  return db.prepare('SELECT id, ts, action, summary, (undo_data IS NOT NULL) AS undoable FROM activity_log WHERE ts >= datetime(\'now\', ?) ORDER BY id DESC LIMIT ?')
+  return db.prepare('SELECT id, ts, action, summary, user_id AS userId, (undo_data IS NOT NULL) AS undoable FROM activity_log WHERE ts >= datetime(\'now\', ?) ORDER BY id DESC LIMIT ?')
     .all(`-${ACTIVITY_RETENTION_DAYS} days`, limit || 50);
 }
 

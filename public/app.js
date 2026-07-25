@@ -1091,12 +1091,50 @@
       alert('Не удалось очистить журнал: ' + err.message);
     }
   }
+  // Выбранный фильtr по пользователю в общем журнале — храним между
+  // открытиями модалки (в т.ч. когда она перерисовывается после отмены
+  // действия), чтобы выбор не сбрасывался на "Все".
+  let activityUserFilter = 'all';
+  // Достаёт подпись автора из текста записи — она уже добавляется туда
+  // при записи в журнал (см. logActivity в db.js: "[Имя · Роль] ...").
+  function actorLabelFromSummary(summary){
+    const m = /^\[([^\]]+)\]/.exec(summary || '');
+    return m ? m[1] : null;
+  }
+  function renderActivityRows(entries){
+    const listEl = document.getElementById('activity-log-list');
+    if(!listEl) return;
+    const clearAllBtn = document.getElementById('activity-log-clear-all');
+    if(clearAllBtn) clearAllBtn.style.display = entries.length ? '' : 'none';
+    const filtered = activityUserFilter === 'all'
+      ? entries
+      : entries.filter(e => String(e.userId == null ? 'none' : e.userId) === activityUserFilter);
+    if(!filtered.length){
+      listEl.innerHTML = `<div id="activity-log-empty">${entries.length ? 'Ничего не найдено для выбранного пользователя.' : 'За последние 14 дней изменений не было.'}</div>`;
+      return;
+    }
+    listEl.innerHTML = filtered.map((e, idx) => `
+      <div class="activity-row">
+        <span class="a-time">${fmtActivityTime(e.ts)}</span>
+        <span class="a-action">${escHtml(ACTIVITY_LABELS[e.action] || e.action)}</span>
+        <span class="a-summary">${escHtml(e.summary)}</span>
+        ${e.undoable ? `<button class="btn a-undo-btn" data-id="${e.id}" data-latest="${idx===0}" title="Отменить это действие">↺ Отменить</button>` : ''}
+        <button class="btn a-delete-btn" data-id="${e.id}" title="Удалить запись из журнала (без отмены действия)">✕</button>
+      </div>
+    `).join('');
+    listEl.querySelectorAll('.a-undo-btn').forEach(btn=>{
+      btn.addEventListener('click', ()=> undoActivityEntry(btn.dataset.id, btn.dataset.latest==='true'));
+    });
+    listEl.querySelectorAll('.a-delete-btn').forEach(btn=>{
+      btn.addEventListener('click', ()=> deleteActivityEntry(btn.dataset.id));
+    });
+  }
   async function openActivityLog(){
     const canManage = !!(window.__currentUser && window.__currentUser.perms && window.__currentUser.perms.canManageActivity);
     const hint = canManage
       ? 'Хранится за последние 14 дней. У каждого действия, которое можно отменить, есть кнопка ↺ — не обязательно отменять всё по порядку. Кнопка ✕ убирает запись из журнала, не отменяя само действие.'
       : 'Хранится за последние 14 дней.';
-    openModal('Журнал изменений', `<div id="activity-log-hint">${hint}</div><div id="activity-log-list"><div id="activity-log-empty">Загрузка…</div></div>`, '<button class="btn danger" id="activity-log-clear-all">🗑 Очистить журнал</button><button class="btn" id="activity-log-close">Закрыть</button>');
+    openModal('Журнал изменений', `<div id="activity-log-hint">${hint}</div><div class="toolbar" style="margin:0 0 10px;"><select id="activity-log-user-filter" style="max-width:260px;"><option value="all">Все пользователи</option></select></div><div id="activity-log-list"><div id="activity-log-empty">Загрузка…</div></div>`, '<button class="btn danger" id="activity-log-clear-all">🗑 Очистить журнал</button><button class="btn" id="activity-log-close">Закрыть</button>');
     document.getElementById('activity-log-close').addEventListener('click', closeModal);
     document.getElementById('activity-log-clear-all').addEventListener('click', clearActivityLog);
     try{
@@ -1106,27 +1144,34 @@
       const entries = payload.entries || [];
       const listEl = document.getElementById('activity-log-list');
       if(!listEl) return; // окно уже закрыли, пока грузились данные
-      const clearAllBtn = document.getElementById('activity-log-clear-all');
-      if(clearAllBtn) clearAllBtn.style.display = entries.length ? '' : 'none';
-      if(!entries.length){
-        listEl.innerHTML = '<div id="activity-log-empty">За последние 14 дней изменений не было.</div>';
-        return;
+      // Список пользователей для фильтра — только те, чьи действия реально
+      // есть в текущей выборке (а не все сотрудники системы), подпись берём
+      // из уже сохранённого в записи текста, чтобы не терять уволенных/
+      // удалённых авторов из истории.
+      const actorsById = new Map();
+      let hasNoActor = false;
+      entries.forEach(e => {
+        if(e.userId == null){ hasNoActor = true; return; }
+        if(!actorsById.has(e.userId)) actorsById.set(e.userId, actorLabelFromSummary(e.summary) || `#${e.userId}`);
+      });
+      const filterEl = document.getElementById('activity-log-user-filter');
+      if(filterEl){
+        const options = Array.from(actorsById.entries()).sort((a,b)=> a[1].localeCompare(b[1], 'ru'));
+        filterEl.innerHTML = '<option value="all">Все пользователи</option>'
+          + options.map(([id, label]) => `<option value="${id}">${escHtml(label)}</option>`).join('')
+          + (hasNoActor ? '<option value="none">Без автора</option>' : '');
+        const filterStillValid = activityUserFilter === 'all'
+          || (activityUserFilter === 'none' && hasNoActor)
+          || actorsById.has(Number(activityUserFilter));
+        activityUserFilter = filterStillValid ? activityUserFilter : 'all';
+        filterEl.value = activityUserFilter;
+        if(filterEl.value !== activityUserFilter) activityUserFilter = filterEl.value; // на случай несуществующей опции (напр. пользователь удалён из списка)
+        filterEl.addEventListener('change', ()=>{
+          activityUserFilter = filterEl.value;
+          renderActivityRows(entries);
+        });
       }
-      listEl.innerHTML = entries.map((e, idx) => `
-        <div class="activity-row">
-          <span class="a-time">${fmtActivityTime(e.ts)}</span>
-          <span class="a-action">${escHtml(ACTIVITY_LABELS[e.action] || e.action)}</span>
-          <span class="a-summary">${escHtml(e.summary)}</span>
-          ${e.undoable ? `<button class="btn a-undo-btn" data-id="${e.id}" data-latest="${idx===0}" title="Отменить это действие">↺ Отменить</button>` : ''}
-          <button class="btn a-delete-btn" data-id="${e.id}" title="Удалить запись из журнала (без отмены действия)">✕</button>
-        </div>
-      `).join('');
-      listEl.querySelectorAll('.a-undo-btn').forEach(btn=>{
-        btn.addEventListener('click', ()=> undoActivityEntry(btn.dataset.id, btn.dataset.latest==='true'));
-      });
-      listEl.querySelectorAll('.a-delete-btn').forEach(btn=>{
-        btn.addEventListener('click', ()=> deleteActivityEntry(btn.dataset.id));
-      });
+      renderActivityRows(entries);
     }catch(err){
       const listEl = document.getElementById('activity-log-list');
       if(listEl) listEl.innerHTML = `<div id="activity-log-empty">Не удалось загрузить журнал: ${err.message}</div>`;
@@ -4327,12 +4372,17 @@
 })();
 
 // Theme Toggle Logic
-const themeToggleBtn = document.getElementById('theme-toggle-btn');
+const themeToggleBtn = document.getElementById('pp-theme-toggle');
 const currentTheme = localStorage.getItem('theme') || 'light';
+
+function setThemeBtnLabel(isDark){
+    if(!themeToggleBtn) return;
+    themeToggleBtn.innerHTML = isDark ? '☀️ <span>Светлая тема</span>' : '🌙 <span>Тёмная тема</span>';
+}
 
 if (currentTheme === 'dark') {
     document.documentElement.setAttribute('data-theme', 'dark');
-    if(themeToggleBtn) themeToggleBtn.textContent = '☀️';
+    setThemeBtnLabel(true);
 }
 
 if(themeToggleBtn) {
@@ -4341,11 +4391,11 @@ if(themeToggleBtn) {
         if (theme === 'dark') {
             document.documentElement.removeAttribute('data-theme');
             localStorage.setItem('theme', 'light');
-            themeToggleBtn.textContent = '🌙';
+            setThemeBtnLabel(false);
         } else {
             document.documentElement.setAttribute('data-theme', 'dark');
             localStorage.setItem('theme', 'dark');
-            themeToggleBtn.textContent = '☀️';
+            setThemeBtnLabel(true);
         }
     });
 }
