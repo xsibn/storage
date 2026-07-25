@@ -3,6 +3,14 @@
 
   const API_BASE = ""; // same-origin: server serves both the API and this page
 
+  // Background polling (sync, badges) must not hit the API before login —
+  // otherwise every interval tick 401s while the auth screen is open, and
+  // auth.js's 401-interceptor yanks the person back to the login card even
+  // if they're filling out the registration form. Flips to true once
+  // window.__whenAuthed resolves.
+  let isAuthed = false;
+  if (window.__whenAuthed) window.__whenAuthed.then(() => { isAuthed = true; });
+
   const state = {
     records: [],   // {id, cell, article, name, qty, mfg, exp, isService, row, rack, level}
     sourceLabel: "подключение…",
@@ -3042,6 +3050,7 @@
   }
 
   function attemptSync(){
+    if(!isAuthed) return;
     if(!navigator.onLine){
       setConnStatus('offline');
       pendingSync = true;
@@ -3108,6 +3117,7 @@
   }
 
   async function refreshTasksBadge(){
+    if(!isAuthed) return;
     try{
       const res = await fetch(API_BASE + '/api/tasks/unread-count');
       if(!res.ok) return;
@@ -3229,7 +3239,7 @@
   let tasksPollInFlight = false;
 
   async function pollTasksIfOnTasksView(){
-    if(tasksPollInFlight || document.hidden) return;
+    if(!isAuthed || tasksPollInFlight || document.hidden) return;
     const view = document.getElementById('view-tasks');
     if(!view || !view.classList.contains('active')) return;
     // не мешаем, если сейчас открыта модалка (например, создание задания
@@ -3384,6 +3394,7 @@
   }
 
   async function refreshAccountsBadge(){
+    if(!isAuthed) return;
     if(document.body.classList.contains('perm-no-manage-users')) return;
     try{
       const res = await fetch(API_BASE + '/api/registration-requests/count');
@@ -3482,7 +3493,7 @@
   // подтягиваем заявки каждые несколько секунд.
   let accountsPollInFlight = false;
   async function pollAccountsIfOnAccountsView(){
-    if(accountsPollInFlight || document.hidden) return;
+    if(!isAuthed || accountsPollInFlight || document.hidden) return;
     const view = document.getElementById('view-accounts');
     if(!view || !view.classList.contains('active')) return;
     if(document.getElementById('modal-backdrop')?.classList.contains('open')) return;

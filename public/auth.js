@@ -515,7 +515,9 @@
   window.fetch = async function (input, init) {
     const res = await nativeFetch(input, init);
     const url = typeof input === 'string' ? input : (input && input.url) || '';
-    if (res.status === 401 && url.indexOf('/api/') !== -1 && url.indexOf('/api/auth/') === -1) {
+    if (res.status === 401 && url.indexOf('/api/') !== -1 && url.indexOf('/api/auth/') === -1 && currentUser) {
+      // currentUser был непустым — значит это не фоновый опрос до входа,
+      // а реально истёкшая/недействительная сессия у залогиненного человека.
       currentUser = null;
       window.__whenAuthed = new Promise((resolve) => { resolveAuthed = resolve; });
       showAuthScreen();
