@@ -685,6 +685,80 @@ app.delete('/api/roles/:key', auth.requirePerm('canManageUsers'), (req, res) => 
   }
 });
 
+// ---------- Задания сотрудникам ----------
+// Ставить задания и видеть прогресс по всей команде могут роли с правом
+// canManageTasks (по умолчанию — завсклад и выше). Любой сотрудник видит и
+// ведёт только свои собственные задания через тот же GET /api/tasks —
+// сервер сам решает, что вернуть, по правам текущего пользователя.
+
+// GET /api/tasks/unread-count — лёгкий счётчик для бейджа на вкладке; в
+// отличие от GET /api/tasks НЕ помечает задания прочитанными.
+app.get('/api/tasks/unread-count', (req, res) => {
+  res.json({ count: db.countMyNewTasks(req.user.id) });
+});
+
+// GET /api/tasks — мои задания всегда; плюс полный список с прогрессом,
+// если есть право ставить задания. Обращение к списку автоматически
+// помечает мои "новые" задания как прочитанные.
+app.get('/api/tasks', (req, res) => {
+  db.markMyNewTasksRead(req.user.id);
+  const canManage = !!auth.permsFor(req.user.role).canManageTasks;
+  const payload = { canManage, myTasks: db.listMyTasks(req.user.id) };
+  if (canManage) payload.allTasks = db.listAllTasks();
+  res.json(payload);
+});
+
+// GET /api/tasks/assignable-users — список сотрудников для выбора получателей
+app.get('/api/tasks/assignable-users', auth.requirePerm('canManageTasks'), (req, res) => {
+  res.json({
+    users: db.listAssignableUsers().map(u => ({
+      id: u.id, username: u.username, displayName: u.display_name || u.username,
+      role: u.role, roleLabel: auth.labelFor(u.role)
+    }))
+  });
+});
+
+// POST /api/tasks — создать задание и разослать выбранным сотрудникам
+app.post('/api/tasks', auth.requirePerm('canManageTasks'), (req, res) => {
+  const { text, userIds } = req.body || {};
+  try {
+    const task = db.createTask({
+      text, userIds,
+      createdById: req.user.id,
+      createdByName: `${req.user.display_name || req.user.username}`
+    });
+    res.status(201).json({ task });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+// PATCH /api/tasks/:id/status — сотрудник двигает статус СВОЕГО задания
+// вперёд: read → in_progress → done ("В работу" / "Сделано" на фронте).
+app.patch('/api/tasks/:id/status', (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  if (!Number.isInteger(id)) return res.status(400).json({ error: 'bad id' });
+  const { status } = req.body || {};
+  try {
+    const task = db.setMyTaskStatus(id, req.user.id, status);
+    res.json({ task });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+// DELETE /api/tasks/:id — удалить задание целиком (только тот, кто вправе их ставить)
+app.delete('/api/tasks/:id', auth.requirePerm('canManageTasks'), (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  if (!Number.isInteger(id)) return res.status(400).json({ error: 'bad id' });
+  try {
+    db.deleteTask(id);
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
 app.get('/api/health', (req, res) => res.json({ ok: true }));
 
 // Любой прочий путь — отдаём фронтенд (на случай прямых ссылок на подстраницы)

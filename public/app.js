@@ -2762,6 +2762,7 @@
       btn.classList.add('active');
       document.querySelectorAll('.view').forEach(v=>v.classList.remove('active'));
       document.getElementById('view-'+btn.dataset.view).classList.add('active');
+      if(btn.dataset.view === 'tasks') loadTasks();
     });
   });
 
@@ -3066,6 +3067,195 @@
     renderReco();
   }
 
+  // ---------- ЗАДАНИЯ СОТРУДНИКАМ ----------
+  const TASK_STATUS_LABEL = { new: 'Новое', read: 'Прочитано', in_progress: 'В работе', done: 'Готово' };
+  let assignableUsersCache = null;
+
+  function taskStatusBadge(status){
+    return `<span class="task-status ${status}">${TASK_STATUS_LABEL[status] || status}</span>`;
+  }
+
+  async function refreshTasksBadge(){
+    try{
+      const res = await fetch(API_BASE + '/api/tasks/unread-count');
+      if(!res.ok) return;
+      const { count } = await res.json();
+      const badge = document.getElementById('tasks-badge');
+      if(!badge) return;
+      if(count > 0){ badge.textContent = count; badge.style.display = ''; }
+      else badge.style.display = 'none';
+    }catch(_e){ /* тихо игнорируем — это лишь бейдж */ }
+  }
+
+  function renderMyTasks(myTasks){
+    const wrap = document.getElementById('my-tasks-list');
+    if(!myTasks.length){
+      wrap.innerHTML = '<div class="tasks-empty">Заданий пока нет.</div>';
+      return;
+    }
+    wrap.innerHTML = myTasks.map(t => {
+      let actions = '';
+      if(t.status === 'read'){
+        actions = `<button class="btn" data-task-action="in_progress" data-task-id="${t.id}">▶ В работу</button>`;
+      } else if(t.status === 'in_progress'){
+        actions = `<button class="btn primary" data-task-action="done" data-task-id="${t.id}">✔ Сделано</button>`;
+      }
+      return `
+        <div class="task-card">
+          <div class="tc-top">
+            <div class="tc-text">${escHtml(t.text)}</div>
+            ${taskStatusBadge(t.status)}
+          </div>
+          <div class="tc-meta">От: ${escHtml(t.createdByName || '—')} · ${fmtActivityTime(t.createdAt)}</div>
+          ${actions ? `<div class="tc-actions">${actions}</div>` : ''}
+        </div>
+      `;
+    }).join('');
+    wrap.querySelectorAll('[data-task-action]').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const id = btn.dataset.taskId;
+        const status = btn.dataset.taskAction;
+        btn.disabled = true;
+        try{
+          const res = await fetch(`${API_BASE}/api/tasks/${id}/status`, {
+            method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ status })
+          });
+          const payload = await res.json().catch(() => ({}));
+          if(!res.ok) throw new Error(payload.error || 'Не удалось обновить статус');
+          await loadTasks();
+        }catch(err){
+          alert(err.message);
+          btn.disabled = false;
+        }
+      });
+    });
+  }
+
+  function renderAllTasks(allTasks){
+    const wrap = document.getElementById('all-tasks-list');
+    if(!allTasks || !allTasks.length){
+      wrap.innerHTML = '<div class="tasks-empty">Пока никому не поставлено ни одного задания.</div>';
+      return;
+    }
+    wrap.innerHTML = allTasks.map(t => `
+      <div class="task-card">
+        <div class="tc-top">
+          <div class="tc-text">${escHtml(t.text)}</div>
+          <button class="tc-del" data-del-task="${t.id}" title="Удалить задание">🗑</button>
+        </div>
+        <div class="tc-meta">От: ${escHtml(t.createdByName || '—')} · ${fmtActivityTime(t.createdAt)} · получателей: ${t.recipients.length}</div>
+        <div class="tc-recipients">
+          ${t.recipients.map(r => `
+            <span class="task-recipient-chip" title="${TASK_STATUS_LABEL[r.status] || r.status}">
+              <span class="dot ${r.status}"></span>${escHtml(r.displayName)}
+            </span>
+          `).join('')}
+        </div>
+      </div>
+    `).join('');
+    wrap.querySelectorAll('[data-del-task]').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        if(!confirm('Удалить это задание у всех получателей?')) return;
+        try{
+          const res = await fetch(`${API_BASE}/api/tasks/${btn.dataset.delTask}`, { method: 'DELETE' });
+          const payload = await res.json().catch(() => ({}));
+          if(!res.ok) throw new Error(payload.error || 'Не удалось удалить задание');
+          await loadTasks();
+        }catch(err){ alert(err.message); }
+      });
+    });
+  }
+
+  async function loadTasks(){
+    const myWrap = document.getElementById('my-tasks-list');
+    const allWrap = document.getElementById('all-tasks-list');
+    try{
+      const res = await fetch(API_BASE + '/api/tasks');
+      if(!res.ok) throw new Error('Сервер вернул ошибку ' + res.status);
+      const data = await res.json();
+      renderMyTasks(data.myTasks || []);
+      document.getElementById('manage-tasks-panel').style.display = data.canManage ? '' : 'none';
+      if(data.canManage) renderAllTasks(data.allTasks || []);
+      refreshTasksBadge();
+    }catch(err){
+      if(myWrap) myWrap.innerHTML = `<div class="tasks-empty">${escHtml(err.message)}</div>`;
+      if(allWrap) allWrap.innerHTML = '';
+    }
+  }
+
+  async function loadAssignableUsers(force){
+    if(assignableUsersCache && !force) return assignableUsersCache;
+    const res = await fetch(API_BASE + '/api/tasks/assignable-users');
+    if(!res.ok) throw new Error('Не удалось загрузить список сотрудников');
+    const data = await res.json();
+    assignableUsersCache = data.users;
+    return assignableUsersCache;
+  }
+
+  async function openNewTaskModal(){
+    let users;
+    try{
+      users = await loadAssignableUsers();
+    }catch(err){
+      alert(err.message);
+      return;
+    }
+    openModal('Новое задание', `
+      <div class="form-field full" style="margin-bottom:10px;">
+        <label style="display:block; font-size:12px; color:var(--ink-soft); margin-bottom:4px;">Текст задания</label>
+        <textarea id="nt-text" rows="4" style="width:100%; padding:9px 10px; border:1px solid var(--line); border-radius:7px; font-family:var(--sans); font-size:13.5px; background:var(--panel); color:var(--ink); resize:vertical;" placeholder="Что нужно сделать…"></textarea>
+      </div>
+      <div class="form-field full">
+        <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:4px;">
+          <label style="font-size:12px; color:var(--ink-soft);">Кому (можно несколько)</label>
+          <button type="button" class="btn" id="nt-select-all" style="padding:4px 8px; font-size:11px;">Выбрать всех</button>
+        </div>
+        <div class="assign-user-list" id="nt-user-list">
+          ${users.map(u => `
+            <label class="assign-user-row">
+              <input type="checkbox" value="${u.id}">
+              ${escHtml(u.displayName)}
+              <span class="role">${escHtml(u.roleLabel)}</span>
+            </label>
+          `).join('') || '<div style="padding:8px; color:var(--ink-soft); font-size:12.5px;">Нет доступных сотрудников</div>'}
+        </div>
+      </div>
+      <div id="nt-error" style="display:none; color:var(--danger); font-size:12.5px; margin-top:8px;"></div>
+    `, `<button class="btn" id="nt-cancel">Отмена</button><button class="btn primary" id="nt-submit">Отправить задание</button>`);
+
+    document.getElementById('nt-cancel').addEventListener('click', closeModal);
+    document.getElementById('nt-select-all').addEventListener('click', () => {
+      const boxes = document.querySelectorAll('#nt-user-list input[type=checkbox]');
+      const allChecked = Array.from(boxes).every(b => b.checked);
+      boxes.forEach(b => { b.checked = !allChecked; });
+    });
+    document.getElementById('nt-submit').addEventListener('click', async () => {
+      const errEl = document.getElementById('nt-error');
+      errEl.style.display = 'none';
+      const text = document.getElementById('nt-text').value.trim();
+      const userIds = Array.from(document.querySelectorAll('#nt-user-list input[type=checkbox]:checked')).map(b => Number(b.value));
+      if(!text){ errEl.textContent = 'Введите текст задания'; errEl.style.display = 'block'; return; }
+      if(!userIds.length){ errEl.textContent = 'Выберите хотя бы одного сотрудника'; errEl.style.display = 'block'; return; }
+      try{
+        const res = await fetch(API_BASE + '/api/tasks', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ text, userIds })
+        });
+        const payload = await res.json().catch(() => ({}));
+        if(!res.ok) throw new Error(payload.error || 'Не удалось создать задание');
+        closeModal();
+        await loadTasks();
+      }catch(err){
+        errEl.textContent = err.message;
+        errEl.style.display = 'block';
+      }
+    });
+  }
+
+  const newTaskBtn = document.getElementById('new-task-btn');
+  if(newTaskBtn) newTaskBtn.addEventListener('click', openNewTaskModal);
+
   // ---------- BOOTSTRAP ----------
   (async function init(){
     setConnStatus('connecting');
@@ -3073,6 +3263,7 @@
     // valid session cookie already exists) — data must not load before that.
     if (window.__whenAuthed) await window.__whenAuthed;
     await syncFromServer(true);
+    refreshTasksBadge();
   })();
 })();
 

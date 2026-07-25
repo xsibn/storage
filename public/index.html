@@ -386,6 +386,46 @@
   .rec-card dt{color:var(--ink-soft);}
   .rec-card dd{margin:0; font-family:var(--mono);}
 
+  /* ---------- Задания сотрудникам ---------- */
+  .tab-badge{
+    display:inline-flex; align-items:center; justify-content:center; min-width:16px; height:16px;
+    padding:0 4px; margin-left:6px; border-radius:999px; background:var(--danger); color:#fff;
+    font-size:10px; font-weight:700; vertical-align:middle;
+  }
+  body.perm-no-manage-tasks #manage-tasks-panel{display:none !important;}
+  .tasks-empty{padding:20px 4px; color:var(--ink-soft); font-size:13px; text-align:center;}
+  .task-card{border:1px solid var(--line); border-radius:10px; padding:14px; background:var(--bg); margin-bottom:10px;}
+  .task-card:last-child{margin-bottom:0;}
+  .task-card .tc-top{display:flex; align-items:flex-start; justify-content:space-between; gap:10px; margin-bottom:8px;}
+  .task-card .tc-text{font-size:13.5px; line-height:1.45; white-space:pre-wrap; flex:1;}
+  .task-card .tc-meta{font-size:11px; color:var(--ink-soft); margin-top:6px;}
+  .task-status{
+    display:inline-flex; align-items:center; gap:5px; padding:3px 10px; border-radius:999px;
+    font-size:11px; font-weight:600; white-space:nowrap; flex:none;
+  }
+  .task-status.new{background:var(--danger); color:#fff;}
+  .task-status.read{background:var(--empty); color:var(--ink-soft);}
+  .task-status.in_progress{background:#FFB020; color:#1a1a1a;}
+  .task-status.done{background:var(--good); color:#fff;}
+  .task-card .tc-actions{display:flex; gap:8px; margin-top:10px; flex-wrap:wrap;}
+  .task-card .tc-recipients{margin-top:10px; padding-top:10px; border-top:1px solid var(--line); display:flex; flex-wrap:wrap; gap:6px;}
+  .task-recipient-chip{
+    display:inline-flex; align-items:center; gap:5px; padding:3px 9px; border-radius:999px;
+    font-size:11px; background:var(--panel); border:1px solid var(--line);
+  }
+  .task-recipient-chip .dot{width:7px; height:7px; border-radius:50%; flex:none;}
+  .task-recipient-chip .dot.new{background:var(--danger);}
+  .task-recipient-chip .dot.read{background:var(--ink-soft);}
+  .task-recipient-chip .dot.in_progress{background:#FFB020;}
+  .task-recipient-chip .dot.done{background:var(--good);}
+  .task-card.danger-del{cursor:default;}
+  .tc-del{background:none; border:none; color:var(--ink-soft); cursor:pointer; font-size:14px; padding:2px 4px; flex:none;}
+  .tc-del:hover{color:var(--danger);}
+  .assign-user-list{max-height:260px; overflow-y:auto; border:1px solid var(--line); border-radius:8px; padding:6px;}
+  .assign-user-row{display:flex; align-items:center; gap:8px; padding:7px 8px; border-radius:6px; font-size:13px; cursor:pointer;}
+  .assign-user-row:hover{background:var(--bg);}
+  .assign-user-row .role{margin-left:auto; font-size:11px; color:var(--ink-soft);}
+
   /* Small inline pin button next to a cell input, opens the map picker */
   .pin-btn{
     width:26px; height:26px; border-radius:5px; border:1px solid var(--line); background:var(--panel);
@@ -851,6 +891,7 @@
     <button data-view="table">Таблица данных</button>
     <button data-view="zones">Служебные зоны</button>
     <button data-view="reco">Рекомендация пикинга</button>
+    <button data-view="tasks">📋 Задания<span class="tab-badge" id="tasks-badge" style="display:none;"></span></button>
   </nav>
 
   <main>
@@ -1006,6 +1047,24 @@
         </div>
         <p style="font-size:12px; color:var(--ink-soft); margin:10px 0 0;">На карточке: ✏ — переименовать/изолировать, 🗑 — удалить зону. Клик по карточке — список содержимого.</p>
         <div class="zones-grid" id="zones-grid" style="margin-top:12px;"></div>
+      </div>
+    </section>
+
+    <!-- TASKS VIEW -->
+    <section class="view" id="view-tasks">
+      <div class="panel">
+        <div class="toolbar">
+          <h2 style="margin:0; flex:1 1 auto;">Мои задания</h2>
+        </div>
+        <div id="my-tasks-list"><div class="tasks-empty">Загрузка…</div></div>
+      </div>
+
+      <div class="panel" id="manage-tasks-panel" style="display:none;">
+        <div class="toolbar">
+          <h2 style="margin:0; flex:1 1 auto;">Все задания команды</h2>
+          <button class="btn primary" id="new-task-btn">+ Новое задание</button>
+        </div>
+        <div id="all-tasks-list"><div class="tasks-empty">Загрузка…</div></div>
       </div>
     </section>
 

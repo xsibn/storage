@@ -92,6 +92,7 @@
 
     document.body.classList.toggle('perm-no-read-activity', !currentUser.perms.canReadActivity);
     document.body.classList.toggle('perm-no-manage-activity', !currentUser.perms.canManageActivity);
+    document.body.classList.toggle('perm-no-manage-tasks', !currentUser.perms.canManageTasks);
   }
 
   function openProfilePage() {
@@ -283,7 +284,8 @@
     const rows = [
       ['canManageUsers', 'Управлять аккаунтами и ролями'],
       ['canManageActivity', 'Очищать журнал и отменять действия'],
-      ['canReadActivity', 'Видеть журнал (чтение)']
+      ['canReadActivity', 'Видеть журнал (чтение)'],
+      ['canManageTasks', 'Ставить задания сотрудникам']
     ];
     return rows.map(([key, label]) => `
       <label style="display:flex; align-items:center; gap:6px; font-size:12px; font-weight:400; padding:4px 0;">
@@ -399,6 +401,7 @@
             <label style="display:flex; align-items:center; gap:6px; font-size:12px; font-weight:400;"><input type="checkbox" id="nr-perm-users"> Управлять аккаунтами и ролями</label>
             <label style="display:flex; align-items:center; gap:6px; font-size:12px; font-weight:400;"><input type="checkbox" id="nr-perm-manage-activity"> Очищать/отменять в журнале</label>
             <label style="display:flex; align-items:center; gap:6px; font-size:12px; font-weight:400;"><input type="checkbox" id="nr-perm-read-activity"> Видеть журнал</label>
+            <label style="display:flex; align-items:center; gap:6px; font-size:12px; font-weight:400;"><input type="checkbox" id="nr-perm-tasks"> Ставить задания сотрудникам</label>
           </div>
           <div id="nr-error" class="full" style="display:none; color:var(--danger); font-size:12px;"></div>
           <button type="submit" class="btn primary full">+ Добавить роль</button>
@@ -416,7 +419,8 @@
       const perms = {
         canManageUsers: $('nr-perm-users').checked,
         canManageActivity: $('nr-perm-manage-activity').checked,
-        canReadActivity: $('nr-perm-read-activity').checked
+        canReadActivity: $('nr-perm-read-activity').checked,
+        canManageTasks: $('nr-perm-tasks').checked
       };
       try {
         const res = await fetch(API_BASE + '/api/roles', {

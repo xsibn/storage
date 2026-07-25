@@ -60,12 +60,14 @@ function clearSessionCookie(res) {
 
 // ---------- права по ролям ----------
 // Роли и их права больше не зашиты здесь — они хранятся в таблице `roles`
-// (см. db.js) и настраиваются через /api/roles или cli.js. Три права,
-// которые реально на что-то влияют в этом приложении:
+// (см. db.js) и настраиваются через /api/roles или cli.js. Права, которые
+// реально на что-то влияют в этом приложении:
 //   canManageUsers      — создавать/редактировать/удалять аккаунты и роли
 //   canManageActivity    — очищать журнал и отменять чужие/старые действия
 //   canReadActivity      — видеть журнал (хотя бы для чтения)
-const EMPTY_PERMS = { canManageUsers: false, canManageActivity: false, canReadActivity: false };
+//   canManageTasks       — ставить задания сотрудникам (создавать/удалять,
+//                          видеть прогресс по всей команде)
+const EMPTY_PERMS = { canManageUsers: false, canManageActivity: false, canReadActivity: false, canManageTasks: false };
 
 function permsFor(roleKey) {
   const role = db.getRole(roleKey);

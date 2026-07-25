@@ -82,10 +82,49 @@ db.exec(`
     can_manage_users     INTEGER NOT NULL DEFAULT 0,
     can_manage_activity  INTEGER NOT NULL DEFAULT 0,
     can_read_activity    INTEGER NOT NULL DEFAULT 0,
+    can_manage_tasks     INTEGER NOT NULL DEFAULT 0,
     is_system            INTEGER NOT NULL DEFAULT 0,
     created_at           TEXT NOT NULL DEFAULT (datetime('now'))
   );
+
+  CREATE TABLE IF NOT EXISTS tasks (
+    id               INTEGER PRIMARY KEY AUTOINCREMENT,
+    text             TEXT NOT NULL,
+    created_by_id    INTEGER,
+    created_by_name  TEXT NOT NULL DEFAULT '',
+    created_at       TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+
+  CREATE TABLE IF NOT EXISTS task_recipients (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    task_id     INTEGER NOT NULL,
+    user_id     INTEGER NOT NULL,
+    status      TEXT NOT NULL DEFAULT 'new',
+    read_at     TEXT,
+    started_at  TEXT,
+    done_at     TEXT,
+    UNIQUE(task_id, user_id)
+  );
+  CREATE INDEX IF NOT EXISTS idx_task_recipients_task ON task_recipients(task_id);
+  CREATE INDEX IF NOT EXISTS idx_task_recipients_user ON task_recipients(user_id);
 `);
+
+// Безопасная миграция для БД, созданных до появления заданий: добавляем
+// колонку can_manage_tasks, если её ещё нет (для новой БД CREATE TABLE выше
+// уже создаёт её сразу — этот блок не выполнит лишней работы).
+function ensureColumn(table, column, def) {
+  const cols = db.prepare(`PRAGMA table_info(${table})`).all();
+  if (cols.some(c => c.name === column)) return false;
+  db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${def}`);
+  return true;
+}
+const rolesMigrated = ensureColumn('roles', 'can_manage_tasks', 'INTEGER NOT NULL DEFAULT 0');
+if (rolesMigrated) {
+  // На уже существующих базах право «ставить задания» по умолчанию получают
+  // те же роли, что и раньше могли управлять аккаунтами/сервисная роль —
+  // соответствует «завсклад и все роли выше».
+  db.prepare(`UPDATE roles SET can_manage_tasks = 1 WHERE key IN ('service', 'boss', 'warehouse_manager')`).run();
+}
 
 // Базовые роли — создаются один раз при первом запуске (INSERT OR IGNORE),
 // дальше их можно свободно переименовывать и менять права через API/CLI;
@@ -93,12 +132,12 @@ db.exec(`
 // "service" — системная роль, отмечена is_system: её нельзя удалить и её
 // права всегда остаются полными (гарантия, что доступ к системе не потеряют).
 const DEFAULT_ROLES = [
-  { key: 'service', label: 'Сервисный аккаунт', canManageUsers: 1, canManageActivity: 1, canReadActivity: 1, isSystem: 1 },
-  { key: 'boss', label: 'Начальник', canManageUsers: 1, canManageActivity: 1, canReadActivity: 1, isSystem: 0 },
-  { key: 'warehouse_manager', label: 'Завсклад', canManageUsers: 0, canManageActivity: 0, canReadActivity: 1, isSystem: 0 },
-  { key: 'employee', label: 'Сотрудник', canManageUsers: 0, canManageActivity: 0, canReadActivity: 0, isSystem: 0 }
+  { key: 'service', label: 'Сервисный аккаунт', canManageUsers: 1, canManageActivity: 1, canReadActivity: 1, canManageTasks: 1, isSystem: 1 },
+  { key: 'boss', label: 'Начальник', canManageUsers: 1, canManageActivity: 1, canReadActivity: 1, canManageTasks: 1, isSystem: 0 },
+  { key: 'warehouse_manager', label: 'Завсклад', canManageUsers: 0, canManageActivity: 0, canReadActivity: 1, canManageTasks: 1, isSystem: 0 },
+  { key: 'employee', label: 'Сотрудник', canManageUsers: 0, canManageActivity: 0, canReadActivity: 0, canManageTasks: 0, isSystem: 0 }
 ];
-const insertRoleStmt = db.prepare(`INSERT OR IGNORE INTO roles (key, label, can_manage_users, can_manage_activity, can_read_activity, is_system) VALUES (@key, @label, @canManageUsers, @canManageActivity, @canReadActivity, @isSystem)`);
+const insertRoleStmt = db.prepare(`INSERT OR IGNORE INTO roles (key, label, can_manage_users, can_manage_activity, can_read_activity, can_manage_tasks, is_system) VALUES (@key, @label, @canManageUsers, @canManageActivity, @canReadActivity, @canManageTasks, @isSystem)`);
 DEFAULT_ROLES.forEach(r => insertRoleStmt.run(r));
 
 // Every mutating operation calls this. undoData is a small JSON-serialisable
@@ -840,7 +879,8 @@ function rowToRole(r) {
     perms: {
       canManageUsers: !!r.can_manage_users,
       canManageActivity: !!r.can_manage_activity,
-      canReadActivity: !!r.can_read_activity
+      canReadActivity: !!r.can_read_activity,
+      canManageTasks: !!r.can_manage_tasks
     },
     createdAt: r.created_at
   };
@@ -872,9 +912,9 @@ function createRole({ key, label, perms }) {
   if (roleExists(k)) throw new Error('Роль с таким идентификатором уже существует');
   if (!label || !String(label).trim()) throw new Error('Укажите название роли');
   const p = perms || {};
-  db.prepare(`INSERT INTO roles (key, label, can_manage_users, can_manage_activity, can_read_activity, is_system)
-              VALUES (?, ?, ?, ?, ?, 0)`)
-    .run(k, String(label).trim(), p.canManageUsers ? 1 : 0, p.canManageActivity ? 1 : 0, p.canReadActivity ? 1 : 0);
+  db.prepare(`INSERT INTO roles (key, label, can_manage_users, can_manage_activity, can_read_activity, can_manage_tasks, is_system)
+              VALUES (?, ?, ?, ?, ?, ?, 0)`)
+    .run(k, String(label).trim(), p.canManageUsers ? 1 : 0, p.canManageActivity ? 1 : 0, p.canReadActivity ? 1 : 0, p.canManageTasks ? 1 : 0);
   return getRole(k);
 }
 
@@ -893,8 +933,8 @@ function updateRolePerms(key, perms) {
   if (!role) throw new Error('Роль не найдена');
   if (role.isSystem) throw new Error('Права сервисной роли изменить нельзя');
   const p = perms || {};
-  db.prepare(`UPDATE roles SET can_manage_users = ?, can_manage_activity = ?, can_read_activity = ? WHERE key = ?`)
-    .run(p.canManageUsers ? 1 : 0, p.canManageActivity ? 1 : 0, p.canReadActivity ? 1 : 0, key);
+  db.prepare(`UPDATE roles SET can_manage_users = ?, can_manage_activity = ?, can_read_activity = ?, can_manage_tasks = ? WHERE key = ?`)
+    .run(p.canManageUsers ? 1 : 0, p.canManageActivity ? 1 : 0, p.canReadActivity ? 1 : 0, p.canManageTasks ? 1 : 0, key);
   return getRole(key);
 }
 
@@ -959,6 +999,128 @@ function setUserPasswordHash(id, passwordHash) {
   return getUserById(id);
 }
 
+// ---------- Задания сотрудникам ----------
+// Каждое задание — один текст + список получателей (task_recipients), у
+// каждого получателя свой независимый статус: new → read → in_progress →
+// done. "read" проставляется автоматически при первом обращении сотрудника
+// к списку своих заданий (см. markMyNewTasksRead), остальные — по кнопкам.
+const TASK_STATUSES = ['new', 'read', 'in_progress', 'done'];
+
+function rowToTask(r) {
+  return {
+    id: r.id,
+    text: r.text,
+    createdById: r.created_by_id,
+    createdByName: r.created_by_name,
+    createdAt: r.created_at
+  };
+}
+
+function rowToRecipient(r) {
+  return {
+    userId: r.user_id,
+    username: r.username,
+    displayName: r.display_name || r.username,
+    status: r.status,
+    readAt: r.read_at,
+    startedAt: r.started_at,
+    doneAt: r.done_at
+  };
+}
+
+// Создать задание и разослать его выбранным сотрудникам одним списком.
+function createTask({ text, createdById, createdByName, userIds }) {
+  const t = String(text || '').trim();
+  if (!t) throw new Error('Текст задания не может быть пустым');
+  const ids = Array.from(new Set((userIds || []).map(Number).filter(Boolean)));
+  if (!ids.length) throw new Error('Выберите хотя бы одного сотрудника');
+  for (const uid of ids) {
+    if (!getUserById(uid)) throw new Error(`Пользователь #${uid} не найден`);
+  }
+  const info = db.prepare('INSERT INTO tasks (text, created_by_id, created_by_name) VALUES (?, ?, ?)')
+    .run(t, createdById || null, createdByName || '');
+  const taskId = info.lastInsertRowid;
+  const insertRecipient = db.prepare('INSERT INTO task_recipients (task_id, user_id, status) VALUES (?, ?, \'new\')');
+  for (const uid of ids) insertRecipient.run(taskId, uid);
+  return getTask(taskId);
+}
+
+// Полная карточка задания вместе со статусами всех получателей — для тех,
+// кто вправе ставить задания (обзор выполнения по команде).
+function getTask(id) {
+  const task = db.prepare('SELECT * FROM tasks WHERE id = ?').get(id);
+  if (!task) return null;
+  const recipients = db.prepare(`
+    SELECT tr.*, u.username, u.display_name FROM task_recipients tr
+    JOIN users u ON u.id = tr.user_id
+    WHERE tr.task_id = ? ORDER BY u.display_name ASC, u.username ASC
+  `).all(id).map(rowToRecipient);
+  return { ...rowToTask(task), recipients };
+}
+
+// Все задания (с получателями) — видят только те, кто вправе их ставить.
+function listAllTasks() {
+  const tasks = db.prepare('SELECT * FROM tasks ORDER BY created_at DESC').all();
+  return tasks.map(t => getTask(t.id));
+}
+
+// Мои задания — свой статус в каждом. Перед выдачей списка "новые"
+// автоматически помечаются прочитанными (см. markMyNewTasksRead).
+function listMyTasks(userId) {
+  const rows = db.prepare(`
+    SELECT tr.*, t.text AS task_text, t.created_by_name, t.created_at AS task_created_at
+    FROM task_recipients tr
+    JOIN tasks t ON t.id = tr.task_id
+    WHERE tr.user_id = ?
+    ORDER BY t.created_at DESC
+  `).all(userId);
+  return rows.map(r => ({
+    id: r.task_id,
+    text: r.task_text,
+    createdByName: r.created_by_name,
+    createdAt: r.task_created_at,
+    status: r.status,
+    readAt: r.read_at,
+    startedAt: r.started_at,
+    doneAt: r.done_at
+  }));
+}
+
+function markMyNewTasksRead(userId) {
+  db.prepare(`UPDATE task_recipients SET status = 'read', read_at = datetime('now') WHERE user_id = ? AND status = 'new'`)
+    .run(userId);
+}
+
+function countMyNewTasks(userId) {
+  return db.prepare(`SELECT COUNT(*) AS n FROM task_recipients WHERE user_id = ? AND status = 'new'`).get(userId).n;
+}
+
+// Сотрудник двигает свой статус вперёд: read → in_progress → done (только
+// вперёд — так прогресс нельзя случайно "откатить" повторным нажатием).
+function setMyTaskStatus(taskId, userId, status) {
+  if (!TASK_STATUSES.includes(status)) throw new Error('Некорректный статус');
+  const row = db.prepare('SELECT * FROM task_recipients WHERE task_id = ? AND user_id = ?').get(taskId, userId);
+  if (!row) throw new Error('Задание не найдено');
+  const from = TASK_STATUSES.indexOf(row.status);
+  const to = TASK_STATUSES.indexOf(status);
+  if (to !== from + 1) throw new Error('Задания можно двигать только на один шаг вперёд по порядку: прочитано → в работе → готово');
+  const col = status === 'read' ? 'read_at' : status === 'in_progress' ? 'started_at' : status === 'done' ? 'done_at' : null;
+  db.prepare(`UPDATE task_recipients SET status = ?${col ? `, ${col} = datetime('now')` : ''} WHERE task_id = ? AND user_id = ?`)
+    .run(status, taskId, userId);
+  return getTask(taskId);
+}
+
+function deleteTask(id) {
+  const info = db.prepare('DELETE FROM tasks WHERE id = ?').run(id);
+  if (!info.changes) throw new Error('Задание не найдено');
+  db.prepare('DELETE FROM task_recipients WHERE task_id = ?').run(id);
+  return { id };
+}
+
+function listAssignableUsers() {
+  return db.prepare(`SELECT id, username, display_name, role, disabled FROM users WHERE disabled = 0 ORDER BY display_name ASC, username ASC`).all();
+}
+
 function setUserDisabled(id, disabled) {
   const user = getUserById(id);
   if (!user) throw new Error('Пользователь не найден');
@@ -1015,6 +1177,7 @@ module.exports = {
   setCurrentActor,
   listRoles, getRole, roleExists, createRole, renameRole, updateRolePerms, deleteRole,
   listUsers, getUserByUsername, getUserById, countUsers, insertUser, updateUserRole,
-  setUserPasswordHash, setUserDisabled, deleteUser,
+  setUserPasswordHash, setUserDisabled, deleteUser, listAssignableUsers,
+  createTask, getTask, listAllTasks, listMyTasks, markMyNewTasksRead, countMyNewTasks, setMyTaskStatus, deleteTask,
   createSession, getSession, deleteSession, deleteAllSessionsForUser
 };
