@@ -98,22 +98,13 @@ function publicUser(u) {
 // Прикрепляет req.user (или null) и db.setCurrentActor(...) для подписи
 // журнала. Не блокирует запрос — блокировку делает requireAuth ниже.
 function attachUser(req, res, next) {
-  // Раньше ошибка БД внутри этого middleware (оно вызывается на КАЖДЫЙ
-  // запрос, включая статику) не попадала ни в один res.status(...) — запрос
-  // просто никогда не получал ответа, и фронт вечно висел на «подключение…».
-  // Теперь любая такая ошибка превращается в понятный 503, а не в тишину.
-  try {
-    const cookies = parseCookies(req);
-    const token = cookies[COOKIE_NAME];
-    const user = token ? db.getSession(token) : null;
-    req.user = user || null;
-    req.sessionToken = token || null;
-    db.setCurrentActor(user ? `${user.display_name || user.username} · ${labelFor(user.role)}` : null);
-    next();
-  } catch (err) {
-    console.error('attachUser: ошибка при обращении к БД:', err.message);
-    res.status(503).json({ error: 'База данных временно недоступна' });
-  }
+  const cookies = parseCookies(req);
+  const token = cookies[COOKIE_NAME];
+  const user = token ? db.getSession(token) : null;
+  req.user = user || null;
+  req.sessionToken = token || null;
+  db.setCurrentActor(user ? `${user.display_name || user.username} · ${labelFor(user.role)}` : null);
+  next();
 }
 
 function requireAuth(req, res, next) {

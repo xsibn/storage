@@ -11,17 +11,8 @@ const Database = require('better-sqlite3');
 const DATA_DIR = path.join(__dirname, 'data');
 if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
 
-// timeout: если файл базы заблокирован другим процессом (например, вторым
-// запущенным сервером или зависшей копией после аварийного перезапуска),
-// better-sqlite3 по умолчанию может ждать блокировку очень долго — на диске
-// с сетевым/эмулированным I/O (частая ситуация на хостинге) это ощущается
-// как «вечное подключение к БД»: сервер не отвечает вообще ни на один
-// запрос, а фронт бесконечно висит на «подключение…». Явно ограничиваем
-// время ожидания блокировки, чтобы вместо вечного зависания получить
-// быструю и понятную ошибку в логах.
-const db = new Database(path.join(DATA_DIR, 'warehouse.db'), { timeout: 5000 });
+const db = new Database(path.join(DATA_DIR, 'warehouse.db'));
 db.pragma('journal_mode = WAL');
-db.pragma('busy_timeout = 5000');
 
 db.exec(`
   CREATE TABLE IF NOT EXISTS stock_records (
