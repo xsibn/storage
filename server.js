@@ -575,6 +575,70 @@ app.post('/api/auth/change-password', auth.requireAuth, (req, res) => {
   res.json({ ok: true });
 });
 
+// ---------- Аватарки пользователей ----------
+// Храним не в базе, а обычными файлами в public/avatars/ — так их отдаёт
+// express.static() бесплатно, без отдельного роута на скачивание.
+// Сама обрезка/сжатие картинки до маленького квадрата делается в браузере
+// (canvas, см. public/auth.js) ДО отправки на сервер — так на сервер в
+// принципе не попадают тяжёлые исходники и не нужна нативная библиотека
+// обработки изображений (sharp/jimp и т.п.) с её лишним весом и рисками
+// при установке. Лимит здесь — просто подстраховка на случай, если запрос
+// придёт не из нашего фронтенда.
+const AVATARS_DIR = path.join(__dirname, 'public', 'avatars');
+fs.mkdirSync(AVATARS_DIR, { recursive: true });
+const AVATAR_MAX_BYTES = 1 * 1024 * 1024; // 1 МБ — с запасом; готовая аватарка с клиента обычно 15–40 КБ
+const avatarUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: AVATAR_MAX_BYTES },
+  fileFilter: (req, file, cb) => {
+    if (!/^image\/(jpeg|png|webp)$/.test(file.mimetype)) {
+      return cb(new Error('Разрешены только JPEG, PNG или WebP'));
+    }
+    cb(null, true);
+  }
+});
+
+function extForMime(mimetype) {
+  if (mimetype === 'image/png') return 'png';
+  if (mimetype === 'image/webp') return 'webp';
+  return 'jpg';
+}
+
+function deleteAvatarFile(avatarPath) {
+  if (!avatarPath) return;
+  const full = path.join(__dirname, 'public', avatarPath);
+  // На всякий случай не даём выйти за пределы папки avatars/, даже если
+  // значение в БД когда-нибудь окажется странным.
+  if (!full.startsWith(AVATARS_DIR)) return;
+  fs.unlink(full, () => {}); // не критично, если файла уже нет
+}
+
+// POST /api/profile/avatar — загрузить/заменить свою аватарку
+app.post('/api/profile/avatar', auth.requireAuth, (req, res) => {
+  avatarUpload.single('avatar')(req, res, (err) => {
+    if (err) return res.status(400).json({ error: err.message || 'Не удалось загрузить файл' });
+    if (!req.file) return res.status(400).json({ error: 'Файл не получен' });
+
+    const oldPath = req.user.avatar_path;
+    const filename = `${req.user.id}-${crypto.randomBytes(6).toString('hex')}.${extForMime(req.file.mimetype)}`;
+    const relPath = `avatars/${filename}`;
+    fs.writeFileSync(path.join(AVATARS_DIR, filename), req.file.buffer);
+
+    const updated = db.setUserAvatar(req.user.id, relPath);
+    deleteAvatarFile(oldPath); // старую подчищаем уже после успешной записи новой
+
+    res.json({ user: auth.publicUser(updated) });
+  });
+});
+
+// DELETE /api/profile/avatar — вернуться к аватарке по умолчанию (инициалы)
+app.delete('/api/profile/avatar', auth.requireAuth, (req, res) => {
+  const oldPath = req.user.avatar_path;
+  const updated = db.setUserAvatar(req.user.id, null);
+  deleteAvatarFile(oldPath);
+  res.json({ user: auth.publicUser(updated) });
+});
+
 // ---------- Управление пользователями (сервисный аккаунт / начальник) ----------
 
 // GET /api/users — список аккаунтов

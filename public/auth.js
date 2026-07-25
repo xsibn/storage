@@ -125,21 +125,32 @@
   });
 
   // ---------- профиль (отдельная страница, как в Telegram) ----------
+  function applyAvatarTo(el, label, avatarUrl) {
+    if (avatarUrl) {
+      el.style.backgroundImage = `url("${avatarUrl}")`;
+      el.textContent = '';
+    } else {
+      el.style.backgroundImage = '';
+      el.textContent = initials(label);
+    }
+  }
+
   function applyUserToUI() {
     if (!currentUser) return;
     const label = currentUser.displayName || currentUser.username;
     const avatar = $('profile-avatar');
-    avatar.textContent = initials(label);
+    applyAvatarTo(avatar, label, currentUser.avatarUrl);
     const dot = document.createElement('span');
     dot.className = 'status-dot';
     avatar.appendChild(dot); // textContent write above already cleared any previous dot
     $('profile-name').textContent = label;
     $('profile-role').textContent = currentUser.roleLabel;
 
-    $('pp-avatar').textContent = initials(label);
+    applyAvatarTo($('pp-avatar'), label, currentUser.avatarUrl);
     $('pp-name').textContent = label;
     $('pp-role').textContent = currentUser.roleLabel;
     $('pp-manage-users').style.display = currentUser.perms.canManageUsers ? '' : 'none';
+    $('pp-avatar-remove-btn').style.display = currentUser.avatarUrl ? '' : 'none';
 
     document.body.classList.toggle('perm-no-read-activity', !currentUser.perms.canReadActivity);
     document.body.classList.toggle('perm-no-manage-activity', !currentUser.perms.canManageActivity);
@@ -159,6 +170,73 @@
   $('pp-logout').addEventListener('click', async () => {
     try { await fetch(API_BASE + '/api/auth/logout', { method: 'POST' }); } catch (_) {}
     location.reload();
+  });
+
+  // ---------- аватарка: сжимаем в браузере перед отправкой ----------
+  // Обрезаем по центру в квадрат и уменьшаем до 256×256 — с сервера в базу
+  // попадает уже маленький файл (обычно 15–40 КБ), а не то, что выбрал
+  // пользователь (фото с телефона может весить 5-10 МБ).
+  function resizeImageToBlob(file, size = 256, quality = 0.85) {
+    return new Promise((resolve, reject) => {
+      const img = new Image();
+      const url = URL.createObjectURL(file);
+      img.onload = () => {
+        URL.revokeObjectURL(url);
+        const side = Math.min(img.naturalWidth, img.naturalHeight);
+        const sx = (img.naturalWidth - side) / 2;
+        const sy = (img.naturalHeight - side) / 2;
+        const canvas = document.createElement('canvas');
+        canvas.width = size; canvas.height = size;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(img, sx, sy, side, side, 0, 0, size, size);
+        canvas.toBlob(
+          (blob) => blob ? resolve(blob) : reject(new Error('Не удалось обработать изображение')),
+          'image/jpeg', quality
+        );
+      };
+      img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('Файл повреждён или это не изображение')); };
+      img.src = url;
+    });
+  }
+
+  $('pp-avatar-upload-btn').addEventListener('click', () => $('pp-avatar-input').click());
+
+  $('pp-avatar-input').addEventListener('change', async () => {
+    const file = $('pp-avatar-input').files[0];
+    $('pp-avatar-input').value = ''; // чтобы повторный выбор того же файла тоже сработал
+    if (!file) return;
+    const btn = $('pp-avatar-upload-btn');
+    const prevLabel = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = '🖼 <span>Загружаем…</span>';
+    try {
+      const blob = await resizeImageToBlob(file);
+      const form = new FormData();
+      form.append('avatar', blob, 'avatar.jpg');
+      const res = await fetch(API_BASE + '/api/profile/avatar', { method: 'POST', body: form });
+      const payload = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(payload.error || 'Не удалось загрузить аватарку');
+      currentUser = payload.user;
+      applyUserToUI();
+    } catch (err) {
+      alert(err.message);
+    } finally {
+      btn.disabled = false;
+      btn.innerHTML = prevLabel;
+    }
+  });
+
+  $('pp-avatar-remove-btn').addEventListener('click', async () => {
+    if (!confirm('Убрать фото профиля?')) return;
+    try {
+      const res = await fetch(API_BASE + '/api/profile/avatar', { method: 'DELETE' });
+      const payload = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(payload.error || 'Не удалось удалить аватарку');
+      currentUser = payload.user;
+      applyUserToUI();
+    } catch (err) {
+      alert(err.message);
+    }
   });
 
   // ---------- маленькая модалка (независимая от app.js) ----------

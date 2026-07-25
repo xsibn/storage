@@ -88,7 +88,8 @@ function publicUser(u) {
     role: u.role,
     roleLabel: labelFor(u.role),
     perms: permsFor(u.role),
-    createdAt: u.created_at
+    createdAt: u.created_at,
+    avatarUrl: u.avatar_path ? `/${u.avatar_path}` : null
   };
 }
 

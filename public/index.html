@@ -391,6 +391,7 @@
     display:inline-flex; align-items:center; justify-content:center; min-width:16px; height:16px;
     padding:0 4px; margin-left:6px; border-radius:999px; background:var(--danger); color:#fff;
     font-size:10px; font-weight:700; vertical-align:middle;
+    border:2px solid var(--panel); box-sizing:content-box;
   }
   body.perm-no-manage-tasks #manage-tasks-panel{display:none !important;}
   body.perm-no-manage-users [data-view="accounts"],
@@ -797,6 +798,7 @@
     width:28px; height:28px; border-radius:50%; background:var(--accent);
     color:#fff; display:flex; align-items:center; justify-content:center;
     font-size:12px; font-weight:700; flex:none; position:relative;
+    background-size:cover; background-position:center;
   }
   .profile-avatar .status-dot{
     position:absolute; right:-1px; bottom:-1px; width:9px; height:9px; border-radius:50%;
@@ -832,7 +834,17 @@
     width:88px; height:88px; border-radius:50%; background:var(--accent); color:#fff;
     display:flex; align-items:center; justify-content:center; font-size:32px; font-weight:700;
     box-shadow:0 6px 20px rgba(0,0,0,.15);
+    background-size:cover; background-position:center;
   }
+  .pp-avatar-actions{
+    display:flex; gap:8px; margin-top:12px;
+  }
+  .pp-avatar-actions button{
+    font-size:12px; font-weight:600; padding:6px 12px; border-radius:999px;
+    border:1px solid var(--line); background:var(--panel); color:var(--ink); cursor:pointer;
+  }
+  .pp-avatar-actions button:hover{border-color:var(--accent); color:var(--accent);}
+  .pp-avatar-actions #pp-avatar-remove-btn{color:var(--danger); border-color:var(--danger);}
   .pp-name{font-size:18px; font-weight:700; margin-top:14px;}
   .pp-role{font-size:12.5px; color:var(--ink-soft); margin-top:2px; margin-bottom:26px;}
   .pp-list{
@@ -1285,6 +1297,11 @@
     </div>
     <div class="pp-body">
       <div class="pp-avatar" id="pp-avatar"></div>
+      <div class="pp-avatar-actions">
+        <button type="button" id="pp-avatar-upload-btn">🖼 <span>Загрузить фото</span></button>
+        <button type="button" id="pp-avatar-remove-btn" style="display:none;">✕ <span>Убрать фото</span></button>
+      </div>
+      <input type="file" id="pp-avatar-input" accept="image/png,image/jpeg,image/webp" style="display:none;">
       <div class="pp-name" id="pp-name">…</div>
       <div class="pp-role" id="pp-role">…</div>
       <div class="pp-list">
@@ -1315,7 +1332,7 @@
 
 </div>
 
-<script src="auth.js?v=5"></script>
-<script src="app.js?v=5"></script>
+<script src="auth.js?v=6"></script>
+<script src="app.js?v=6"></script>
 </body>
 </html>

@@ -133,6 +133,11 @@ if (rolesMigrated) {
   // соответствует «завсклад и все роли выше».
   db.prepare(`UPDATE roles SET can_manage_tasks = 1 WHERE key IN ('service', 'boss', 'warehouse_manager')`).run();
 }
+// Аватарки пользователей: храним не сам файл в БД, а только имя файла на
+// диске (см. public/avatars/ — отдельная папка, обработка в server.js
+// пережимает/уменьшает картинку перед сохранением, так что место на диске
+// не разрастается от исходников в несколько мегабайт).
+ensureColumn('users', 'avatar_path', 'TEXT');
 
 // Базовые роли — создаются один раз при первом запуске (INSERT OR IGNORE),
 // дальше их можно свободно переименовывать и менять права через API/CLI;
@@ -961,7 +966,7 @@ function deleteRole(key) {
 }
 
 function listUsers() {
-  return db.prepare('SELECT id, username, display_name, role, created_at, created_by, disabled FROM users ORDER BY id ASC').all();
+  return db.prepare('SELECT id, username, display_name, role, created_at, created_by, disabled, avatar_path FROM users ORDER BY id ASC').all();
 }
 
 function getUserByUsername(username) {
@@ -1003,6 +1008,15 @@ function updateUserRole(id, role) {
 
 function setUserPasswordHash(id, passwordHash) {
   const info = db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(passwordHash, id);
+  if (!info.changes) throw new Error('Пользователь не найден');
+  return getUserById(id);
+}
+
+// avatarPath — просто относительный путь вида "avatars/3-a1b2c3d4.webp"
+// (или null, чтобы вернуть аватарку по умолчанию — инициалы). Сам файл
+// на диске создаёт/удаляет server.js, здесь только ссылка в БД.
+function setUserAvatar(id, avatarPath) {
+  const info = db.prepare('UPDATE users SET avatar_path = ? WHERE id = ?').run(avatarPath || null, id);
   if (!info.changes) throw new Error('Пользователь не найден');
   return getUserById(id);
 }
@@ -1248,7 +1262,7 @@ module.exports = {
   setCurrentActor,
   listRoles, getRole, roleExists, createRole, renameRole, updateRolePerms, deleteRole,
   listUsers, getUserByUsername, getUserById, countUsers, insertUser, updateUserRole,
-  setUserPasswordHash, setUserDisabled, deleteUser, listAssignableUsers,
+  setUserPasswordHash, setUserDisabled, deleteUser, listAssignableUsers, setUserAvatar,
   createTask, getTask, listAllTasks, listMyTasks, markMyNewTasksRead, countMyNewTasks, setMyTaskStatus, deleteTask,
   createRegistrationRequest, listRegistrationRequests, countRegistrationRequests, approveRegistrationRequest, rejectRegistrationRequest,
   createSession, getSession, deleteSession, deleteAllSessionsForUser
