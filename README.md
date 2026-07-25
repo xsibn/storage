@@ -319,7 +319,6 @@ WAL-режиме спокойно переживает параллельный 
 | GET    | `/api/users`                      | Список аккаунтов *(нужно `canManageUsers`)* |
 | POST   | `/api/users`                      | Создать аккаунт *(нужно `canManageUsers`)* |
 | PATCH  | `/api/users/:id`                  | Изменить роль и/или заблокировать/разблокировать *(нужно `canManageUsers`)* |
-| POST   | `/api/users/reorder`               | Сохранить порядок аккаунтов в списке: `{ "order": [3,1,2,...] }` *(нужно `canManageUsers`)* |
 | POST   | `/api/users/:id/reset-password`   | Сбросить пароль сотрудника *(нужно `canManageUsers`)* |
 | DELETE | `/api/users/:id`                  | Удалить аккаунт *(нужно `canManageUsers`, нельзя удалить себя или сервисный)* |
 | GET    | `/api/roles`                      | Список ролей с правами *(нужно `canManageUsers`)* |

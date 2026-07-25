@@ -150,7 +150,6 @@
     $('pp-name').textContent = label;
     $('pp-role').textContent = currentUser.roleLabel;
     $('pp-manage-users').style.display = currentUser.perms.canManageUsers ? '' : 'none';
-    $('pp-github-wrap').style.display = currentUser.roleLabel === 'Разработчик' ? '' : 'none';
     $('pp-avatar-remove-btn').style.display = currentUser.avatarUrl ? '' : 'none';
 
     document.body.classList.toggle('perm-no-read-activity', !currentUser.perms.canReadActivity);
@@ -366,137 +365,51 @@
       `</select>`;
   }
 
-  let cachedUsersForList = [];
-  let cachedRolesForList = [];
-  let usersSearchQuery = '';
-
-  function userMatchesQuery(u, q) {
-    if (!q) return true;
-    const hay = `${u.display_name || ''} ${u.username || ''} ${u.roleLabel || ''}`.toLowerCase();
-    return hay.includes(q);
-  }
-
   async function renderUsersList() {
     const listEl = $('users-list');
     if (!listEl) return;
     listEl.innerHTML = '<div style="padding:10px; color:var(--ink-soft); font-size:12.5px;">Загрузка…</div>';
     try {
       const [users, roles] = await Promise.all([loadUsers(), loadRoles()]);
-      cachedUsersForList = users;
-      cachedRolesForList = roles;
-      paintUsersList();
-    } catch (err) {
-      listEl.innerHTML = `<div style="padding:10px; color:var(--danger); font-size:12.5px;">${escHtml(err.message)}</div>`;
-    }
-  }
-
-  function paintUsersList() {
-    const listEl = $('users-list');
-    if (!listEl) return;
-    const roles = cachedRolesForList;
-    const q = usersSearchQuery.trim().toLowerCase();
-    const users = cachedUsersForList.filter(u => userMatchesQuery(u, q));
-    const dragEnabled = !q; // порядок при активном поиске менять нельзя — не видно всего списка
-    if (!cachedUsersForList.length) {
-      listEl.innerHTML = '<div style="padding:10px; color:var(--ink-soft); font-size:12.5px;">Пока нет ни одного аккаунта.</div>';
-      return;
-    }
-    if (!users.length) {
-      listEl.innerHTML = '<div style="padding:10px; color:var(--ink-soft); font-size:12.5px;">Никого не нашлось.</div>';
-      return;
-    }
-    listEl.innerHTML = users.map(u => {
-      const isService = u.role === 'service';
-      const isSelf = currentUser && u.id === currentUser.id;
-      const label = u.display_name || u.username;
-      const avatarInner = u.avatarUrl
-        ? ''
-        : escHtml(initials(label));
-      const avatarStyle = u.avatarUrl ? ` style="background-image:url('${escHtml(u.avatarUrl)}')"` : '';
-      return `
-      <div class="user-row ${u.disabled ? 'disabled' : ''}" data-id="${u.id}">
-        <span class="u-drag" draggable="${dragEnabled}" title="${dragEnabled ? 'Перетащите, чтобы изменить порядок' : 'Очистите поиск, чтобы менять порядок'}" style="${dragEnabled ? '' : 'visibility:hidden;'}">⠿</span>
-        <div class="u-avatar"${avatarStyle}>${avatarInner}</div>
-        <div class="u-info">
-          <div class="u-view">
-            <div class="u-name">${escHtml(label)}${isSelf ? ' <span style="color:var(--ink-soft); font-weight:400;">(вы)</span>' : ''}</div>
-            <div class="u-login">@${escHtml(u.username)}</div>
-          </div>
-          <div class="u-edit">
-            <input type="text" class="u-edit-name" value="${escHtml(u.display_name || '')}" placeholder="Имя">
-            <input type="text" class="u-edit-login" value="${escHtml(u.username)}" placeholder="Логин">
-            <div class="u-edit-error" style="display:none;"></div>
-          </div>
-        </div>
-        ${isService ? `<span class="role-badge" style="background:var(--accent-soft); color:var(--accent); font-size:11px; padding:3px 9px; border-radius:999px;">${escHtml(u.roleLabel)}</span>`
-          : roleSelectHtml(roles, u.role, false)}
-        ${u.isDeveloper ? `<a href="https://github.com/xsibn/storage" target="_blank" rel="noopener" class="icon-btn" title="Репозиторий на GitHub" style="display:inline-flex; align-items:center; text-decoration:none;">
-          <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8z"/></svg>
-        </a>` : ''}
-        <div class="u-actions">
-          ${!isService ? `<button type="button" class="icon-btn" data-action="edit-identity" title="Изменить логин и имя">✏</button>` : ''}
-          <button type="button" class="icon-btn edit-save-btn" data-action="save-identity" title="Сохранить">💾</button>
-          <button type="button" class="icon-btn edit-cancel-btn" data-action="cancel-identity" title="Отмена">✕</button>
-          ${!isService ? `<button type="button" class="icon-btn" data-action="reset-pw" title="Сбросить пароль">🔑</button>` : ''}
-          ${!isService ? `<button type="button" class="icon-btn" data-action="toggle-disabled" title="${u.disabled ? 'Разблокировать' : 'Заблокировать'}">${u.disabled ? '✅' : '⛔'}</button>` : ''}
-          ${!isService && !isSelf ? `<button type="button" class="icon-btn danger" data-action="delete" title="Удалить">🗑</button>` : ''}
-        </div>
-      </div>`;
-    }).join('');
-    wireUsersDragAndDrop(listEl, dragEnabled);
-    wireUsersRowActions(listEl);
-  }
-
-  // ---------- Перетаскивание строк для смены порядка (только когда поиск пуст) ----------
-  function wireUsersDragAndDrop(listEl, enabled) {
-    if (!enabled) return;
-    let draggingRow = null;
-    listEl.querySelectorAll('.user-row').forEach(row => {
-      const handle = row.querySelector('.u-drag');
-      if (!handle) return;
-      row.addEventListener('dragstart', (e) => {
-        draggingRow = row;
-        row.classList.add('dragging');
-        e.dataTransfer.effectAllowed = 'move';
-      });
-      row.addEventListener('dragend', () => {
-        row.classList.remove('dragging');
-        draggingRow = null;
-        const ids = Array.from(listEl.querySelectorAll('.user-row')).map(r => Number(r.dataset.id));
-        saveUsersOrder(ids);
-      });
-      row.addEventListener('dragover', (e) => {
-        e.preventDefault();
-        if (!draggingRow || draggingRow === row) return;
-        const rect = row.getBoundingClientRect();
-        const before = (e.clientY - rect.top) < rect.height / 2;
-        listEl.insertBefore(draggingRow, before ? row : row.nextSibling);
-      });
-    });
-  }
-
-  let usersOrderSaveTimer = null;
-  function saveUsersOrder(ids) {
-    clearTimeout(usersOrderSaveTimer);
-    usersOrderSaveTimer = setTimeout(async () => {
-      try {
-        const res = await fetch(API_BASE + '/api/users/reorder', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ order: ids })
-        });
-        const payload = await res.json().catch(() => ({}));
-        if (!res.ok) throw new Error(payload.error || 'Не удалось сохранить порядок');
-        cachedUsersForList = payload.users || cachedUsersForList;
-      } catch (err) {
-        // Порядок — не критичная операция: молча не даём сломать список,
-        // просто перерисуем как было на сервере при следующей загрузке.
-        console.error(err);
+      if (!users.length) {
+        listEl.innerHTML = '<div style="padding:10px; color:var(--ink-soft); font-size:12.5px;">Пока нет ни одного аккаунта.</div>';
+        return;
       }
-    }, 250);
-  }
+      listEl.innerHTML = users.map(u => {
+        const isService = u.role === 'service';
+        const isSelf = currentUser && u.id === currentUser.id;
+        const label = u.display_name || u.username;
+        const avatarInner = u.avatarUrl
+          ? ''
+          : escHtml(initials(label));
+        const avatarStyle = u.avatarUrl ? ` style="background-image:url('${escHtml(u.avatarUrl)}')"` : '';
+        return `
+        <div class="user-row ${u.disabled ? 'disabled' : ''}" data-id="${u.id}">
+          <div class="u-avatar"${avatarStyle}>${avatarInner}</div>
+          <div class="u-info">
+            <div class="u-view">
+              <div class="u-name">${escHtml(label)}${isSelf ? ' <span style="color:var(--ink-soft); font-weight:400;">(вы)</span>' : ''}</div>
+              <div class="u-login">@${escHtml(u.username)}</div>
+            </div>
+            <div class="u-edit">
+              <input type="text" class="u-edit-name" value="${escHtml(u.display_name || '')}" placeholder="Имя">
+              <input type="text" class="u-edit-login" value="${escHtml(u.username)}" placeholder="Логин">
+              <div class="u-edit-error" style="display:none;"></div>
+            </div>
+          </div>
+          ${isService ? `<span class="role-badge" style="background:var(--accent-soft); color:var(--accent); font-size:11px; padding:3px 9px; border-radius:999px;">${escHtml(u.roleLabel)}</span>`
+            : roleSelectHtml(roles, u.role, false)}
+          <div class="u-actions">
+            ${!isService ? `<button type="button" class="icon-btn" data-action="edit-identity" title="Изменить логин и имя">✏</button>` : ''}
+            <button type="button" class="icon-btn edit-save-btn" data-action="save-identity" title="Сохранить">💾</button>
+            <button type="button" class="icon-btn edit-cancel-btn" data-action="cancel-identity" title="Отмена">✕</button>
+            ${!isService ? `<button type="button" class="icon-btn" data-action="reset-pw" title="Сбросить пароль">🔑</button>` : ''}
+            ${!isService ? `<button type="button" class="icon-btn" data-action="toggle-disabled" title="${u.disabled ? 'Разблокировать' : 'Заблокировать'}">${u.disabled ? '✅' : '⛔'}</button>` : ''}
+            ${!isService && !isSelf ? `<button type="button" class="icon-btn danger" data-action="delete" title="Удалить">🗑</button>` : ''}
+          </div>
+        </div>`;
+      }).join('');
 
-  function wireUsersRowActions(listEl) {
       listEl.querySelectorAll('.user-row').forEach(row => {
         const id = row.dataset.id;
         const select = row.querySelector('.u-role-select');
@@ -583,6 +496,9 @@
           });
         });
       });
+    } catch (err) {
+      listEl.innerHTML = `<div style="padding:10px; color:var(--danger); font-size:12.5px;">${escHtml(err.message)}</div>`;
+    }
   }
 
   async function fillNewUserRoleSelect() {
@@ -703,12 +619,6 @@
 
     $('users-tab-users').addEventListener('click', () => switchUsersTab('users'));
     $('users-tab-roles').addEventListener('click', () => switchUsersTab('roles'));
-    if ($('users-search')) {
-      $('users-search').addEventListener('input', (e) => {
-        usersSearchQuery = e.target.value || '';
-        paintUsersList();
-      });
-    }
     $('new-role-form').addEventListener('submit', async (e) => {
       e.preventDefault();
       const errEl = $('nr-error');

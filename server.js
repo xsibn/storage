@@ -655,8 +655,7 @@ app.get('/api/users/directory', auth.requireAuth, (req, res) => {
         displayName: u.display_name || u.username,
         role: u.role,
         roleLabel: auth.labelFor(u.role),
-        avatarUrl: u.avatar_path ? `/${u.avatar_path}` : null,
-        isDeveloper: auth.labelFor(u.role) === 'Разработчик'
+        avatarUrl: u.avatar_path ? `/${u.avatar_path}` : null
       }))
   });
 });
@@ -666,30 +665,9 @@ app.get('/api/users', auth.requirePerm('canManageUsers'), (req, res) => {
     users: db.listUsers().map(u => ({
       ...u,
       roleLabel: auth.labelFor(u.role),
-      avatarUrl: u.avatar_path ? `/${u.avatar_path}` : null,
-      isDeveloper: auth.labelFor(u.role) === 'Разработчик'
+      avatarUrl: u.avatar_path ? `/${u.avatar_path}` : null
     }))
   });
-});
-
-// POST /api/users/reorder — сохранить порядок аккаунтов в списке (drag&drop
-// на клиенте), доступно только тем, у кого есть право управлять пользователями
-app.post('/api/users/reorder', auth.requirePerm('canManageUsers'), (req, res) => {
-  try {
-    const { order } = req.body || {};
-    if (!Array.isArray(order)) return res.status(400).json({ error: 'Нужен список id в поле order' });
-    const users = db.reorderUsers(order);
-    res.json({
-      users: users.map(u => ({
-        ...u,
-        roleLabel: auth.labelFor(u.role),
-        avatarUrl: u.avatar_path ? `/${u.avatar_path}` : null,
-        isDeveloper: auth.labelFor(u.role) === 'Разработчик'
-      }))
-    });
-  } catch (err) {
-    res.status(400).json({ error: err.message });
-  }
 });
 
 // POST /api/users — создать аккаунт
