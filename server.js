@@ -43,6 +43,10 @@ if (db.countUsers() === 0) {
   console.log('================================================================');
 }
 
+// Общий чат существует всегда и включает всех пользователей (в т.ч. созданных
+// до появления чатов) — гарантируем это на каждом старте сервера.
+db.ensureGeneralChat();
+
 // Всё под /api/*, кроме входа и health-check, требует авторизации.
 app.use((req, res, next) => {
   if (!req.path.startsWith('/api/')) return next();
@@ -934,6 +938,222 @@ app.delete('/api/tasks/:id', auth.requirePerm('canManageTasks'), (req, res) => {
   if (!Number.isInteger(id)) return res.status(400).json({ error: 'bad id' });
   try {
     db.deleteTask(id);
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+// ---------- Чаты ----------
+
+// GET /api/chats — список всех чатов текущего пользователя (общий, ЛС, группы)
+app.get('/api/chats', (req, res) => {
+  res.json({ chats: db.listMyChats(req.user.id) });
+});
+
+app.get('/api/chats/unread-count', (req, res) => {
+  res.json({ count: db.totalUnreadChats(req.user.id) });
+});
+
+// GET /api/chats/directory — список коллег, с кем можно открыть ЛС / добавить в группу
+app.get('/api/chats/directory', (req, res) => {
+  res.json({
+    users: db.listAssignableUsers()
+      .filter(u => u.id !== req.user.id)
+      .map(u => ({
+        id: u.id, username: u.username, displayName: u.display_name || u.username,
+        avatarUrl: u.avatar_path ? `/${u.avatar_path}` : null
+      }))
+  });
+});
+
+// POST /api/chats/dm — открыть (или создать) личный чат с пользователем
+app.post('/api/chats/dm', (req, res) => {
+  const { userId } = req.body || {};
+  try {
+    const chatId = db.getOrCreateDm(req.user.id, Number(userId));
+    const chat = db.listMyChats(req.user.id).find(c => c.id === chatId);
+    res.status(201).json({ chat });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+// POST /api/chats/groups — создать групповой чат
+app.post('/api/chats/groups', (req, res) => {
+  const { title, memberIds } = req.body || {};
+  try {
+    const chatId = db.createGroupChat({ title, creatorId: req.user.id, memberIds });
+    const chat = db.listMyChats(req.user.id).find(c => c.id === chatId);
+    res.status(201).json({ chat });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+// GET /api/chats/:id/members
+app.get('/api/chats/:id/members', (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  if (!db.isChatMember(id, req.user.id)) return res.status(403).json({ error: 'Вы не состоите в этом чате' });
+  res.json({ members: db.listChatMembers(id) });
+});
+
+// POST /api/chats/:id/members — добавить участников в группу
+app.post('/api/chats/:id/members', (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  try {
+    db.addGroupMembers(id, req.user.id, (req.body || {}).memberIds);
+    res.json({ members: db.listChatMembers(id) });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+// POST /api/chats/:id/leave — выйти из группы
+app.post('/api/chats/:id/leave', (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  try {
+    db.leaveGroupChat(id, req.user.id);
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+// GET /api/chats/:id/messages — история сообщений (?beforeId= для подгрузки старых)
+app.get('/api/chats/:id/messages', (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  try {
+    const messages = db.listChatMessages(id, req.user.id, {
+      beforeId: req.query.beforeId ? parseInt(req.query.beforeId, 10) : null,
+      limit: req.query.limit ? parseInt(req.query.limit, 10) : 50
+    });
+    res.json({ messages });
+  } catch (err) {
+    res.status(403).json({ error: err.message });
+  }
+});
+
+// POST /api/chats/:id/messages — отправить сообщение
+app.post('/api/chats/:id/messages', (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  try {
+    const message = db.sendChatMessage(id, req.user.id, (req.body || {}).text);
+    res.status(201).json({ message });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+// POST /api/chats/:id/read — отметить чат прочитанным
+app.post('/api/chats/:id/read', (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  if (!db.isChatMember(id, req.user.id)) return res.status(403).json({ error: 'Вы не состоите в этом чате' });
+  db.markChatRead(id, req.user.id);
+  res.json({ ok: true });
+});
+
+// ---------- Чаты (общий, личные и группы) ----------
+// Общий чат — один на всю систему, в нём автоматически состоят все
+// пользователи. ЛС создаётся/переиспользуется по паре собеседников. Группы
+// создаёт любой сотрудник, указывая название и участников.
+
+// GET /api/chats — мои чаты (общий + ЛС + группы) с последним сообщением и
+// числом непрочитанных.
+app.get('/api/chats', (req, res) => {
+  db.ensureGeneralChat();
+  res.json({ chats: db.listMyChats(req.user.id) });
+});
+
+// GET /api/chats/unread-count — лёгкий счётчик чатов с непрочитанным (для бейджа).
+app.get('/api/chats/unread-count', (req, res) => {
+  res.json({ count: db.totalUnreadChats(req.user.id) });
+});
+
+// GET /api/chats/:id/messages — история сообщений (можно ?before=ID&limit=N для подгрузки старых).
+app.get('/api/chats/:id/messages', (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  if (!Number.isInteger(id)) return res.status(400).json({ error: 'bad id' });
+  try {
+    const messages = db.listChatMessages(id, req.user.id, { beforeId: req.query.before, limit: req.query.limit });
+    res.json({ messages });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+// POST /api/chats/:id/messages — отправить сообщение в чат.
+app.post('/api/chats/:id/messages', (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  if (!Number.isInteger(id)) return res.status(400).json({ error: 'bad id' });
+  try {
+    const message = db.sendChatMessage(id, req.user.id, (req.body || {}).text);
+    res.status(201).json({ message });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+// POST /api/chats/:id/read — отметить чат прочитанным до последнего сообщения.
+app.post('/api/chats/:id/read', (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  if (!Number.isInteger(id)) return res.status(400).json({ error: 'bad id' });
+  if (!db.isChatMember(id, req.user.id)) return res.status(403).json({ error: 'Вы не состоите в этом чате' });
+  db.markChatRead(id, req.user.id);
+  res.json({ ok: true });
+});
+
+// POST /api/chats/dm — открыть (или создать) личный чат с указанным пользователем.
+app.post('/api/chats/dm', (req, res) => {
+  const otherUserId = parseInt((req.body || {}).userId, 10);
+  if (!Number.isInteger(otherUserId)) return res.status(400).json({ error: 'Не указан собеседник' });
+  try {
+    const chatId = db.getOrCreateDm(req.user.id, otherUserId);
+    const chat = db.listMyChats(req.user.id).find(c => c.id === chatId);
+    res.status(201).json({ chat });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+// POST /api/chats/group — создать групповой чат.
+app.post('/api/chats/group', (req, res) => {
+  const { title, memberIds } = req.body || {};
+  try {
+    const chatId = db.createGroupChat({ title, creatorId: req.user.id, memberIds });
+    const chat = db.listMyChats(req.user.id).find(c => c.id === chatId);
+    res.status(201).json({ chat });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+// GET /api/chats/:id/members — участники группового чата.
+app.get('/api/chats/:id/members', (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  if (!Number.isInteger(id)) return res.status(400).json({ error: 'bad id' });
+  if (!db.isChatMember(id, req.user.id)) return res.status(403).json({ error: 'Вы не состоите в этом чате' });
+  res.json({ members: db.listChatMembers(id) });
+});
+
+// POST /api/chats/:id/members — добавить участников в группу.
+app.post('/api/chats/:id/members', (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  if (!Number.isInteger(id)) return res.status(400).json({ error: 'bad id' });
+  try {
+    db.addGroupMembers(id, req.user.id, (req.body || {}).memberIds);
+    res.json({ members: db.listChatMembers(id) });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+// POST /api/chats/:id/leave — выйти из группового чата.
+app.post('/api/chats/:id/leave', (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  if (!Number.isInteger(id)) return res.status(400).json({ error: 'bad id' });
+  try {
+    db.leaveGroupChat(id, req.user.id);
     res.json({ ok: true });
   } catch (err) {
     res.status(400).json({ error: err.message });

@@ -2782,7 +2782,7 @@
 
   // ---------- TABS ----------
   const WAREHOUSE_VIEWS = ['map', 'table', 'zones', 'reco'];
-  const FULLSCREEN_VIEWS = ['tasks', 'accounts']; // разделы вроде "Задания"/"Аккаунты" — на телефоне занимают весь экран, без вкладок склада
+  const FULLSCREEN_VIEWS = ['tasks', 'accounts', 'chats']; // разделы вроде "Задания"/"Аккаунты"/"Чаты" — на телефоне занимают весь экран, без вкладок склада
   let lastWarehouseView = 'map'; // склад: какую под-вкладку показать при возврате из "Задания"/"Аккаунтов"
 
   function activateView(view){
@@ -2792,6 +2792,7 @@
     FULLSCREEN_VIEWS.forEach(v => document.body.classList.toggle(`bn-${v}-mode`, v === view));
     if(WAREHOUSE_VIEWS.includes(view)) lastWarehouseView = view;
     if(view === 'tasks') loadTasks();
+    if(view === 'chats') loadChats();
     if(view === 'accounts'){
       if(document.body.classList.contains('perm-no-manage-users')){
         loadAccountsDirectory();
@@ -3275,6 +3276,415 @@
     }
   });
 
+  // ---------- ЧАТЫ (общий чат, ЛС, группы) ----------
+  let chatsCache = [];
+  let activeChatId = null;
+  let activeChatInfo = null;
+  let chatDirectoryCache = null;
+  let oldestLoadedMsgId = null;
+  let chatMessagesLoading = false;
+
+  function fmtChatTime(iso){
+    if(!iso) return '';
+    const d = new Date(iso.replace(' ', 'T') + 'Z');
+    return d.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
+  }
+  function fmtChatListTime(iso){
+    if(!iso) return '';
+    const d = new Date(iso.replace(' ', 'T') + 'Z');
+    const now = new Date();
+    if(d.toDateString() === now.toDateString()) return d.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
+    return d.toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit' });
+  }
+  function chatAvatarHtml(chat){
+    if(chat.isGeneral) return `<div class="chat-avatar chat-avatar-general">💬</div>`;
+    if(chat.isGroup) return `<div class="chat-avatar chat-avatar-group">${escHtml(initials(chat.title))}</div>`;
+    return `<div class="chat-avatar"${chat.avatarUrl ? ` style="background-image:url('${escHtml(chat.avatarUrl)}')"` : ''}>${chat.avatarUrl ? '' : escHtml(initials(chat.title))}</div>`;
+  }
+
+  async function refreshChatsBadge(){
+    if(!isAuthed) return;
+    try{
+      const res = await fetch(API_BASE + '/api/chats/unread-count');
+      if(!res.ok) return;
+      const { count } = await res.json();
+      [document.getElementById('chats-badge'), document.getElementById('bn-chats-badge')].forEach(badge => {
+        if(!badge) return;
+        if(count > 0){ badge.textContent = count; badge.style.display = ''; }
+        else badge.style.display = 'none';
+      });
+    }catch(_e){ /* тихо игнорируем — это лишь бейдж */ }
+  }
+
+  function renderChatsList(){
+    const wrap = document.getElementById('chats-list');
+    if(!chatsCache.length){
+      wrap.innerHTML = '<div class="chats-empty">Чатов пока нет.</div>';
+      return;
+    }
+    wrap.innerHTML = chatsCache.map(c => `
+      <div class="chat-list-item${c.id === activeChatId ? ' active' : ''}" data-chat-id="${c.id}">
+        ${chatAvatarHtml(c)}
+        <div class="cli-body">
+          <div class="cli-top">
+            <div class="cli-title">${escHtml(c.title)}${c.isGroup ? ` <span style="font-weight:400; color:var(--ink-soft); font-size:11px;">(${c.membersCount})</span>` : ''}</div>
+            <div class="cli-time">${fmtChatListTime(c.lastActivityAt)}</div>
+          </div>
+          <div class="cli-preview">
+            <div class="cli-last">${c.lastMessage ? escHtml((c.lastMessage.mine ? 'Вы: ' : (c.isGeneral || c.isGroup) && c.lastMessage.authorName ? c.lastMessage.authorName + ': ' : '') + c.lastMessage.text) : 'Сообщений пока нет'}</div>
+            ${c.unread > 0 ? `<span class="chat-unread-badge">${c.unread}</span>` : ''}
+          </div>
+        </div>
+      </div>
+    `).join('');
+    wrap.querySelectorAll('[data-chat-id]').forEach(row => {
+      row.addEventListener('click', () => openChat(Number(row.dataset.chatId)));
+    });
+  }
+
+  async function loadChats(){
+    try{
+      const res = await fetch(API_BASE + '/api/chats');
+      if(!res.ok) throw new Error('Сервер вернул ошибку ' + res.status);
+      const data = await res.json();
+      chatsCache = data.chats || [];
+      renderChatsList();
+      refreshChatsBadge();
+    }catch(err){
+      document.getElementById('chats-list').innerHTML = `<div class="chats-empty">${escHtml(err.message)}</div>`;
+    }
+  }
+
+  function renderChatMessages(messages, prepend){
+    const box = document.getElementById('chat-messages');
+    const me = window.__currentUser;
+    const nearBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 80;
+    const prevHeight = box.scrollHeight;
+    let lastDay = prepend ? box.dataset.firstDay || '' : '';
+    const html = messages.map(m => {
+      const day = (m.createdAt || '').slice(0, 10);
+      let sep = '';
+      if(day !== lastDay){
+        lastDay = day;
+        const d = new Date((m.createdAt || '').replace(' ', 'T') + 'Z');
+        sep = `<div class="chat-day-sep">${d.toLocaleDateString('ru-RU', { day: '2-digit', month: 'long' })}</div>`;
+      }
+      const mine = me && m.userId === me.id;
+      const showAuthor = !mine && (activeChatInfo?.isGeneral || activeChatInfo?.isGroup);
+      return `${sep}<div class="chat-msg${mine ? ' mine' : ''}" data-msg-id="${m.id}">
+        ${showAuthor ? `<div class="cm-author">${escHtml(m.authorName)}</div>` : ''}
+        <div class="cm-bubble">${escHtml(m.text)}</div>
+        <div class="cm-time">${fmtChatTime(m.createdAt)}</div>
+      </div>`;
+    }).join('');
+    if(prepend){
+      box.dataset.firstDay = lastDay;
+      box.insertAdjacentHTML('afterbegin', html);
+      box.scrollTop = box.scrollHeight - prevHeight;
+    } else {
+      box.insertAdjacentHTML('beforeend', html);
+      if(nearBottom) box.scrollTop = box.scrollHeight;
+    }
+  }
+
+  async function openChat(chatId){
+    activeChatId = chatId;
+    activeChatInfo = chatsCache.find(c => c.id === chatId) || null;
+    document.getElementById('chats-shell').classList.add('chat-open');
+    document.getElementById('chats-empty-state').style.display = 'none';
+    const win = document.getElementById('chat-window');
+    win.style.display = 'flex';
+    const box = document.getElementById('chat-messages');
+    box.innerHTML = '';
+    box.dataset.firstDay = '';
+    oldestLoadedMsgId = null;
+    renderChatsList();
+
+    if(activeChatInfo){
+      document.getElementById('chat-head-avatar').outerHTML = chatAvatarHtml(activeChatInfo).replace('chat-avatar', 'chat-avatar" id="chat-head-avatar');
+      document.getElementById('chat-head-title').textContent = activeChatInfo.title;
+      document.getElementById('chat-head-sub').textContent = activeChatInfo.isGeneral ? 'все сотрудники' : activeChatInfo.isGroup ? `${activeChatInfo.membersCount} участников` : '';
+      document.getElementById('chat-members-btn').style.display = (activeChatInfo.isGeneral || activeChatInfo.isGroup) ? '' : 'none';
+    }
+
+    try{
+      const res = await fetch(`${API_BASE}/api/chats/${chatId}/messages`);
+      if(!res.ok) throw new Error('Не удалось загрузить сообщения');
+      const data = await res.json();
+      renderChatMessages(data.messages || [], false);
+      if(data.messages && data.messages.length) oldestLoadedMsgId = data.messages[0].id;
+      box.scrollTop = box.scrollHeight;
+      await fetch(`${API_BASE}/api/chats/${chatId}/read`, { method: 'POST' });
+      const item = chatsCache.find(c => c.id === chatId);
+      if(item) item.unread = 0;
+      renderChatsList();
+      refreshChatsBadge();
+    }catch(err){
+      box.innerHTML = `<div class="chats-empty">${escHtml(err.message)}</div>`;
+    }
+    document.getElementById('chat-input').focus();
+  }
+
+  function closeChatMobile(){
+    document.getElementById('chats-shell').classList.remove('chat-open');
+  }
+
+  document.getElementById('chat-back-btn').addEventListener('click', closeChatMobile);
+
+  document.getElementById('chat-messages').addEventListener('scroll', async (e) => {
+    const box = e.target;
+    if(box.scrollTop > 40 || chatMessagesLoading || !oldestLoadedMsgId || !activeChatId) return;
+    chatMessagesLoading = true;
+    try{
+      const res = await fetch(`${API_BASE}/api/chats/${activeChatId}/messages?beforeId=${oldestLoadedMsgId}`);
+      if(!res.ok) return;
+      const data = await res.json();
+      if(data.messages && data.messages.length){
+        renderChatMessages(data.messages, true);
+        oldestLoadedMsgId = data.messages[0].id;
+      } else {
+        oldestLoadedMsgId = null; // больше нечего подгружать
+      }
+    }catch(_e){ /* тихо игнорируем */ } finally { chatMessagesLoading = false; }
+  });
+
+  document.getElementById('chat-input-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    if(!activeChatId) return;
+    const input = document.getElementById('chat-input');
+    const text = input.value.trim();
+    if(!text) return;
+    input.value = '';
+    input.disabled = true;
+    try{
+      const res = await fetch(`${API_BASE}/api/chats/${activeChatId}/messages`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text })
+      });
+      const payload = await res.json().catch(() => ({}));
+      if(!res.ok) throw new Error(payload.error || 'Не удалось отправить сообщение');
+      renderChatMessages([payload.message], false);
+      const box = document.getElementById('chat-messages');
+      box.scrollTop = box.scrollHeight;
+      loadChats(); // обновить превью/сортировку списка чатов
+    }catch(err){
+      alert(err.message);
+      input.value = text;
+    } finally {
+      input.disabled = false;
+      input.focus();
+    }
+  });
+
+  async function loadChatDirectory(force){
+    if(chatDirectoryCache && !force) return chatDirectoryCache;
+    const res = await fetch(API_BASE + '/api/chats/directory');
+    if(!res.ok) throw new Error('Не удалось загрузить список сотрудников');
+    const data = await res.json();
+    chatDirectoryCache = data.users;
+    return chatDirectoryCache;
+  }
+
+  function userPickerRowHtml(u){
+    return `
+      <label class="assign-user-row" data-uid="${u.id}">
+        <input type="checkbox" value="${u.id}">
+        <span class="au-avatar"${u.avatarUrl ? ` style="background-image:url('${escHtml(u.avatarUrl)}')"` : ''}>${u.avatarUrl ? '' : escHtml(initials(u.displayName))}</span>
+        <span class="au-name">${escHtml(u.displayName)}</span>
+      </label>
+    `;
+  }
+
+  async function openNewGroupModal(){
+    let users;
+    try{ users = await loadChatDirectory(); }
+    catch(err){ alert(err.message); return; }
+
+    openModal('Новая группа', `
+      <div class="form-field full" style="margin-bottom:10px;">
+        <label style="display:block; font-size:12px; color:var(--ink-soft); margin-bottom:4px;">Название группы</label>
+        <input type="text" id="ng-title" placeholder="Например, «Смена А»" style="width:100%; padding:9px 10px; border:1px solid var(--line); border-radius:7px; font-family:var(--sans); font-size:13.5px; background:var(--panel); color:var(--ink); box-sizing:border-box;">
+      </div>
+      <div class="form-field full">
+        <label style="font-size:12px; color:var(--ink-soft); display:block; margin-bottom:6px;">Участники</label>
+        <div class="assign-user-search"><input type="text" id="ng-search" placeholder="Поиск по имени…" autocomplete="off"></div>
+        <div class="assign-user-count" id="ng-count">Выбрано: 0</div>
+        <div class="assign-user-list" id="ng-user-list">
+          ${users.map(userPickerRowHtml).join('') || '<div class="assign-user-empty">Нет доступных сотрудников</div>'}
+        </div>
+      </div>
+      <div id="ng-error" style="display:none; color:var(--danger); font-size:12.5px; margin-top:8px;"></div>
+    `, `<button class="btn" id="ng-cancel">Отмена</button><button class="btn primary" id="ng-submit">Создать группу</button>`);
+
+    const listEl = document.getElementById('ng-user-list');
+    const countEl = document.getElementById('ng-count');
+    function updateCount(){ countEl.textContent = `Выбрано: ${listEl.querySelectorAll('input[type=checkbox]:checked').length}`; }
+    listEl.querySelectorAll('input[type=checkbox]').forEach(box => box.addEventListener('change', updateCount));
+    document.getElementById('ng-search').addEventListener('input', (e) => {
+      const q = e.target.value.trim().toLowerCase();
+      listEl.querySelectorAll('.assign-user-row').forEach(row => {
+        row.style.display = (!q || row.querySelector('.au-name').textContent.toLowerCase().includes(q)) ? '' : 'none';
+      });
+    });
+    document.getElementById('ng-cancel').addEventListener('click', closeModal);
+    document.getElementById('ng-submit').addEventListener('click', async () => {
+      const errEl = document.getElementById('ng-error');
+      errEl.style.display = 'none';
+      const title = document.getElementById('ng-title').value.trim();
+      const memberIds = Array.from(listEl.querySelectorAll('input[type=checkbox]:checked')).map(b => Number(b.value));
+      if(!title){ errEl.textContent = 'Введите название группы'; errEl.style.display = 'block'; return; }
+      if(!memberIds.length){ errEl.textContent = 'Выберите хотя бы одного участника'; errEl.style.display = 'block'; return; }
+      try{
+        const res = await fetch(API_BASE + '/api/chats/groups', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ title, memberIds })
+        });
+        const payload = await res.json().catch(() => ({}));
+        if(!res.ok) throw new Error(payload.error || 'Не удалось создать группу');
+        closeModal();
+        await loadChats();
+        if(payload.chat) openChat(payload.chat.id);
+      }catch(err){
+        errEl.textContent = err.message; errEl.style.display = 'block';
+      }
+    });
+  }
+
+  document.getElementById('new-group-btn').addEventListener('click', openNewGroupModal);
+
+  // Клик по коллеге в списке "Сотрудники"/директории аккаунтов — открыть с ним ЛС.
+  document.addEventListener('click', async (e) => {
+    const btn = e.target.closest('[data-open-dm]');
+    if(!btn) return;
+    const userId = Number(btn.dataset.openDm);
+    try{
+      const res = await fetch(API_BASE + '/api/chats/dm', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId })
+      });
+      const payload = await res.json().catch(() => ({}));
+      if(!res.ok) throw new Error(payload.error || 'Не удалось открыть чат');
+      activateView('chats');
+      await loadChats();
+      if(payload.chat) openChat(payload.chat.id);
+    }catch(err){ alert(err.message); }
+  });
+
+  async function openChatMembersModal(){
+    if(!activeChatId || !activeChatInfo) return;
+    try{
+      const res = await fetch(`${API_BASE}/api/chats/${activeChatId}/members`);
+      if(!res.ok) throw new Error('Не удалось загрузить участников');
+      const data = await res.json();
+      const members = data.members || [];
+      const canAdd = activeChatInfo.isGroup;
+      openModal(activeChatInfo.isGeneral ? 'Участники общего чата' : 'Участники группы', `
+        <div id="chat-members-list">
+          ${members.map(u => `<div class="cm-member-row">${chatAvatarHtml({ title: u.displayName, avatarUrl: u.avatarUrl })}<span>${escHtml(u.displayName)}</span></div>`).join('')}
+        </div>
+      `, canAdd
+        ? `<button class="btn" id="cm-leave">Покинуть группу</button><button class="btn primary" id="cm-add">+ Добавить участников</button>`
+        : '');
+      if(canAdd){
+        document.getElementById('cm-leave').addEventListener('click', async () => {
+          if(!confirm('Покинуть эту группу?')) return;
+          try{
+            const r = await fetch(`${API_BASE}/api/chats/${activeChatId}/leave`, { method: 'POST' });
+            if(!r.ok) throw new Error((await r.json().catch(()=>({}))).error || 'Не удалось выйти из группы');
+            closeModal();
+            activeChatId = null; activeChatInfo = null;
+            document.getElementById('chat-window').style.display = 'none';
+            document.getElementById('chats-empty-state').style.display = '';
+            closeChatMobile();
+            await loadChats();
+          }catch(err){ alert(err.message); }
+        });
+        document.getElementById('cm-add').addEventListener('click', async () => {
+          let users;
+          try{ users = await loadChatDirectory(true); } catch(err){ alert(err.message); return; }
+          const existingIds = new Set(members.map(m => m.id));
+          const candidates = users.filter(u => !existingIds.has(u.id));
+          openModal('Добавить участников', `
+            <div class="assign-user-search"><input type="text" id="am-search" placeholder="Поиск по имени…" autocomplete="off"></div>
+            <div class="assign-user-count" id="am-count">Выбрано: 0</div>
+            <div class="assign-user-list" id="am-user-list">
+              ${candidates.map(userPickerRowHtml).join('') || '<div class="assign-user-empty">Добавлять больше некого</div>'}
+            </div>
+            <div id="am-error" style="display:none; color:var(--danger); font-size:12.5px; margin-top:8px;"></div>
+          `, `<button class="btn" id="am-cancel">Отмена</button><button class="btn primary" id="am-submit">Добавить</button>`);
+          const listEl = document.getElementById('am-user-list');
+          const countEl = document.getElementById('am-count');
+          listEl.querySelectorAll('input[type=checkbox]').forEach(box => box.addEventListener('change', () => {
+            countEl.textContent = `Выбрано: ${listEl.querySelectorAll('input[type=checkbox]:checked').length}`;
+          }));
+          document.getElementById('am-search').addEventListener('input', (e) => {
+            const q = e.target.value.trim().toLowerCase();
+            listEl.querySelectorAll('.assign-user-row').forEach(row => {
+              row.style.display = (!q || row.querySelector('.au-name').textContent.toLowerCase().includes(q)) ? '' : 'none';
+            });
+          });
+          document.getElementById('am-cancel').addEventListener('click', closeModal);
+          document.getElementById('am-submit').addEventListener('click', async () => {
+            const memberIds = Array.from(listEl.querySelectorAll('input[type=checkbox]:checked')).map(b => Number(b.value));
+            const errEl = document.getElementById('am-error');
+            if(!memberIds.length){ errEl.textContent = 'Выберите хотя бы одного человека'; errEl.style.display = 'block'; return; }
+            try{
+              const r = await fetch(`${API_BASE}/api/chats/${activeChatId}/members`, {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ memberIds })
+              });
+              const p = await r.json().catch(() => ({}));
+              if(!r.ok) throw new Error(p.error || 'Не удалось добавить участников');
+              closeModal();
+              await loadChats();
+            }catch(err){ errEl.textContent = err.message; errEl.style.display = 'block'; }
+          });
+        });
+      }
+    }catch(err){ alert(err.message); }
+  }
+  document.getElementById('chat-members-btn').addEventListener('click', openChatMembersModal);
+
+  // ---------- Живая синхронизация чатов ----------
+  const CHATS_POLL_MS = 4000;
+  const CHATS_BADGE_POLL_MS = 20000;
+  let chatsPollInFlight = false;
+
+  async function pollChatsIfOnChatsView(){
+    if(!isAuthed || chatsPollInFlight || document.hidden) return;
+    const view = document.getElementById('view-chats');
+    if(!view || !view.classList.contains('active')) return;
+    if(document.getElementById('modal-backdrop')?.classList.contains('open')) return;
+    chatsPollInFlight = true;
+    try{
+      if(activeChatId){
+        // в открытом чате — только подтягиваем новые сообщения, не перерисовывая всё
+        const res = await fetch(`${API_BASE}/api/chats/${activeChatId}/messages`);
+        if(res.ok){
+          const data = await res.json();
+          const box = document.getElementById('chat-messages');
+          const known = new Set(Array.from(box.querySelectorAll('[data-msg-id]')).map(el => Number(el.dataset.msgId)));
+          const fresh = (data.messages || []).filter(m => !known.has(m.id));
+          if(fresh.length){
+            renderChatMessages(fresh, false);
+            await fetch(`${API_BASE}/api/chats/${activeChatId}/read`, { method: 'POST' });
+          }
+        }
+        await loadChats();
+      } else {
+        await loadChats();
+      }
+    } finally { chatsPollInFlight = false; }
+  }
+  setInterval(pollChatsIfOnChatsView, CHATS_POLL_MS);
+  setInterval(() => { if(!document.hidden) refreshChatsBadge(); }, CHATS_BADGE_POLL_MS);
+  document.addEventListener('visibilitychange', () => {
+    if(!document.hidden){
+      refreshChatsBadge();
+      pollChatsIfOnChatsView();
+    }
+  });
+
   async function loadAssignableUsers(force){
     if(assignableUsersCache && !force) return assignableUsersCache;
     const res = await fetch(API_BASE + '/api/tasks/assignable-users');
@@ -3589,6 +3999,7 @@
                 <div class="u-status"><span class="u-status-dot${u.online ? ' online' : ''}"></span>${escHtml(formatLastSeen(u))}</div>
               </div>
               <span class="role-badge" style="background:var(--accent-soft); color:var(--accent); font-size:11px; padding:3px 9px; border-radius:999px;">${escHtml(u.roleLabel)}</span>
+              ${(window.__currentUser && u.id !== window.__currentUser.id) ? `<button class="btn" data-open-dm="${u.id}" title="Написать" style="padding:6px 9px; font-size:12px;">💬</button>` : ''}
             </div>
           `).join('')}
         </div>`;

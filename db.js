@@ -110,6 +110,32 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_task_recipients_task ON task_recipients(task_id);
   CREATE INDEX IF NOT EXISTS idx_task_recipients_user ON task_recipients(user_id);
 
+  CREATE TABLE IF NOT EXISTS chats (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    type        TEXT NOT NULL DEFAULT 'group', -- 'general' | 'dm' | 'group'
+    title       TEXT NOT NULL DEFAULT '',
+    created_by  INTEGER,
+    created_at  TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+
+  CREATE TABLE IF NOT EXISTS chat_members (
+    chat_id     INTEGER NOT NULL,
+    user_id     INTEGER NOT NULL,
+    joined_at   TEXT NOT NULL DEFAULT (datetime('now')),
+    last_read_message_id INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (chat_id, user_id)
+  );
+  CREATE INDEX IF NOT EXISTS idx_chat_members_user ON chat_members(user_id);
+
+  CREATE TABLE IF NOT EXISTS chat_messages (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    chat_id     INTEGER NOT NULL,
+    user_id     INTEGER,
+    text        TEXT NOT NULL DEFAULT '',
+    created_at  TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+  CREATE INDEX IF NOT EXISTS idx_chat_messages_chat ON chat_messages(chat_id, id);
+
   CREATE TABLE IF NOT EXISTS registration_requests (
     id             INTEGER PRIMARY KEY AUTOINCREMENT,
     username       TEXT NOT NULL,
@@ -1048,6 +1074,7 @@ function insertUser({ username, displayName, passwordHash, role, createdBy }) {
   const maxOrder = db.prepare('SELECT MAX(sort_order) AS m FROM users').get().m || 0;
   const info = db.prepare('INSERT INTO users (username, display_name, password_hash, role, created_by, sort_order) VALUES (?, ?, ?, ?, ?, ?)')
     .run(uname, displayName || uname, passwordHash, role, createdBy || null, maxOrder + 1);
+  addUserToGeneralChat(info.lastInsertRowid);
   return getUserById(info.lastInsertRowid);
 }
 
@@ -1249,6 +1276,208 @@ function deleteUser(id) {
   return { id };
 }
 
+// ---------- Чаты (общий чат, личные сообщения, группы) ----------
+// Общий чат ('general') — один на всю систему, создаётся лениво при первом
+// обращении и туда автоматически добавляются все существующие и новые
+// пользователи. ЛС ('dm') — ровно на двух участников, переиспользуется, если
+// пара уже переписывалась. Группы ('group') — произвольный набор участников
+// с названием, создать может любой пользователь.
+
+function ensureGeneralChat() {
+  let chat = db.prepare(`SELECT * FROM chats WHERE type = 'general' LIMIT 1`).get();
+  if (!chat) {
+    const info = db.prepare(`INSERT INTO chats (type, title, created_by) VALUES ('general', 'Общий чат', NULL)`).run();
+    chat = db.prepare('SELECT * FROM chats WHERE id = ?').get(info.lastInsertRowid);
+  }
+  // Убедиться, что все существующие пользователи состоят в общем чате
+  // (в т.ч. те, кто был создан до появления этой функции).
+  const memberIds = new Set(db.prepare('SELECT user_id FROM chat_members WHERE chat_id = ?').all(chat.id).map(r => r.user_id));
+  const allUsers = db.prepare('SELECT id FROM users').all();
+  const addMember = db.prepare('INSERT OR IGNORE INTO chat_members (chat_id, user_id) VALUES (?, ?)');
+  for (const u of allUsers) if (!memberIds.has(u.id)) addMember.run(chat.id, u.id);
+  return chat.id;
+}
+
+// Вызывается при создании нового пользователя — сразу добавляет его в общий чат.
+function addUserToGeneralChat(userId) {
+  const chatId = ensureGeneralChat();
+  db.prepare('INSERT OR IGNORE INTO chat_members (chat_id, user_id) VALUES (?, ?)').run(chatId, userId);
+}
+
+function isChatMember(chatId, userId) {
+  return !!db.prepare('SELECT 1 FROM chat_members WHERE chat_id = ? AND user_id = ?').get(chatId, userId);
+}
+
+function chatDisplayInfo(chat, forUserId) {
+  if (chat.type === 'general') return { title: chat.title || 'Общий чат', avatarUrl: null, isGeneral: true, isGroup: false };
+  if (chat.type === 'group') return { title: chat.title || 'Группа', avatarUrl: null, isGeneral: false, isGroup: true };
+  // dm: показываем данные собеседника
+  const other = db.prepare(`
+    SELECT u.id, u.username, u.display_name, u.avatar_path FROM chat_members cm
+    JOIN users u ON u.id = cm.user_id
+    WHERE cm.chat_id = ? AND cm.user_id != ?
+  `).get(chat.id, forUserId);
+  return {
+    title: other ? (other.display_name || other.username) : 'Удалённый пользователь',
+    avatarUrl: other && other.avatar_path ? `/${other.avatar_path}` : null,
+    isGeneral: false, isGroup: false, otherUserId: other ? other.id : null
+  };
+}
+
+// Список чатов пользователя вместе с последним сообщением и числом непрочитанных.
+function listMyChats(userId) {
+  ensureGeneralChat();
+  const rows = db.prepare(`
+    SELECT c.*, cm.last_read_message_id
+    FROM chat_members cm JOIN chats c ON c.id = cm.chat_id
+    WHERE cm.user_id = ?
+  `).all(userId);
+  const lastMsgStmt = db.prepare('SELECT * FROM chat_messages WHERE chat_id = ? ORDER BY id DESC LIMIT 1');
+  const unreadStmt = db.prepare('SELECT COUNT(*) AS n FROM chat_messages WHERE chat_id = ? AND id > ? AND (user_id IS NULL OR user_id != ?)');
+  const membersCountStmt = db.prepare('SELECT COUNT(*) AS n FROM chat_members WHERE chat_id = ?');
+  const out = rows.map(r => {
+    const info = chatDisplayInfo(r, userId);
+    const lastMsg = lastMsgStmt.get(r.id);
+    const unread = unreadStmt.get(r.id, r.last_read_message_id, userId).n;
+    let lastAuthor = null;
+    if (lastMsg && lastMsg.user_id) {
+      const u = getUserById(lastMsg.user_id);
+      lastAuthor = u ? (u.display_name || u.username) : null;
+    }
+    return {
+      id: r.id,
+      type: r.type,
+      title: info.title,
+      avatarUrl: info.avatarUrl,
+      isGeneral: info.isGeneral,
+      isGroup: info.isGroup,
+      otherUserId: info.otherUserId || null,
+      membersCount: r.type === 'group' ? membersCountStmt.get(r.id).n : null,
+      lastMessage: lastMsg ? { text: lastMsg.text, createdAt: lastMsg.created_at, authorName: lastAuthor, mine: lastMsg.user_id === userId } : null,
+      lastActivityAt: lastMsg ? lastMsg.created_at : r.created_at,
+      unread
+    };
+  });
+  out.sort((a, b) => (a.lastActivityAt < b.lastActivityAt ? 1 : -1));
+  return out;
+}
+
+function totalUnreadChats(userId) {
+  return listMyChats(userId).reduce((sum, c) => sum + (c.unread > 0 ? 1 : 0), 0);
+}
+
+// Найти или создать ЛС между двумя пользователями.
+function getOrCreateDm(userId, otherUserId) {
+  if (userId === otherUserId) throw new Error('Нельзя открыть личный чат с самим собой');
+  const other = getUserById(otherUserId);
+  if (!other) throw new Error('Пользователь не найден');
+  const existing = db.prepare(`
+    SELECT c.id FROM chats c
+    JOIN chat_members m1 ON m1.chat_id = c.id AND m1.user_id = ?
+    JOIN chat_members m2 ON m2.chat_id = c.id AND m2.user_id = ?
+    WHERE c.type = 'dm'
+  `).get(userId, otherUserId);
+  if (existing) return existing.id;
+  const info = db.prepare(`INSERT INTO chats (type, title, created_by) VALUES ('dm', '', ?)`).run(userId);
+  const chatId = info.lastInsertRowid;
+  const addMember = db.prepare('INSERT INTO chat_members (chat_id, user_id) VALUES (?, ?)');
+  addMember.run(chatId, userId);
+  addMember.run(chatId, otherUserId);
+  return chatId;
+}
+
+// Создать групповой чат с произвольным названием и списком участников
+// (создатель всегда добавляется автоматически, даже если не указан в списке).
+function createGroupChat({ title, creatorId, memberIds }) {
+  const t = String(title || '').trim();
+  if (!t) throw new Error('Укажите название группы');
+  const ids = Array.from(new Set([creatorId, ...(memberIds || []).map(Number)].filter(Boolean)));
+  if (ids.length < 2) throw new Error('Добавьте хотя бы одного участника');
+  for (const uid of ids) if (!getUserById(uid)) throw new Error(`Пользователь #${uid} не найден`);
+  const info = db.prepare(`INSERT INTO chats (type, title, created_by) VALUES ('group', ?, ?)`).run(t, creatorId);
+  const chatId = info.lastInsertRowid;
+  const addMember = db.prepare('INSERT INTO chat_members (chat_id, user_id) VALUES (?, ?)');
+  for (const uid of ids) addMember.run(chatId, uid);
+  return chatId;
+}
+
+function addGroupMembers(chatId, userId, memberIds) {
+  const chat = db.prepare('SELECT * FROM chats WHERE id = ?').get(chatId);
+  if (!chat || chat.type !== 'group') throw new Error('Группа не найдена');
+  if (!isChatMember(chatId, userId)) throw new Error('Вы не состоите в этой группе');
+  const addMember = db.prepare('INSERT OR IGNORE INTO chat_members (chat_id, user_id) VALUES (?, ?)');
+  const ids = Array.from(new Set((memberIds || []).map(Number).filter(Boolean)));
+  for (const uid of ids) {
+    if (!getUserById(uid)) throw new Error(`Пользователь #${uid} не найден`);
+    addMember.run(chatId, uid);
+  }
+  return true;
+}
+
+function leaveGroupChat(chatId, userId) {
+  const chat = db.prepare('SELECT * FROM chats WHERE id = ?').get(chatId);
+  if (!chat || chat.type !== 'group') throw new Error('Группа не найдена');
+  db.prepare('DELETE FROM chat_members WHERE chat_id = ? AND user_id = ?').run(chatId, userId);
+  return true;
+}
+
+function listChatMembers(chatId) {
+  return db.prepare(`
+    SELECT u.id, u.username, u.display_name, u.avatar_path FROM chat_members cm
+    JOIN users u ON u.id = cm.user_id WHERE cm.chat_id = ?
+    ORDER BY u.display_name ASC, u.username ASC
+  `).all(chatId).map(u => ({
+    id: u.id, username: u.username, displayName: u.display_name || u.username,
+    avatarUrl: u.avatar_path ? `/${u.avatar_path}` : null
+  }));
+}
+
+function listChatMessages(chatId, userId, { beforeId, limit } = {}) {
+  if (!isChatMember(chatId, userId)) throw new Error('Вы не состоите в этом чате');
+  const lim = Math.min(Math.max(Number(limit) || 50, 1), 200);
+  let rows;
+  if (beforeId) {
+    rows = db.prepare('SELECT * FROM chat_messages WHERE chat_id = ? AND id < ? ORDER BY id DESC LIMIT ?').all(chatId, beforeId, lim);
+  } else {
+    rows = db.prepare('SELECT * FROM chat_messages WHERE chat_id = ? ORDER BY id DESC LIMIT ?').all(chatId, lim);
+  }
+  rows.reverse();
+  return rows.map(rowToChatMessage);
+}
+
+function rowToChatMessage(r) {
+  const author = r.user_id ? getUserById(r.user_id) : null;
+  return {
+    id: r.id,
+    chatId: r.chat_id,
+    userId: r.user_id,
+    authorName: author ? (author.display_name || author.username) : 'Система',
+    authorAvatarUrl: author && author.avatar_path ? `/${author.avatar_path}` : null,
+    text: r.text,
+    createdAt: r.created_at
+  };
+}
+
+function sendChatMessage(chatId, userId, text) {
+  const t = String(text || '').trim();
+  if (!t) throw new Error('Сообщение не может быть пустым');
+  if (t.length > 4000) throw new Error('Сообщение слишком длинное');
+  if (!isChatMember(chatId, userId)) throw new Error('Вы не состоите в этом чате');
+  const info = db.prepare('INSERT INTO chat_messages (chat_id, user_id, text) VALUES (?, ?, ?)').run(chatId, userId, t);
+  markChatRead(chatId, userId, info.lastInsertRowid);
+  return rowToChatMessage(db.prepare('SELECT * FROM chat_messages WHERE id = ?').get(info.lastInsertRowid));
+}
+
+function markChatRead(chatId, userId, uptoMessageId) {
+  let lastId = uptoMessageId;
+  if (!lastId) {
+    const last = db.prepare('SELECT MAX(id) AS m FROM chat_messages WHERE chat_id = ?').get(chatId);
+    lastId = (last && last.m) || 0;
+  }
+  db.prepare('UPDATE chat_members SET last_read_message_id = MAX(last_read_message_id, ?) WHERE chat_id = ? AND user_id = ?')
+    .run(lastId, chatId, userId);
+}
+
 // ---------- Заявки на регистрацию ----------
 // Самостоятельная регистрация не создаёт аккаунт сразу — она кладёт заявку
 // в отдельную таблицу; аккаунт появляется только после того, как кто-то с
@@ -1354,6 +1583,8 @@ module.exports = {
   touchUserLogin, touchUserSeen,
   setUserPasswordHash, setUserDisabled, deleteUser, listAssignableUsers, setUserAvatar, updateUserIdentity,
   createTask, getTask, listAllTasks, listMyTasks, markMyNewTasksRead, countMyNewTasks, setMyTaskStatus, deleteTask,
+  ensureGeneralChat, addUserToGeneralChat, isChatMember, listMyChats, totalUnreadChats, getOrCreateDm,
+  createGroupChat, addGroupMembers, leaveGroupChat, listChatMembers, listChatMessages, sendChatMessage, markChatRead,
   createRegistrationRequest, listRegistrationRequests, countRegistrationRequests, approveRegistrationRequest, rejectRegistrationRequest,
   createSession, getSession, deleteSession, deleteAllSessionsForUser
 };

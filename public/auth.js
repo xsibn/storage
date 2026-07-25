@@ -150,6 +150,7 @@
 
   function applyUserToUI() {
     if (!currentUser) return;
+    window.__currentUser = currentUser;
     const label = currentUser.displayName || currentUser.username;
     const avatar = $('profile-avatar');
     applyAvatarTo(avatar, label, currentUser.avatarUrl);
