@@ -892,6 +892,16 @@
     background:var(--panel); color:var(--ink);
   }
   .new-user-form .full{grid-column:1 / -1;}
+
+  /* ---------- Мобильные экраны: раздел "Аккаунты" был слишком тесным ---------- */
+  @media (max-width: 480px){
+    .new-user-form{ grid-template-columns:1fr; }
+    .user-row{ flex-wrap:wrap; row-gap:8px; }
+    .user-row .u-info{ flex:1 1 100%; min-width:0; }
+    .user-row .u-info .u-name{ white-space:normal; overflow:visible; text-overflow:clip; }
+    .user-row select{ flex:1; min-width:0; }
+    .user-row .icon-btn{ padding:6px 9px; }
+  }
   /* Скрытие функций журнала по правам роли (классы вешает auth.js на <body>) */
   body.perm-no-read-activity #activity-log-btn,
   body.perm-no-read-activity #undo-btn{display:none !important;}

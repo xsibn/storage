@@ -3449,6 +3449,9 @@
           const payload = await res.json().catch(() => ({}));
           if(!res.ok) throw new Error(payload.error || 'Не удалось одобрить заявку');
           await loadAccounts();
+          // Одобрение создаёт нового пользователя — обновим и список
+          // аккаунтов (он живёт в auth.js и сам по себе не знает об этом).
+          if(window.__loadUsersRolesPanel) window.__loadUsersRolesPanel();
         }catch(err){
           alert(err.message);
           btn.disabled = false;
