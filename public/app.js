@@ -3210,6 +3210,39 @@
     }
   }
 
+  // ---------- Живая синхронизация заданий ----------
+  // Пока открыт раздел "Задания" — подтягиваем список каждые несколько
+  // секунд, чтобы статусы (прочитано/в работе/готово) обновлялись у всех
+  // сами, без ручного нажатия "Синхронизировать". Бейдж с числом новых
+  // заданий обновляется реже и постоянно, независимо от того, какой раздел
+  // открыт сейчас. Пауза, пока вкладка браузера свёрнута/неактивна —
+  // не грузим сервер и не мешаем работе, если человек не на странице.
+  const TASKS_POLL_MS = 7000;
+  const TASKS_BADGE_POLL_MS = 25000;
+  let tasksPollInFlight = false;
+
+  async function pollTasksIfOnTasksView(){
+    if(tasksPollInFlight || document.hidden) return;
+    const view = document.getElementById('view-tasks');
+    if(!view || !view.classList.contains('active')) return;
+    // не мешаем, если сейчас открыта модалка (например, создание задания
+    // или подтверждение удаления) — обновим список сразу после её закрытия
+    if(document.getElementById('modal-backdrop')?.classList.contains('open')) return;
+    tasksPollInFlight = true;
+    try{ await loadTasks(); } finally { tasksPollInFlight = false; }
+  }
+
+  setInterval(pollTasksIfOnTasksView, TASKS_POLL_MS);
+  setInterval(() => { if(!document.hidden) refreshTasksBadge(); }, TASKS_BADGE_POLL_MS);
+  document.addEventListener('visibilitychange', () => {
+    if(!document.hidden){
+      // вернулись на вкладку браузера — сразу подтянуть актуальное состояние,
+      // не дожидаясь следующего тика таймера
+      refreshTasksBadge();
+      pollTasksIfOnTasksView();
+    }
+  });
+
   async function loadAssignableUsers(force){
     if(assignableUsersCache && !force) return assignableUsersCache;
     const res = await fetch(API_BASE + '/api/tasks/assignable-users');
