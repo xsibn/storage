@@ -137,7 +137,7 @@ function attachUser(req, res, next) {
   const user = token ? db.getSession(token) : null;
   req.user = user || null;
   req.sessionToken = token || null;
-  db.setCurrentActor(user ? `${user.display_name || user.username} · ${labelFor(user.role)}` : null);
+  db.setCurrentActor(user ? { id: user.id, label: `${user.display_name || user.username} · ${labelFor(user.role)}` } : null);
   if (user) maybeTouchLastSeen(user.id);
   next();
 }

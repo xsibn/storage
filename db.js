@@ -257,6 +257,18 @@ function getLastActivity() {
   return db.prepare('SELECT * FROM activity_log ORDER BY id DESC LIMIT 1').get();
 }
 
+// «Мой журнал» — записи конкретного пользователя, независимо от прав на
+// общий журнал (canReadActivity). Так сотрудник без доступа к общему
+// журналу всё равно видит и может откатить именно свои действия.
+function listMyActivity(userId, limit) {
+  return db.prepare(`
+    SELECT id, ts, action, summary, (undo_data IS NOT NULL) AS undoable
+    FROM activity_log
+    WHERE user_id = ? AND ts >= datetime('now', ?)
+    ORDER BY id DESC LIMIT ?
+  `).all(userId, `-${ACTIVITY_RETENTION_DAYS} days`, limit || 200);
+}
+
 // Удалить одну запись журнала (без отмены самого действия — просто убрать её из списка)
 function deleteActivityEntry(id) {
   const entry = db.prepare('SELECT id FROM activity_log WHERE id = ?').get(id);
@@ -949,6 +961,19 @@ const undoLastAction = db.transaction(() => {
 const undoActivityById = db.transaction((id) => {
   const entry = db.prepare('SELECT * FROM activity_log WHERE id = ?').get(id);
   if (!entry) throw new Error('Запись журнала не найдена (возможно, уже удалена или устарела)');
+  if (!entry.undo_data) throw new Error('Это действие нельзя отменить');
+  reverseActivity(entry);
+  db.prepare('DELETE FROM activity_log WHERE id = ?').run(entry.id);
+  return { action: entry.action, summary: entry.summary };
+});
+
+// То же самое, но только для «своего журнала»: доступно без прав
+// canManageActivity, но лишь на записях, где user_id совпадает с вызывающим
+// пользователем — чужие действия так не откатить.
+const undoMyActivityById = db.transaction((id, userId) => {
+  const entry = db.prepare('SELECT * FROM activity_log WHERE id = ?').get(id);
+  if (!entry) throw new Error('Запись журнала не найдена (возможно, уже удалена или устарела)');
+  if (entry.user_id !== userId) throw new Error('Можно отменять только свои действия');
   if (!entry.undo_data) throw new Error('Это действие нельзя отменить');
   reverseActivity(entry);
   db.prepare('DELETE FROM activity_log WHERE id = ?').run(entry.id);
@@ -1680,6 +1705,7 @@ module.exports = {
   swapRows, swapRacks, renameRow, setRacks, setLevels, createRow, deleteRow, getMeta, setMeta, count, seedIfEmpty,
   getLayout, ensureLayoutFromSeed, rebuildLayoutFromCurrent, setRackOrder,
   bulkMove, bulkDelete, listActivity, undoLastAction, undoActivityById, deleteActivityEntry, clearActivity,
+  listMyActivity, undoMyActivityById,
   seedAbcClasses, getAbcClasses,
   ensureZonesFromData, listZones, createZone, renameZone, setZoneIsolate, deleteZone,
   setCurrentActor,

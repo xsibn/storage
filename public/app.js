@@ -1044,6 +1044,60 @@
   }
   document.getElementById('activity-log-btn').addEventListener('click', openActivityLog);
 
+  // ---------- Мой журнал (свои действия, доступно всем — без прав на общий журнал) ----------
+  async function undoMyActivityEntry(id, isLatest){
+    const msg = isLatest
+      ? 'Отменить это своё действие?'
+      : 'Это не последнее из ваших действий — после него были другие изменения. Если они затрагивали те же записи, отмена может дать неожиданный результат. Всё равно отменить?';
+    if(!confirm(msg)) return;
+    progressStart('Отмена действия…');
+    try{
+      const res = await fetch(`${API_BASE}/api/my-activity/${id}/undo`, { method:'POST' });
+      const payload = await res.json().catch(()=>({}));
+      if(!res.ok) throw new Error(payload.error || ('HTTP '+res.status));
+      await fetchRecords();
+      renderAll();
+      setSyncStatus(`отменено: ${payload.summary} · ` + new Date().toLocaleTimeString('ru-RU'));
+      await openMyActivityLog(); // обновляем список в том же окне
+    }catch(err){
+      alert('Не удалось отменить действие: ' + err.message);
+    } finally {
+      progressEnd();
+    }
+  }
+  async function openMyActivityLog(){
+    openModal('Мой журнал', '<div id="my-activity-log-hint">Здесь только ваши собственные действия за последние 14 дней. У каждого, которое можно отменить, есть кнопка ↺.</div><div id="my-activity-log-list"><div id="my-activity-log-empty">Загрузка…</div></div>', '<button class="btn" id="my-activity-log-close">Закрыть</button>');
+    document.getElementById('my-activity-log-close').addEventListener('click', closeModal);
+    try{
+      const res = await fetch(`${API_BASE}/api/my-activity?limit=1000`);
+      const payload = await res.json().catch(()=>({}));
+      if(!res.ok) throw new Error(payload.error || ('HTTP '+res.status));
+      const entries = payload.entries || [];
+      const listEl = document.getElementById('my-activity-log-list');
+      if(!listEl) return; // окно уже закрыли, пока грузились данные
+      if(!entries.length){
+        listEl.innerHTML = '<div id="my-activity-log-empty">За последние 14 дней вы ничего не меняли.</div>';
+        return;
+      }
+      listEl.innerHTML = entries.map((e, idx) => `
+        <div class="activity-row">
+          <span class="a-time">${fmtActivityTime(e.ts)}</span>
+          <span class="a-action">${escHtml(ACTIVITY_LABELS[e.action] || e.action)}</span>
+          <span class="a-summary">${escHtml(e.summary)}</span>
+          ${e.undoable ? `<button class="btn a-undo-btn" data-id="${e.id}" data-latest="${idx===0}" title="Отменить это действие">↺ Отменить</button>` : ''}
+        </div>
+      `).join('');
+      listEl.querySelectorAll('.a-undo-btn').forEach(btn=>{
+        btn.addEventListener('click', ()=> undoMyActivityEntry(btn.dataset.id, btn.dataset.latest==='true'));
+      });
+    }catch(err){
+      const listEl = document.getElementById('my-activity-log-list');
+      if(listEl) listEl.innerHTML = `<div id="my-activity-log-empty">Не удалось загрузить журнал: ${err.message}</div>`;
+    }
+  }
+  const myActivityLogBtn = document.getElementById('my-activity-log-btn');
+  if(myActivityLogBtn) myActivityLogBtn.addEventListener('click', openMyActivityLog);
+
   // ---------- CELL PICKER (visual map to choose an address) ----------
   // Used both by the pin button next to each table row and by the "add product" form.
   let pickerAisle = null;

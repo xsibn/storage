@@ -400,6 +400,31 @@ app.delete('/api/activity', auth.requirePerm('canManageActivity'), (req, res) =>
   }
 });
 
+// ---------- Мой журнал ----------
+// В отличие от /api/activity выше (требует canReadActivity/canManageActivity
+// и показывает вообще всё), этот раздел доступен любому вошедшему —
+// каждый видит и может откатить только СВОИ собственные действия. Это
+// то, что нужно обычному сотруднику без прав на общий журнал: возможность
+// самому исправить свою ошибку, не трогая чужие записи.
+
+// GET /api/my-activity — последние собственные записи журнала
+app.get('/api/my-activity', auth.requireAuth, (req, res) => {
+  const limit = Math.min(1000, parseInt(req.query.limit, 10) || 200);
+  res.json({ entries: db.listMyActivity(req.user.id, limit) });
+});
+
+// POST /api/my-activity/:id/undo — отменить свою запись журнала
+app.post('/api/my-activity/:id/undo', auth.requireAuth, (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  if (!Number.isInteger(id)) return res.status(400).json({ error: 'Некорректный id записи журнала' });
+  try {
+    const result = db.undoMyActivityById(id, req.user.id);
+    res.json({ ok: true, ...result });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
 // PUT /api/layout/:row/rack-order — сохранить пользовательский порядок стеллажей ряда
 app.put('/api/layout/:row/rack-order', (req, res) => {
   const row = String(req.params.row).trim().padStart(2, '0');
