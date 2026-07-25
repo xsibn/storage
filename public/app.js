@@ -3302,6 +3302,22 @@
     return `<div class="chat-avatar"${chat.avatarUrl ? ` style="background-image:url('${escHtml(chat.avatarUrl)}')"` : ''}>${chat.avatarUrl ? '' : escHtml(initials(chat.title))}</div>`;
   }
 
+  // Обновляет аватар в шапке открытого чата на месте (без пересоздания
+  // элемента) — важно, чтобы id="chat-head-avatar" никогда не терялся,
+  // иначе следующий openChat() не найдёт элемент и молча оборвётся ещё до
+  // обновления заголовка чата.
+  function applyChatHeadAvatar(chat){
+    const el = document.getElementById('chat-head-avatar');
+    if(!el) return;
+    el.className = 'chat-avatar'
+      + (chat.isGeneral ? ' chat-avatar-general' : '')
+      + (chat.isGroup ? ' chat-avatar-group' : '');
+    el.style.backgroundImage = (!chat.isGeneral && !chat.isGroup && chat.avatarUrl) ? `url('${chat.avatarUrl}')` : '';
+    if(chat.isGeneral) el.textContent = '💬';
+    else if(chat.isGroup) el.textContent = initials(chat.title);
+    else el.textContent = chat.avatarUrl ? '' : initials(chat.title);
+  }
+
   async function refreshChatsBadge(){
     if(!isAuthed) return;
     try{
@@ -3427,10 +3443,11 @@
     renderChatsList();
 
     if(activeChatInfo){
-      document.getElementById('chat-head-avatar').outerHTML = chatAvatarHtml(activeChatInfo).replace('chat-avatar', 'chat-avatar" id="chat-head-avatar');
+      applyChatHeadAvatar(activeChatInfo);
       document.getElementById('chat-head-title').textContent = activeChatInfo.title;
       document.getElementById('chat-head-sub').textContent = activeChatInfo.isGeneral ? 'все сотрудники' : activeChatInfo.isGroup ? `${activeChatInfo.membersCount} участников` : '';
       document.getElementById('chat-members-btn').style.display = (activeChatInfo.isGeneral || activeChatInfo.isGroup) ? '' : 'none';
+      document.getElementById('chat-delete-dm-btn').style.display = (!activeChatInfo.isGeneral && !activeChatInfo.isGroup) ? '' : 'none';
     }
 
     try{
@@ -3456,6 +3473,20 @@
   }
 
   document.getElementById('chat-back-btn').addEventListener('click', closeChatMobile);
+
+  document.getElementById('chat-delete-dm-btn').addEventListener('click', async () => {
+    if(!activeChatId) return;
+    if(!confirm('Удалить эту переписку целиком? Вся история и вложения будут удалены безвозвратно, для обоих собеседников.')) return;
+    try{
+      const r = await fetch(`${API_BASE}/api/chats/${activeChatId}`, { method: 'DELETE' });
+      if(!r.ok) throw new Error((await r.json().catch(()=>({}))).error || 'Не удалось удалить чат');
+      activeChatId = null; activeChatInfo = null;
+      document.getElementById('chat-window').style.display = 'none';
+      document.getElementById('chats-empty-state').style.display = '';
+      closeChatMobile();
+      await loadChats();
+    }catch(err){ alert(err.message); }
+  });
 
   document.getElementById('chat-messages').addEventListener('scroll', async (e) => {
     const box = e.target;

@@ -1058,13 +1058,13 @@ app.post('/api/chats/:id/leave', (req, res) => {
   }
 });
 
-// DELETE /api/chats/:id — удалить групповой чат целиком (только создатель
-// группы). Общий чат и личные переписки этим путём не удаляются —
-// db.deleteGroupChat сам откажет, если чат не типа 'group'.
+// DELETE /api/chats/:id — удалить чат целиком: группу (только создатель) или
+// личную переписку (любой из двух участников). Общий чат этим путём удалить
+// нельзя — db.deleteChat сам откажет.
 app.delete('/api/chats/:id', (req, res) => {
   const id = parseInt(req.params.id, 10);
   try {
-    const attachmentPaths = db.deleteGroupChat(id, req.user.id);
+    const attachmentPaths = db.deleteChat(id, req.user.id);
     attachmentPaths.forEach(p => {
       if (!p) return;
       const full = path.join(__dirname, 'public', p);

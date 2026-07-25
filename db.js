@@ -1485,14 +1485,24 @@ function leaveGroupChat(chatId, userId) {
   return { deleted: true, attachmentPaths: attachments.map(a => a.attachment_path) };
 }
 
-// Удаление группового чата целиком — только создателем группы. Возвращает
-// список относительных путей вложений (public/<path>), которые вызывающий
-// код должен удалить с диска (сама функция файлов не трогает — это I/O,
-// а не работа с БД).
-function deleteGroupChat(chatId, userId) {
+// Удаление чата целиком — группового или личной переписки (ЛС). Общий чат
+// удалить нельзя — он системный, один на всю компанию. Возвращает список
+// относительных путей вложений (public/<path>), которые вызывающий код
+// должен удалить с диска (сама функция файлов не трогает — это I/O, а не
+// работа с БД).
+//  - группа: удалить может только тот, кто её создал (как и раньше);
+//  - ЛС: удалить может любой из двух участников — переписка удаляется для
+//    обоих сразу, отдельного "удалить только у себя" не предусмотрено.
+function deleteChat(chatId, userId) {
   const chat = db.prepare('SELECT * FROM chats WHERE id = ?').get(chatId);
-  if (!chat || chat.type !== 'group') throw new Error('Группа не найдена');
-  if (chat.created_by !== userId) throw new Error('Удалить группу может только тот, кто её создал');
+  if (!chat) throw new Error('Чат не найден');
+  if (chat.type === 'general') throw new Error('Общий чат нельзя удалить');
+  if (chat.type === 'group' && chat.created_by !== userId) {
+    throw new Error('Удалить группу может только тот, кто её создал');
+  }
+  if (chat.type === 'dm' && !isChatMember(chatId, userId)) {
+    throw new Error('Вы не состоите в этом чате');
+  }
   const attachments = db.prepare('SELECT attachment_path FROM chat_messages WHERE chat_id = ? AND attachment_path IS NOT NULL').all(chatId);
   const txn = db.transaction(() => {
     db.prepare('DELETE FROM chat_messages WHERE chat_id = ?').run(chatId);
@@ -1679,7 +1689,7 @@ module.exports = {
   setUserPasswordHash, setUserDisabled, deleteUser, listAssignableUsers, setUserAvatar, updateUserIdentity,
   createTask, getTask, listAllTasks, listMyTasks, markMyNewTasksRead, countMyNewTasks, setMyTaskStatus, deleteTask,
   ensureGeneralChat, addUserToGeneralChat, isChatMember, listMyChats, totalUnreadChats, getOrCreateDm,
-  createGroupChat, addGroupMembers, leaveGroupChat, deleteGroupChat, listChatMembers, listChatMessages, sendChatMessage, markChatRead,
+  createGroupChat, addGroupMembers, leaveGroupChat, deleteChat, listChatMembers, listChatMessages, sendChatMessage, markChatRead,
   createRegistrationRequest, listRegistrationRequests, countRegistrationRequests, approveRegistrationRequest, rejectRegistrationRequest,
   createSession, getSession, deleteSession, deleteAllSessionsForUser
 };
