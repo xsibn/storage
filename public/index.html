@@ -391,9 +391,10 @@
     display:inline-flex; align-items:center; justify-content:center; min-width:16px; height:16px;
     padding:0 4px; margin-left:6px; border-radius:999px; background:var(--danger); color:#fff;
     font-size:10px; font-weight:700; vertical-align:middle;
-    border:2px solid var(--panel); box-sizing:content-box;
   }
   body.perm-no-manage-tasks #manage-tasks-panel{display:none !important;}
+  body.perm-no-manage-users [data-view="accounts"],
+  body.perm-no-manage-users .bn-btn[data-bn="accounts"]{display:none !important;}
   .tasks-empty{padding:20px 4px; color:var(--ink-soft); font-size:13px; text-align:center;}
   .task-card{border:1px solid var(--line); border-radius:10px; padding:14px; background:var(--bg); margin-bottom:10px;}
   .task-card:last-child{margin-bottom:0;}
@@ -454,6 +455,22 @@
     padding:2px 8px; border-radius:999px; margin-left:0;
   }
   .assign-user-empty{padding:16px 8px; text-align:center; color:var(--ink-soft); font-size:12.5px;}
+
+  /* ---------- Заявки на регистрацию ---------- */
+  .reg-card{
+    border:1px solid var(--line); border-radius:10px; padding:14px; background:var(--bg); margin-bottom:10px;
+    display:flex; align-items:center; gap:12px; flex-wrap:wrap;
+  }
+  .reg-card:last-child{margin-bottom:0;}
+  .reg-card .au-avatar{width:36px; height:36px; font-size:13px;}
+  .reg-card .reg-info{flex:1 1 180px; min-width:0;}
+  .reg-card .reg-name{font-weight:700; font-size:13.5px;}
+  .reg-card .reg-meta{font-size:11px; color:var(--ink-soft); margin-top:2px;}
+  .reg-card .reg-actions{display:flex; align-items:center; gap:8px; flex-wrap:wrap;}
+  .reg-card select{
+    padding:7px 8px; border:1px solid var(--line); border-radius:7px; font-family:var(--sans);
+    font-size:12.5px; background:var(--panel); color:var(--ink);
+  }
 
   /* Small inline pin button next to a cell input, opens the map picker */
   .pin-btn{
@@ -568,12 +585,13 @@
     nav.tabs::-webkit-scrollbar{display:none;}
     nav.tabs button{padding:11px 12px; white-space:nowrap; flex-shrink:0; font-size:12.5px;}
 
-    /* Задания теперь отдельный раздел нижней панели — не дублируем его в
-       горизонтальных вкладках склада, и прячем сами эти вкладки, пока
-       открыт раздел "Задания" (полноценное переключение разделов, как в ТГ). */
-    nav.tabs button[data-view="tasks"]{display:none;}
-    body.bn-tasks-mode nav.tabs{display:none;}
-    body.bn-tasks-mode main{padding-top:0;}
+    /* Задания и Аккаунты теперь отдельные разделы нижней панели — не
+       дублируем их в горизонтальных вкладках склада, и прячем сами эти
+       вкладки, пока открыт один из этих разделов (полноценное переключение
+       разделов, как в ТГ). */
+    nav.tabs button[data-view="tasks"], nav.tabs button[data-view="accounts"]{display:none;}
+    body.bn-tasks-mode nav.tabs, body.bn-accounts-mode nav.tabs{display:none;}
+    body.bn-tasks-mode main, body.bn-accounts-mode main{padding-top:0;}
 
     body{padding-bottom:calc(58px + env(safe-area-inset-bottom));}
     .bottom-nav{
@@ -646,9 +664,9 @@
     /* Slightly bigger warehouse-map cells so fingers can tap accurately */
     :root{ --cell-size:26px; }
 
-    /* Профиль/аккаунт на телефоне: убираем из шапки (там и так тесно от
-       статистики) и превращаем в маленькую круглую кнопку-триггер в углу
-       экрана. Тап открывает отдельную полноэкранную страницу профиля. */
+    /* Профиль/аккаунт на телефоне: прячем плавающую аватарку в шапке — на
+       телефоне доступ к профилю идёт через кнопку "Профиль" в нижней панели
+       (она программно "кликает" по этой же кнопке, просто она скрыта). */
     .profile-widget{
       display:none;
     }
@@ -757,6 +775,15 @@
   }
   [data-theme="dark"] #auth-error{background:#3A2323;}
   .auth-card .btn.primary{width:100%; padding:11px; font-size:13.5px;}
+  .auth-switch{margin-top:14px; text-align:center; font-size:12.5px; color:var(--ink-soft);}
+  .auth-switch a{color:var(--accent); cursor:pointer; text-decoration:none; font-weight:600;}
+  .auth-switch a:hover{text-decoration:underline;}
+  #auth-register-form{display:none;}
+  #auth-register-success{
+    display:none; text-align:center;
+  }
+  #auth-register-success .icon{font-size:34px; margin-bottom:10px;}
+  #auth-register-success p{font-size:13px; color:var(--ink-soft); line-height:1.5; margin:0 0 18px;}
 
   /* ---------- Профиль (правый верхний угол, "как в Дискорде") ---------- */
   .profile-widget{position:relative; display:inline-block; margin-left:8px;}
@@ -899,7 +926,39 @@
       <input type="password" id="auth-login-password" name="password" autocomplete="current-password" required>
     </div>
     <button type="submit" class="btn primary" id="auth-login-submit">Войти</button>
+    <div class="auth-switch">Нет аккаунта? <a id="auth-show-register">Подать заявку</a></div>
   </form>
+
+  <form class="auth-card" id="auth-register-form" autocomplete="on">
+    <h2>Заявка на доступ</h2>
+    <p class="sub">Заполните форму — руководитель одобрит заявку и выдаст роль</p>
+    <div id="auth-register-error"></div>
+    <div class="auth-field">
+      <label for="auth-register-username">Логин (латиницей)</label>
+      <input type="text" id="auth-register-username" name="username" autocomplete="username" required>
+    </div>
+    <div class="auth-field">
+      <label for="auth-register-displayname">Имя и фамилия</label>
+      <input type="text" id="auth-register-displayname" name="displayName" autocomplete="name">
+    </div>
+    <div class="auth-field">
+      <label for="auth-register-password">Пароль (от 6 символов)</label>
+      <input type="password" id="auth-register-password" name="password" autocomplete="new-password" required>
+    </div>
+    <div class="auth-field">
+      <label for="auth-register-password2">Повторите пароль</label>
+      <input type="password" id="auth-register-password2" name="password2" autocomplete="new-password" required>
+    </div>
+    <button type="submit" class="btn primary" id="auth-register-submit">Отправить заявку</button>
+    <div class="auth-switch">Уже есть аккаунт? <a id="auth-show-login">Войти</a></div>
+  </form>
+
+  <div class="auth-card" id="auth-register-success">
+    <div class="icon">✅</div>
+    <h2>Заявка отправлена</h2>
+    <p>Как только руководитель её одобрит и назначит роль — вы сможете войти под указанным логином и паролем.</p>
+    <button type="button" class="btn primary" id="auth-register-success-ok">Понятно</button>
+  </div>
 </div>
 
 <div id="progress-wrap"><div id="progress-bar"></div></div>
@@ -950,6 +1009,7 @@
     <button data-view="zones">Служебные зоны</button>
     <button data-view="reco">Рекомендация пикинга</button>
     <button data-view="tasks">📋 Задания<span class="tab-badge" id="tasks-badge" style="display:none;"></span></button>
+    <button data-view="accounts">👥 Аккаунты<span class="tab-badge" id="accounts-badge" style="display:none;"></span></button>
   </nav>
 
   <main>
@@ -1126,6 +1186,25 @@
       </div>
     </section>
 
+    <!-- ACCOUNTS VIEW (только для тех, кто может управлять аккаунтами) -->
+    <section class="view" id="view-accounts">
+      <div class="panel">
+        <div class="toolbar">
+          <h2 style="margin:0; flex:1 1 auto;">Заявки на регистрацию</h2>
+        </div>
+        <p style="font-size:12px; color:var(--ink-soft); margin:0 0 12px;">Сотрудник подал заявку на экране входа — здесь можно одобрить (с выбором роли) или отклонить.</p>
+        <div id="reg-requests-list"><div class="tasks-empty">Загрузка…</div></div>
+      </div>
+
+      <div class="panel">
+        <div class="toolbar">
+          <h2 style="margin:0; flex:1 1 auto;">Пользователи и роли</h2>
+          <button class="btn primary" id="open-full-users-btn">Открыть управление →</button>
+        </div>
+        <p style="font-size:12px; color:var(--ink-soft); margin:0;">Полный список аккаунтов, ручное создание и настройка ролей — в отдельном окне.</p>
+      </div>
+    </section>
+
   </main>
 
   <!-- Нижняя панель (только на телефоне) — быстрое переключение между
@@ -1137,6 +1216,10 @@
     <button type="button" class="bn-btn" data-bn="tasks">
       <span class="bn-icon">📋</span><span class="bn-label">Задания</span>
       <span class="bn-badge" id="bn-tasks-badge" style="display:none;"></span>
+    </button>
+    <button type="button" class="bn-btn" data-bn="accounts">
+      <span class="bn-icon">👥</span><span class="bn-label">Аккаунты</span>
+      <span class="bn-badge" id="bn-accounts-badge" style="display:none;"></span>
     </button>
     <button type="button" class="bn-btn" id="bn-profile-btn">
       <span class="bn-icon">👤</span><span class="bn-label">Профиль</span>
@@ -1194,7 +1277,7 @@
 
 </div>
 
-<script src="auth.js?v=3"></script>
-<script src="app.js?v=3"></script>
+<script src="auth.js?v=4"></script>
+<script src="app.js?v=4"></script>
 </body>
 </html>

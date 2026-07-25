@@ -32,6 +32,7 @@
 
   // ---------- экран входа ----------
   function showAuthScreen() {
+    showAuthCard('login');
     $('auth-screen').classList.add('show');
   }
   function hideAuthScreen() {
@@ -73,6 +74,53 @@
     }
   });
 
+  // ---------- заявка на регистрацию ----------
+  function showAuthCard(which) {
+    $('auth-login-form').style.display = which === 'login' ? '' : 'none';
+    $('auth-register-form').style.display = which === 'register' ? '' : 'none';
+    $('auth-register-success').style.display = which === 'success' ? '' : 'none';
+  }
+  function setRegisterError(msg) {
+    const el = $('auth-register-error');
+    if (!msg) { el.style.display = 'none'; el.textContent = ''; return; }
+    el.textContent = msg;
+    el.style.display = 'block';
+  }
+  $('auth-show-register').addEventListener('click', () => { setAuthError(''); showAuthCard('register'); });
+  $('auth-show-login').addEventListener('click', () => { setRegisterError(''); showAuthCard('login'); });
+  $('auth-register-success-ok').addEventListener('click', () => {
+    $('auth-register-form').reset();
+    showAuthCard('login');
+  });
+
+  $('auth-register-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    setRegisterError('');
+    const username = $('auth-register-username').value.trim();
+    const displayName = $('auth-register-displayname').value.trim();
+    const password = $('auth-register-password').value;
+    const password2 = $('auth-register-password2').value;
+    if (password !== password2) { setRegisterError('Пароли не совпадают'); return; }
+    const btn = $('auth-register-submit');
+    btn.disabled = true;
+    btn.textContent = 'Отправляем…';
+    try {
+      const res = await fetch(API_BASE + '/api/auth/register', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username, displayName, password })
+      });
+      const payload = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(payload.error || 'Не удалось отправить заявку');
+      showAuthCard('success');
+    } catch (err) {
+      setRegisterError(err.message);
+    } finally {
+      btn.disabled = false;
+      btn.textContent = 'Отправить заявку';
+    }
+  });
+
   // ---------- профиль (отдельная страница, как в Telegram) ----------
   function applyUserToUI() {
     if (!currentUser) return;
@@ -93,6 +141,7 @@
     document.body.classList.toggle('perm-no-read-activity', !currentUser.perms.canReadActivity);
     document.body.classList.toggle('perm-no-manage-activity', !currentUser.perms.canManageActivity);
     document.body.classList.toggle('perm-no-manage-tasks', !currentUser.perms.canManageTasks);
+    document.body.classList.toggle('perm-no-manage-users', !currentUser.perms.canManageUsers);
   }
 
   function openProfilePage() {
@@ -465,6 +514,7 @@
     renderUsersList();
   }
   $('pp-manage-users').addEventListener('click', openUsersModal);
+  window.__openUsersModal = openUsersModal;
 
   // ---------- перехват истёкшей/недействительной сессии ----------
   // Если во время работы сессия истекла, любой запрос к /api/* (кроме

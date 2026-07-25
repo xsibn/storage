@@ -2762,21 +2762,20 @@
   document.getElementById('move-to-zone-btn').addEventListener('click', openMoveToZoneForm);
 
   // ---------- TABS ----------
-  let lastWarehouseView = 'map'; // склад: какую под-вкладку показать при возврате из "Задания"
+  const WAREHOUSE_VIEWS = ['map', 'table', 'zones', 'reco'];
+  const FULLSCREEN_VIEWS = ['tasks', 'accounts']; // разделы вроде "Задания"/"Аккаунты" — на телефоне занимают весь экран, без вкладок склада
+  let lastWarehouseView = 'map'; // склад: какую под-вкладку показать при возврате из "Задания"/"Аккаунтов"
 
   function activateView(view){
     document.querySelectorAll('nav.tabs button').forEach(b=>b.classList.toggle('active', b.dataset.view === view));
     document.querySelectorAll('.view').forEach(v=>v.classList.remove('active'));
     document.getElementById('view-'+view).classList.add('active');
-    if(view === 'tasks'){
-      document.body.classList.add('bn-tasks-mode');
-      loadTasks();
-    } else {
-      document.body.classList.remove('bn-tasks-mode');
-      lastWarehouseView = view;
-    }
+    FULLSCREEN_VIEWS.forEach(v => document.body.classList.toggle(`bn-${v}-mode`, v === view));
+    if(WAREHOUSE_VIEWS.includes(view)) lastWarehouseView = view;
+    if(view === 'tasks') loadTasks();
+    if(view === 'accounts') loadAccounts();
     document.querySelectorAll('.bn-btn[data-bn]').forEach(b=>{
-      b.classList.toggle('active', (b.dataset.bn === 'tasks') === (view === 'tasks'));
+      b.classList.toggle('active', b.dataset.bn === 'warehouse' ? WAREHOUSE_VIEWS.includes(view) : b.dataset.bn === view);
     });
   }
 
@@ -2784,12 +2783,14 @@
     btn.addEventListener('click', ()=> activateView(btn.dataset.view));
   });
 
-  // ---------- НИЖНЯЯ ПАНЕЛЬ (телефон): Склад / Задания, как разделы в ТГ ----------
+  // ---------- НИЖНЯЯ ПАНЕЛЬ (телефон): Склад / Задания / Аккаунты / Профиль, как разделы в ТГ ----------
   document.querySelectorAll('.bn-btn[data-bn]').forEach(btn=>{
     btn.addEventListener('click', ()=>{
-      activateView(btn.dataset.bn === 'tasks' ? 'tasks' : lastWarehouseView);
+      activateView(btn.dataset.bn === 'warehouse' ? lastWarehouseView : btn.dataset.bn);
     });
   });
+  // "Профиль" — не раздел склада/задания, а прямой доступ к странице
+  // профиля (та же кнопка, что скрыта в шапке на телефоне).
   const bnProfileBtn = document.getElementById('bn-profile-btn');
   if(bnProfileBtn) bnProfileBtn.addEventListener('click', ()=> document.getElementById('profile-pill').click());
 
@@ -3366,6 +3367,133 @@
   const newTaskBtn = document.getElementById('new-task-btn');
   if(newTaskBtn) newTaskBtn.addEventListener('click', openNewTaskModal);
 
+  // ---------- АККАУНТЫ: заявки на регистрацию ----------
+  let rolesForApprovalCache = null;
+
+  async function loadRolesForApproval(){
+    if(rolesForApprovalCache) return rolesForApprovalCache;
+    const res = await fetch(API_BASE + '/api/roles');
+    if(!res.ok) throw new Error('Не удалось загрузить список ролей');
+    const data = await res.json();
+    rolesForApprovalCache = (data.roles || []).filter(r => r.key !== 'service');
+    return rolesForApprovalCache;
+  }
+
+  async function refreshAccountsBadge(){
+    if(document.body.classList.contains('perm-no-manage-users')) return;
+    try{
+      const res = await fetch(API_BASE + '/api/registration-requests/count');
+      if(!res.ok) return;
+      const { count } = await res.json();
+      [document.getElementById('accounts-badge'), document.getElementById('bn-accounts-badge')].forEach(badge => {
+        if(!badge) return;
+        if(count > 0){ badge.textContent = count; badge.style.display = ''; }
+        else badge.style.display = 'none';
+      });
+    }catch(_e){ /* тихо игнорируем — это лишь бейдж */ }
+  }
+
+  async function renderRegRequests(requests){
+    const wrap = document.getElementById('reg-requests-list');
+    if(!requests.length){
+      wrap.innerHTML = '<div class="tasks-empty">Новых заявок нет.</div>';
+      return;
+    }
+    let roles;
+    try{ roles = await loadRolesForApproval(); }
+    catch(err){ wrap.innerHTML = `<div class="tasks-empty">${escHtml(err.message)}</div>`; return; }
+
+    wrap.innerHTML = requests.map(r => `
+      <div class="reg-card" data-req-id="${r.id}">
+        <span class="au-avatar">${escHtml(initials(r.displayName))}</span>
+        <div class="reg-info">
+          <div class="reg-name">${escHtml(r.displayName)}</div>
+          <div class="reg-meta">логин: ${escHtml(r.username)} · подана ${fmtActivityTime(r.createdAt)}</div>
+        </div>
+        <div class="reg-actions">
+          <select data-role-select>
+            ${roles.map(role => `<option value="${escHtml(role.key)}" ${role.key === 'employee' ? 'selected' : ''}>${escHtml(role.label)}</option>`).join('')}
+          </select>
+          <button class="btn primary" data-approve="${r.id}">✔ Одобрить</button>
+          <button class="btn" data-reject="${r.id}">✕ Отклонить</button>
+        </div>
+      </div>
+    `).join('');
+
+    wrap.querySelectorAll('[data-approve]').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const card = btn.closest('.reg-card');
+        const role = card.querySelector('[data-role-select]').value;
+        btn.disabled = true;
+        card.querySelector('[data-reject]').disabled = true;
+        try{
+          const res = await fetch(`${API_BASE}/api/registration-requests/${btn.dataset.approve}/approve`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ role })
+          });
+          const payload = await res.json().catch(() => ({}));
+          if(!res.ok) throw new Error(payload.error || 'Не удалось одобрить заявку');
+          await loadAccounts();
+        }catch(err){
+          alert(err.message);
+          btn.disabled = false;
+          card.querySelector('[data-reject]').disabled = false;
+        }
+      });
+    });
+    wrap.querySelectorAll('[data-reject]').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        if(!confirm('Отклонить эту заявку? Отменить будет нельзя — сотруднику нужно будет подать заявку заново.')) return;
+        const card = btn.closest('.reg-card');
+        btn.disabled = true;
+        card.querySelector('[data-approve]').disabled = true;
+        try{
+          const res = await fetch(`${API_BASE}/api/registration-requests/${btn.dataset.reject}/reject`, { method: 'POST' });
+          const payload = await res.json().catch(() => ({}));
+          if(!res.ok) throw new Error(payload.error || 'Не удалось отклонить заявку');
+          await loadAccounts();
+        }catch(err){
+          alert(err.message);
+          btn.disabled = false;
+          card.querySelector('[data-approve]').disabled = false;
+        }
+      });
+    });
+  }
+
+  async function loadAccounts(){
+    const wrap = document.getElementById('reg-requests-list');
+    try{
+      const res = await fetch(API_BASE + '/api/registration-requests');
+      if(!res.ok) throw new Error('Сервер вернул ошибку ' + res.status);
+      const data = await res.json();
+      await renderRegRequests(data.requests || []);
+      refreshAccountsBadge();
+    }catch(err){
+      if(wrap) wrap.innerHTML = `<div class="tasks-empty">${escHtml(err.message)}</div>`;
+    }
+  }
+
+  const openFullUsersBtn = document.getElementById('open-full-users-btn');
+  if(openFullUsersBtn) openFullUsersBtn.addEventListener('click', () => {
+    if(window.__openUsersModal) window.__openUsersModal();
+  });
+
+  // Живая синхронизация — как у заданий: пока открыт раздел "Аккаунты",
+  // подтягиваем заявки каждые несколько секунд.
+  let accountsPollInFlight = false;
+  async function pollAccountsIfOnAccountsView(){
+    if(accountsPollInFlight || document.hidden) return;
+    const view = document.getElementById('view-accounts');
+    if(!view || !view.classList.contains('active')) return;
+    if(document.getElementById('modal-backdrop')?.classList.contains('open')) return;
+    if(document.getElementById('auth-modal-backdrop')?.classList.contains('show')) return;
+    accountsPollInFlight = true;
+    try{ await loadAccounts(); } finally { accountsPollInFlight = false; }
+  }
+  setInterval(pollAccountsIfOnAccountsView, TASKS_POLL_MS);
+  setInterval(() => { if(!document.hidden) refreshAccountsBadge(); }, TASKS_BADGE_POLL_MS);
+
   // ---------- BOOTSTRAP ----------
   (async function init(){
     setConnStatus('connecting');
@@ -3374,6 +3502,7 @@
     if (window.__whenAuthed) await window.__whenAuthed;
     await syncFromServer(true);
     refreshTasksBadge();
+    refreshAccountsBadge();
   })();
 })();
 

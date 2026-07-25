@@ -535,6 +535,21 @@ app.post('/api/auth/login', (req, res) => {
   res.json({ ok: true, user: auth.publicUser(user) });
 });
 
+// POST /api/auth/register — подать заявку на регистрацию (аккаунт создаётся
+// только после того, как её кто-то одобрит — см. /api/registration-requests)
+app.post('/api/auth/register', (req, res) => {
+  const { username, displayName, password } = req.body || {};
+  if (!username || !password) return res.status(400).json({ error: 'Введите логин и пароль' });
+  const pwErr = auth.validatePasswordStrength(password);
+  if (pwErr) return res.status(400).json({ error: pwErr });
+  try {
+    db.createRegistrationRequest({ username, displayName, passwordHash: auth.hashPassword(password) });
+    res.status(201).json({ ok: true });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
 // POST /api/auth/logout — выход (только текущая сессия)
 app.post('/api/auth/logout', (req, res) => {
   if (req.sessionToken) db.deleteSession(req.sessionToken);
@@ -679,6 +694,45 @@ app.patch('/api/roles/:key', auth.requirePerm('canManageUsers'), (req, res) => {
 app.delete('/api/roles/:key', auth.requirePerm('canManageUsers'), (req, res) => {
   try {
     db.deleteRole(req.params.key);
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+// ---------- Заявки на регистрацию (одобряют/отклоняют те, кто может управлять аккаунтами) ----------
+
+// GET /api/registration-requests/count — лёгкий счётчик для бейджа
+app.get('/api/registration-requests/count', auth.requirePerm('canManageUsers'), (req, res) => {
+  res.json({ count: db.countRegistrationRequests() });
+});
+
+// GET /api/registration-requests — список заявок, ожидающих решения
+app.get('/api/registration-requests', auth.requirePerm('canManageUsers'), (req, res) => {
+  res.json({ requests: db.listRegistrationRequests() });
+});
+
+// POST /api/registration-requests/:id/approve — одобрить и создать аккаунт
+app.post('/api/registration-requests/:id/approve', auth.requirePerm('canManageUsers'), (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  if (!Number.isInteger(id)) return res.status(400).json({ error: 'bad id' });
+  const role = (req.body && req.body.role) || 'employee';
+  if (role === 'service') return res.status(400).json({ error: 'Сервисную роль назначить нельзя' });
+  if (!db.roleExists(role)) return res.status(400).json({ error: 'Некорректная роль' });
+  try {
+    const user = db.approveRegistrationRequest(id, role, req.user.username);
+    res.json({ user: auth.publicUser(user) });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+// POST /api/registration-requests/:id/reject — отклонить без создания аккаунта
+app.post('/api/registration-requests/:id/reject', auth.requirePerm('canManageUsers'), (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  if (!Number.isInteger(id)) return res.status(400).json({ error: 'bad id' });
+  try {
+    db.rejectRegistrationRequest(id);
     res.json({ ok: true });
   } catch (err) {
     res.status(400).json({ error: err.message });

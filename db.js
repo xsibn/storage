@@ -107,6 +107,14 @@ db.exec(`
   );
   CREATE INDEX IF NOT EXISTS idx_task_recipients_task ON task_recipients(task_id);
   CREATE INDEX IF NOT EXISTS idx_task_recipients_user ON task_recipients(user_id);
+
+  CREATE TABLE IF NOT EXISTS registration_requests (
+    id             INTEGER PRIMARY KEY AUTOINCREMENT,
+    username       TEXT NOT NULL,
+    display_name   TEXT NOT NULL DEFAULT '',
+    password_hash  TEXT NOT NULL,
+    created_at     TEXT NOT NULL DEFAULT (datetime('now'))
+  );
 `);
 
 // Безопасная миграция для БД, созданных до появления заданий: добавляем
@@ -1138,6 +1146,69 @@ function deleteUser(id) {
   return { id };
 }
 
+// ---------- Заявки на регистрацию ----------
+// Самостоятельная регистрация не создаёт аккаунт сразу — она кладёт заявку
+// в отдельную таблицу; аккаунт появляется только после того, как кто-то с
+// правом canManageUsers её одобрит (и выберет роль). Отклонённые и
+// одобренные заявки не хранятся — счётчик уведомлений это просто
+// количество строк в таблице.
+
+function rowToRegRequest(r) {
+  return {
+    id: r.id,
+    username: r.username,
+    displayName: r.display_name || r.username,
+    createdAt: r.created_at
+  };
+}
+
+function createRegistrationRequest({ username, displayName, passwordHash }) {
+  const uname = String(username || '').trim().toLowerCase();
+  if (!uname) throw new Error('Укажите логин');
+  if (!/^[a-z0-9_.-]{2,32}$/i.test(uname)) {
+    throw new Error('Логин может содержать только латинские буквы, цифры, точку, дефис и подчёркивание');
+  }
+  if (getUserByUsername(uname)) throw new Error('Такой логин уже занят');
+  const pending = db.prepare('SELECT 1 FROM registration_requests WHERE username = ?').get(uname);
+  if (pending) throw new Error('Заявка с таким логином уже отправлена — дождитесь решения администратора');
+  const info = db.prepare('INSERT INTO registration_requests (username, display_name, password_hash) VALUES (?, ?, ?)')
+    .run(uname, String(displayName || '').trim() || uname, passwordHash);
+  return rowToRegRequest(db.prepare('SELECT * FROM registration_requests WHERE id = ?').get(info.lastInsertRowid));
+}
+
+function listRegistrationRequests() {
+  return db.prepare('SELECT * FROM registration_requests ORDER BY created_at ASC').all().map(rowToRegRequest);
+}
+
+function countRegistrationRequests() {
+  return db.prepare('SELECT COUNT(*) AS n FROM registration_requests').get().n;
+}
+
+function getRegistrationRequestRaw(id) {
+  return db.prepare('SELECT * FROM registration_requests WHERE id = ?').get(id);
+}
+
+// Одобрить: создаёт полноценный аккаунт с выбранной ролью и удаляет заявку.
+function approveRegistrationRequest(id, role, approvedBy) {
+  const req = getRegistrationRequestRaw(id);
+  if (!req) throw new Error('Заявка не найдена — возможно, её уже обработали');
+  const user = insertUser({
+    username: req.username,
+    displayName: req.display_name,
+    passwordHash: req.password_hash,
+    role,
+    createdBy: approvedBy ? `заявка, одобрил ${approvedBy}` : 'заявка'
+  });
+  db.prepare('DELETE FROM registration_requests WHERE id = ?').run(id);
+  return user;
+}
+
+function rejectRegistrationRequest(id) {
+  const info = db.prepare('DELETE FROM registration_requests WHERE id = ?').run(id);
+  if (!info.changes) throw new Error('Заявка не найдена — возможно, её уже обработали');
+  return { id };
+}
+
 // ---------- Сессии ----------
 const SESSION_TTL_DAYS = 14;
 
@@ -1179,5 +1250,6 @@ module.exports = {
   listUsers, getUserByUsername, getUserById, countUsers, insertUser, updateUserRole,
   setUserPasswordHash, setUserDisabled, deleteUser, listAssignableUsers,
   createTask, getTask, listAllTasks, listMyTasks, markMyNewTasksRead, countMyNewTasks, setMyTaskStatus, deleteTask,
+  createRegistrationRequest, listRegistrationRequests, countRegistrationRequests, approveRegistrationRequest, rejectRegistrationRequest,
   createSession, getSession, deleteSession, deleteAllSessionsForUser
 };
