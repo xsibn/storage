@@ -80,6 +80,37 @@ function labelFor(roleKey) {
   return role ? role.label : roleKey;
 }
 
+// ---------- статус "онлайн" ----------
+// Онлайн — если от сотрудника была активность (любой запрос к /api/*) не
+// позже ONLINE_THRESHOLD_MS назад. В приложении идёт фоновая синхронизация
+// каждые 5с, пока вкладка открыта, так 20с — с запасом на пропущенный такт,
+// не путать "закрыл вкладку 10 секунд назад" с "не заходил вообще".
+const ONLINE_THRESHOLD_MS = 20000;
+// Обновлять last_seen_at на каждый запрос — лишняя запись в БД на ровном
+// месте; троттлим до одного обновления в LAST_SEEN_THROTTLE_MS на пользователя.
+const LAST_SEEN_THROTTLE_MS = 15000;
+const lastSeenTouchAt = new Map();
+
+function parseSqliteDatetime(s) {
+  if (!s) return 0;
+  // datetime('now') в SQLite отдаёт "YYYY-MM-DD HH:MM:SS" в UTC без зоны —
+  // добавляем разделитель и "Z", чтобы Date правильно понял его как UTC.
+  return Date.parse(s.replace(' ', 'T') + 'Z') || 0;
+}
+
+function isOnline(u) {
+  if (!u || !u.last_seen_at) return false;
+  return (Date.now() - parseSqliteDatetime(u.last_seen_at)) < ONLINE_THRESHOLD_MS;
+}
+
+function maybeTouchLastSeen(userId) {
+  const now = Date.now();
+  const last = lastSeenTouchAt.get(userId) || 0;
+  if (now - last < LAST_SEEN_THROTTLE_MS) return;
+  lastSeenTouchAt.set(userId, now);
+  db.touchUserSeen(userId);
+}
+
 function publicUser(u) {
   if (!u) return null;
   return {
@@ -90,7 +121,10 @@ function publicUser(u) {
     roleLabel: labelFor(u.role),
     perms: permsFor(u.role),
     createdAt: u.created_at,
-    avatarUrl: u.avatar_path ? `/${u.avatar_path}` : null
+    avatarUrl: u.avatar_path ? `/${u.avatar_path}` : null,
+    lastLoginAt: u.last_login_at,
+    lastSeenAt: u.last_seen_at,
+    online: isOnline(u)
   };
 }
 
@@ -104,6 +138,7 @@ function attachUser(req, res, next) {
   req.user = user || null;
   req.sessionToken = token || null;
   db.setCurrentActor(user ? `${user.display_name || user.username} · ${labelFor(user.role)}` : null);
+  if (user) maybeTouchLastSeen(user.id);
   next();
 }
 
@@ -130,6 +165,6 @@ module.exports = {
   COOKIE_NAME, SESSION_TTL_MS,
   hashPassword, verifyPassword, validatePasswordStrength,
   parseCookies, setSessionCookie, clearSessionCookie,
-  permsFor, labelFor, publicUser,
+  permsFor, labelFor, publicUser, isOnline,
   attachUser, requireAuth, requirePerm, newToken
 };

@@ -531,8 +531,9 @@ app.post('/api/auth/login', (req, res) => {
   }
   const token = auth.newToken();
   db.createSession(token, user.id);
+  db.touchUserLogin(user.id);
   auth.setSessionCookie(res, token);
-  res.json({ ok: true, user: auth.publicUser(user) });
+  res.json({ ok: true, user: auth.publicUser(db.getUserById(user.id)) });
 });
 
 // POST /api/auth/register — подать заявку на регистрацию (аккаунт создаётся
@@ -655,7 +656,10 @@ app.get('/api/users/directory', auth.requireAuth, (req, res) => {
         displayName: u.display_name || u.username,
         role: u.role,
         roleLabel: auth.labelFor(u.role),
-        avatarUrl: u.avatar_path ? `/${u.avatar_path}` : null
+        avatarUrl: u.avatar_path ? `/${u.avatar_path}` : null,
+        lastLoginAt: u.last_login_at,
+        lastSeenAt: u.last_seen_at,
+        online: auth.isOnline(u)
       }))
   });
 });
@@ -665,7 +669,10 @@ app.get('/api/users', auth.requirePerm('canManageUsers'), (req, res) => {
     users: db.listUsers().map(u => ({
       ...u,
       roleLabel: auth.labelFor(u.role),
-      avatarUrl: u.avatar_path ? `/${u.avatar_path}` : null
+      avatarUrl: u.avatar_path ? `/${u.avatar_path}` : null,
+      lastLoginAt: u.last_login_at,
+      lastSeenAt: u.last_seen_at,
+      online: auth.isOnline(u)
     }))
   });
 });
@@ -678,7 +685,7 @@ app.post('/api/users/reorder', auth.requirePerm('canManageUsers'), (req, res) =>
   if (!Array.isArray(order)) return res.status(400).json({ error: 'поле "order" должно быть массивом id' });
   try {
     const users = db.reorderUsers(order);
-    res.json({ users: users.map(u => ({ ...u, roleLabel: auth.labelFor(u.role), avatarUrl: u.avatar_path ? `/${u.avatar_path}` : null })) });
+    res.json({ users: users.map(u => ({ ...u, roleLabel: auth.labelFor(u.role), avatarUrl: u.avatar_path ? `/${u.avatar_path}` : null, online: auth.isOnline(u) })) });
   } catch (err) {
     res.status(400).json({ error: err.message });
   }

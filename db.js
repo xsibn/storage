@@ -148,6 +148,9 @@ if (importMigrated) {
 // пережимает/уменьшает картинку перед сохранением, так что место на диске
 // не разрастается от исходников в несколько мегабайт).
 ensureColumn('users', 'avatar_path', 'TEXT');
+// Для статуса "онлайн/офлайн" и времени последнего входа/активности.
+ensureColumn('users', 'last_login_at', 'TEXT');
+ensureColumn('users', 'last_seen_at', 'TEXT');
 
 // Порядок пользователей в списке управления — свободно задаваемый вручную
 // (перетаскиванием/кнопками), а не только по id/алфавиту. На новой базе
@@ -987,7 +990,20 @@ function deleteRole(key) {
 }
 
 function listUsers() {
-  return db.prepare('SELECT id, username, display_name, role, created_at, created_by, disabled, avatar_path, sort_order FROM users ORDER BY COALESCE(sort_order, id) ASC, id ASC').all();
+  return db.prepare('SELECT id, username, display_name, role, created_at, created_by, disabled, avatar_path, sort_order, last_login_at, last_seen_at FROM users ORDER BY COALESCE(sort_order, id) ASC, id ASC').all();
+}
+
+// touchUserLogin — вызывается при успешном входе: фиксирует и время входа,
+// и время последней активности (значит, сразу же "онлайн").
+function touchUserLogin(id) {
+  db.prepare(`UPDATE users SET last_login_at = datetime('now'), last_seen_at = datetime('now') WHERE id = ?`).run(id);
+}
+
+// touchUserSeen — вызывается на каждый авторизованный запрос (см. attachUser
+// в auth.js), но с троттлингом на уровне вызывающего кода — иначе это было
+// бы по записи в БД на каждый запрос от каждого сотрудника.
+function touchUserSeen(id) {
+  db.prepare(`UPDATE users SET last_seen_at = datetime('now') WHERE id = ?`).run(id);
 }
 
 // reorderUsers — сохранить порядок, заданный вручную (кнопками вверх/вниз)
@@ -1335,6 +1351,7 @@ module.exports = {
   setCurrentActor,
   listRoles, getRole, roleExists, createRole, renameRole, updateRolePerms, deleteRole,
   listUsers, reorderUsers, getUserByUsername, getUserById, countUsers, insertUser, updateUserRole,
+  touchUserLogin, touchUserSeen,
   setUserPasswordHash, setUserDisabled, deleteUser, listAssignableUsers, setUserAvatar, updateUserIdentity,
   createTask, getTask, listAllTasks, listMyTasks, markMyNewTasksRead, countMyNewTasks, setMyTaskStatus, deleteTask,
   createRegistrationRequest, listRegistrationRequests, countRegistrationRequests, approveRegistrationRequest, rejectRegistrationRequest,

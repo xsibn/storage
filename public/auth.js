@@ -30,6 +30,19 @@
     return (parts[0][0] + parts[1][0]).toUpperCase();
   }
 
+  // Текст вида "онлайн" / "был(а) в сети 24.07 22:21" / "ещё не входил(а)".
+  function formatLastSeen(u) {
+    if (u.online) return 'онлайн';
+    const raw = u.lastSeenAt || u.lastLoginAt;
+    if (!raw) return 'ещё не входил(а)';
+    const d = new Date(raw.replace(' ', 'T') + 'Z');
+    const now = new Date();
+    const sameDay = d.toDateString() === now.toDateString();
+    const datePart = sameDay ? '' : d.toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit' }) + ' ';
+    const timePart = d.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
+    return `был(а) в сети ${datePart}${timePart}`;
+  }
+
   // ---------- экран входа ----------
   function showAuthScreen() {
     showAuthCard('login');
@@ -413,6 +426,7 @@
         <div class="u-view">
           <div class="u-name">${escHtml(label)}${isSelf ? ' <span style="color:var(--ink-soft); font-weight:400;">(вы)</span>' : ''}</div>
           <div class="u-login">@${escHtml(u.username)}</div>
+          <div class="u-status"><span class="u-status-dot${u.online ? ' online' : ''}"></span>${escHtml(formatLastSeen(u))}</div>
         </div>
         <div class="u-edit">
           <input type="text" class="u-edit-name" value="${escHtml(u.display_name || '')}" placeholder="Имя">
@@ -789,6 +803,15 @@
     if ($('users-tab-roles') && $('users-tab-roles').classList.contains('active')) renderRolesList();
   }
   window.__loadUsersRolesPanel = loadUsersRolesPanel;
+
+  // Лёгкое обновление списка (для статуса "онлайн") — не трогаем, если
+  // прямо сейчас кто-то редактирует логин/имя, чтобы не сбросить ввод.
+  function refreshUsersListIfIdle() {
+    const listEl = $('users-list');
+    if (!listEl || listEl.querySelector('.user-row.editing')) return;
+    renderUsersList();
+  }
+  window.__refreshUsersListIfIdle = refreshUsersListIfIdle;
 
   // Кнопка в профиле теперь просто открывает раздел "Аккаунты" (там всё —
   // и заявки на регистрацию, и управление пользователями/ролями).

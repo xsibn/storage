@@ -803,6 +803,17 @@
     if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
     return (parts[0][0] + parts[1][0]).toUpperCase();
   }
+  function formatLastSeen(u){
+    if (u.online) return 'онлайн';
+    const raw = u.lastSeenAt || u.lastLoginAt;
+    if (!raw) return 'ещё не входил(а)';
+    const d = new Date(raw.replace(' ', 'T') + 'Z');
+    const now = new Date();
+    const sameDay = d.toDateString() === now.toDateString();
+    const datePart = sameDay ? '' : d.toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit' }) + ' ';
+    const timePart = d.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
+    return `был(а) в сети ${datePart}${timePart}`;
+  }
 
   // ---------- BARCODE SCANNER (поиск товара по штрих-коду через камеру) ----------
   let barcodeScanner = null;
@@ -3575,6 +3586,7 @@
               <div class="u-info">
                 <div class="u-name">${escHtml(u.displayName)}</div>
                 <div class="u-login">@${escHtml(u.username)}</div>
+                <div class="u-status"><span class="u-status-dot${u.online ? ' online' : ''}"></span>${escHtml(formatLastSeen(u))}</div>
               </div>
               <span class="role-badge" style="background:var(--accent-soft); color:var(--accent); font-size:11px; padding:3px 9px; border-radius:999px;">${escHtml(u.roleLabel)}</span>
             </div>
@@ -3611,7 +3623,10 @@
     accountsPollInFlight = true;
     try{
       if(document.body.classList.contains('perm-no-manage-users')) await loadAccountsDirectory();
-      else await loadAccounts();
+      else {
+        await loadAccounts();
+        if(window.__refreshUsersListIfIdle) window.__refreshUsersListIfIdle();
+      }
     } finally { accountsPollInFlight = false; }
   }
   setInterval(pollAccountsIfOnAccountsView, TASKS_POLL_MS);
