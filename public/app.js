@@ -2775,7 +2775,7 @@
       document.body.classList.remove('bn-tasks-mode');
       lastWarehouseView = view;
     }
-    document.querySelectorAll('.bn-btn').forEach(b=>{
+    document.querySelectorAll('.bn-btn[data-bn]').forEach(b=>{
       b.classList.toggle('active', (b.dataset.bn === 'tasks') === (view === 'tasks'));
     });
   }
@@ -2785,11 +2785,13 @@
   });
 
   // ---------- НИЖНЯЯ ПАНЕЛЬ (телефон): Склад / Задания, как разделы в ТГ ----------
-  document.querySelectorAll('.bn-btn').forEach(btn=>{
+  document.querySelectorAll('.bn-btn[data-bn]').forEach(btn=>{
     btn.addEventListener('click', ()=>{
       activateView(btn.dataset.bn === 'tasks' ? 'tasks' : lastWarehouseView);
     });
   });
+  const bnProfileBtn = document.getElementById('bn-profile-btn');
+  if(bnProfileBtn) bnProfileBtn.addEventListener('click', ()=> document.getElementById('profile-pill').click());
 
   // ---------- SEARCH CLEAR (×) BUTTONS ----------
   [['map-search','map-search-clear'], ['table-search','table-search-clear'], ['reco-search','reco-search-clear']].forEach(([inputId, btnId])=>{
