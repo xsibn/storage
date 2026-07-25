@@ -853,4 +853,23 @@
     } catch (_) {}
     showAuthScreen();
   })();
+
+  // Периодически тихо перечитываем свои права: если админ поменял права
+  // роли (например, включил canManageActivity завскладам), это применится
+  // в открытой вкладке само, без релогина и без перезагрузки страницы.
+  // Раз в 2 минуты и только пока вкладка активна — не нагружает сервер
+  // впустую и не мешает основному опросу истёкшей сессии выше (тот же
+  // window.fetch перехватит 401, если сессию тем временем завершили).
+  const PERMS_REFRESH_MS = 120000;
+  setInterval(async () => {
+    if (!currentUser || document.hidden) return;
+    try {
+      const res = await nativeFetch(API_BASE + '/api/auth/me');
+      if (res.ok) {
+        const payload = await res.json();
+        currentUser = payload.user;
+        applyUserToUI();
+      }
+    } catch (_) {}
+  }, PERMS_REFRESH_MS);
 })();

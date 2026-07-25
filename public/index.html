@@ -1070,6 +1070,12 @@
   /* Скрытие функций журнала по правам роли (классы вешает auth.js на <body>) */
   body.perm-no-read-activity #activity-log-btn,
   body.perm-no-read-activity #undo-btn{display:none !important;}
+  /* «Мой журнал» скрываем только тем, у кого есть ОБА права на общий журнал —
+     и читать, и управлять (отменять/удалять записи): для них общий журнал
+     полностью дублирует «свой», включая возможность отката. Роли вроде
+     «завсклад» видят общий журнал, но не могут там ничего отменять — им
+     кнопка «Мой журнал» по-прежнему нужна для отката именно своих действий. */
+  body:not(.perm-no-read-activity):not(.perm-no-manage-activity) #my-activity-log-btn{display:none !important;}
   body.perm-no-manage-activity .a-undo-btn,
   body.perm-no-manage-activity .a-delete-btn,
   body.perm-no-manage-activity #activity-log-clear-all,
@@ -1168,6 +1174,7 @@
       <button class="btn" id="activity-log-btn" title="Журнал изменений (хранится 14 дней)">📋 Журнал</button>
       <button class="btn" id="my-activity-log-btn" title="Мои действия за последние 14 дней — можно откатить своё">🧾 Мой журнал</button>
       <button class="btn" id="theme-toggle-btn" title="Переключить тему">🌙</button>
+      <button class="btn" id="help-btn" title="Справка по этому разделу">❓ Справка</button>
       <div class="dropdown" id="db-actions-dropdown">
         <button class="btn primary" id="db-actions-toggle">База данных ▾</button>
         <div class="dropdown-menu" id="db-actions-menu">
