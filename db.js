@@ -208,6 +208,19 @@ const DEFAULT_ROLES = [
 const insertRoleStmt = db.prepare(`INSERT OR IGNORE INTO roles (key, label, can_manage_users, can_manage_activity, can_read_activity, can_manage_tasks, can_import_data, is_system) VALUES (@key, @label, @canManageUsers, @canManageActivity, @canReadActivity, @canManageTasks, @canImportData, @isSystem)`);
 DEFAULT_ROLES.forEach(r => insertRoleStmt.run(r));
 
+// Сервисный аккаунт должен иметь доступ ко всем групповым чатам — не только
+// к новым (это уже обеспечено в createGroupChat), но и к тем, что были
+// созданы раньше. Догоняем один раз при каждом старте сервера — дёшево и
+// безопасно повторять (INSERT OR IGNORE), поэтому отдельного флага
+// "уже сделано" не нужно.
+(function ensureServiceInAllExistingGroups() {
+  const service = db.prepare(`SELECT id FROM users WHERE role = 'service' LIMIT 1`).get();
+  if (!service) return; // сервисного аккаунта ещё не существует (свежая установка)
+  const groupIds = db.prepare(`SELECT id FROM chats WHERE type = 'group'`).all().map(r => r.id);
+  const addMember = db.prepare('INSERT OR IGNORE INTO chat_members (chat_id, user_id) VALUES (?, ?)');
+  for (const chatId of groupIds) addMember.run(chatId, service.id);
+})();
+
 // Every mutating operation calls this. undoData is a small JSON-serialisable
 // object with just enough info to reverse the action — null means it can't
 // be undone (currently only bulk-import, since storing a full pre-import
@@ -1274,7 +1287,7 @@ function deleteTask(id) {
 }
 
 function listAssignableUsers() {
-  return db.prepare(`SELECT id, username, display_name, role, disabled, avatar_path FROM users WHERE disabled = 0 ORDER BY display_name ASC, username ASC`).all();
+  return db.prepare(`SELECT id, username, display_name, role, disabled, avatar_path FROM users WHERE disabled = 0 AND role != 'service' ORDER BY display_name ASC, username ASC`).all();
 }
 
 function setUserDisabled(id, disabled) {
@@ -1352,7 +1365,7 @@ function listMyChats(userId) {
   `).all(userId);
   const lastMsgStmt = db.prepare('SELECT * FROM chat_messages WHERE chat_id = ? ORDER BY id DESC LIMIT 1');
   const unreadStmt = db.prepare('SELECT COUNT(*) AS n FROM chat_messages WHERE chat_id = ? AND id > ? AND (user_id IS NULL OR user_id != ?)');
-  const membersCountStmt = db.prepare('SELECT COUNT(*) AS n FROM chat_members WHERE chat_id = ?');
+  const membersCountStmt = db.prepare(`SELECT COUNT(*) AS n FROM chat_members cm JOIN users u ON u.id = cm.user_id WHERE cm.chat_id = ? AND u.role != 'service'`);
   const out = rows.map(r => {
     const info = chatDisplayInfo(r, userId);
     const lastMsg = lastMsgStmt.get(r.id);
@@ -1410,8 +1423,10 @@ function getOrCreateDm(userId, otherUserId) {
 function createGroupChat({ title, creatorId, memberIds }) {
   const t = String(title || '').trim();
   if (!t) throw new Error('Укажите название группы');
-  const ids = Array.from(new Set([creatorId, ...(memberIds || []).map(Number)].filter(Boolean)));
-  if (ids.length < 2) throw new Error('Добавьте хотя бы одного участника');
+  const service = db.prepare(`SELECT id FROM users WHERE role = 'service' LIMIT 1`).get();
+  const realIds = Array.from(new Set([creatorId, ...(memberIds || []).map(Number)].filter(Boolean)));
+  if (realIds.length < 2) throw new Error('Добавьте хотя бы одного участника');
+  const ids = service ? Array.from(new Set([...realIds, service.id])) : realIds;
   for (const uid of ids) if (!getUserById(uid)) throw new Error(`Пользователь #${uid} не найден`);
   const info = db.prepare(`INSERT INTO chats (type, title, created_by) VALUES ('group', ?, ?)`).run(t, creatorId);
   const chatId = info.lastInsertRowid;
@@ -1449,7 +1464,9 @@ function leaveGroupChat(chatId, userId) {
   if (chat.created_by !== userId) return { deleted: false, attachmentPaths: [] };
 
   const nextOwner = db.prepare(
-    'SELECT user_id FROM chat_members WHERE chat_id = ? ORDER BY joined_at ASC, user_id ASC LIMIT 1'
+    `SELECT cm.user_id FROM chat_members cm JOIN users u ON u.id = cm.user_id
+     WHERE cm.chat_id = ? AND u.role != 'service'
+     ORDER BY cm.joined_at ASC, cm.user_id ASC LIMIT 1`
   ).get(chatId);
 
   if (nextOwner) {
@@ -1461,6 +1478,7 @@ function leaveGroupChat(chatId, userId) {
   const attachments = db.prepare('SELECT attachment_path FROM chat_messages WHERE chat_id = ? AND attachment_path IS NOT NULL').all(chatId);
   const txn = db.transaction(() => {
     db.prepare('DELETE FROM chat_messages WHERE chat_id = ?').run(chatId);
+    db.prepare('DELETE FROM chat_members WHERE chat_id = ?').run(chatId);
     db.prepare('DELETE FROM chats WHERE id = ?').run(chatId);
   });
   txn();
@@ -1487,12 +1505,13 @@ function deleteGroupChat(chatId, userId) {
 
 function listChatMembers(chatId) {
   return db.prepare(`
-    SELECT u.id, u.username, u.display_name, u.avatar_path FROM chat_members cm
+    SELECT u.id, u.username, u.display_name, u.avatar_path, u.role FROM chat_members cm
     JOIN users u ON u.id = cm.user_id WHERE cm.chat_id = ?
     ORDER BY u.display_name ASC, u.username ASC
   `).all(chatId).map(u => ({
     id: u.id, username: u.username, displayName: u.display_name || u.username,
-    avatarUrl: u.avatar_path ? `/${u.avatar_path}` : null
+    avatarUrl: u.avatar_path ? `/${u.avatar_path}` : null,
+    role: u.role
   }));
 }
 

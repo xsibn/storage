@@ -682,7 +682,7 @@ function extForAttachment(mimetype, originalName) {
 app.get('/api/users/directory', auth.requireAuth, (req, res) => {
   res.json({
     users: db.listUsers()
-      .filter(u => !u.disabled)
+      .filter(u => !u.disabled && u.role !== 'service')
       .map(u => ({
         id: u.id,
         username: u.username,
@@ -699,7 +699,9 @@ app.get('/api/users/directory', auth.requireAuth, (req, res) => {
 
 app.get('/api/users', auth.requirePerm('canManageUsers'), (req, res) => {
   res.json({
-    users: db.listUsers().map(u => ({
+    users: db.listUsers()
+      .filter(u => u.role !== 'service')
+      .map(u => ({
       ...u,
       roleLabel: auth.labelFor(u.role),
       avatarUrl: u.avatar_path ? `/${u.avatar_path}` : null,
@@ -1024,7 +1026,7 @@ app.post('/api/chats/groups', (req, res) => {
 app.get('/api/chats/:id/members', (req, res) => {
   const id = parseInt(req.params.id, 10);
   if (!db.isChatMember(id, req.user.id)) return res.status(403).json({ error: 'Вы не состоите в этом чате' });
-  res.json({ members: db.listChatMembers(id) });
+  res.json({ members: db.listChatMembers(id).filter(u => u.role !== 'service') });
 });
 
 // POST /api/chats/:id/members — добавить участников в группу
