@@ -3340,6 +3340,35 @@
     return `<span class="task-status ${status}">${TASK_STATUS_LABEL[status] || status}</span>`;
   }
 
+  // Клик по получателю в "Все задания команды" — маленькое окно с его
+  // статусом и временем каждого шага (когда прочитал, взял в работу,
+  // закончил), а не только тултип при наведении, который на телефоне
+  // никак не увидеть.
+  function openTaskRecipientDetails(chip){
+    const name = chip.dataset.name || '';
+    const status = chip.dataset.status || 'new';
+    const rows = [
+      ['Прочитано', chip.dataset.readAt],
+      ['Взято в работу', chip.dataset.startedAt],
+      ['Выполнено', chip.dataset.doneAt]
+    ];
+    const body = `
+      <div style="display:flex; flex-direction:column; gap:12px;">
+        <div>${taskStatusBadge(status)}</div>
+        <div style="display:flex; flex-direction:column; gap:6px; font-size:13px;">
+          ${rows.map(([label, ts]) => `
+            <div style="display:flex; justify-content:space-between; gap:12px;">
+              <span style="color:var(--ink-soft);">${label}</span>
+              <span>${ts ? fmtActivityTime(ts) : '—'}</span>
+            </div>
+          `).join('')}
+        </div>
+      </div>
+    `;
+    openModal(escHtml(name), body, '<button class="btn" id="task-recipient-close">Закрыть</button>');
+    document.getElementById('task-recipient-close').addEventListener('click', closeModal);
+  }
+
   async function refreshTasksBadge(){
     if(!isAuthed) return;
     try{
@@ -3414,13 +3443,16 @@
         <div class="tc-meta">От: ${escHtml(t.createdByName || '—')} · ${fmtActivityTime(t.createdAt)} · получателей: ${t.recipients.length}</div>
         <div class="tc-recipients">
           ${t.recipients.map(r => `
-            <span class="task-recipient-chip" title="${TASK_STATUS_LABEL[r.status] || r.status}">
+            <span class="task-recipient-chip" data-recipient title="${TASK_STATUS_LABEL[r.status] || r.status}" data-user-id="${r.userId}" data-name="${escHtml(r.displayName)}" data-status="${r.status}" data-read-at="${r.readAt || ''}" data-started-at="${r.startedAt || ''}" data-done-at="${r.doneAt || ''}">
               <span class="dot ${r.status}"></span>${escHtml(r.displayName)}
             </span>
           `).join('')}
         </div>
       </div>
     `).join('');
+    wrap.querySelectorAll('[data-recipient]').forEach(chip => {
+      chip.addEventListener('click', () => openTaskRecipientDetails(chip));
+    });
     wrap.querySelectorAll('[data-del-task]').forEach(btn => {
       btn.addEventListener('click', async () => {
         if(!confirm('Удалить это задание у всех получателей?')) return;

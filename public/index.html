@@ -526,8 +526,9 @@
   .task-card .tc-recipients{margin-top:10px; padding-top:10px; border-top:1px solid var(--line); display:flex; flex-wrap:wrap; gap:6px;}
   .task-recipient-chip{
     display:inline-flex; align-items:center; gap:5px; padding:3px 9px; border-radius:999px;
-    font-size:11px; background:var(--panel); border:1px solid var(--line);
+    font-size:11px; background:var(--panel); border:1px solid var(--line); cursor:pointer;
   }
+  .task-recipient-chip:hover{border-color:var(--accent); color:var(--accent);}
   .task-recipient-chip .dot{width:7px; height:7px; border-radius:50%; flex:none;}
   .task-recipient-chip .dot.new{background:var(--danger);}
   .task-recipient-chip .dot.read{background:var(--ink-soft);}
