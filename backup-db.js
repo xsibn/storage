@@ -28,6 +28,7 @@
 const path = require('path');
 const fs = require('fs');
 const zlib = require('zlib');
+const crypto = require('crypto');
 const { execFileSync } = require('child_process');
 const Database = require('better-sqlite3');
 
@@ -36,7 +37,10 @@ const DB_PATH = path.join(DATA_DIR, 'warehouse.db');
 const BACKUP_DIR = process.env.BACKUP_DIR || path.join(DATA_DIR, 'backups');
 const KEEP = parseInt(process.env.BACKUP_KEEP, 10) || 7;
 const REMOTE = process.env.BACKUP_REMOTE || null;
-const FILE_RE = /^warehouse-\d{8}-\d{4}\.db\.gz$/;
+// Обычные бэкапы: warehouse-ГГГГММДД-ЧЧММ.db.gz. Загруженные вручную получают
+// короткий случайный суффикс, чтобы не путаться с тем, что снято на этом же
+// сервере в ту же минуту, и не перезаписать существующий файл молча.
+const FILE_RE = /^warehouse-\d{8}-\d{4}(-[0-9a-f]{4})?\.db\.gz$/;
 
 function ts() {
   const d = new Date();
@@ -135,7 +139,49 @@ function deleteBackup(file) {
   fs.unlinkSync(full);
 }
 
-module.exports = { createBackup, listBackups, resolveBackupPath, deleteBackup, BACKUP_DIR };
+// Принимает содержимое загруженного через сайт файла (Buffer), проверяет,
+// что это действительно gzip с базой SQLite внутри (а не что попало под
+// нужным расширением), и кладёт его рядом с остальными бэкапами. Не трогает
+// текущую рабочую базу — это именно ДОБАВЛЕНИЕ файла в список бэкапов
+// (например, перенесённого с другого сервера), а не восстановление.
+function saveUploadedBackup(buffer) {
+  if (!buffer || !buffer.length) throw new Error('Пустой файл');
+  // gzip-магия — первые два байта 0x1f 0x8b.
+  if (buffer.length < 2 || buffer[0] !== 0x1f || buffer[1] !== 0x8b) {
+    throw new Error('Это не .gz архив');
+  }
+  let raw;
+  try {
+    raw = zlib.gunzipSync(buffer);
+  } catch (err) {
+    throw new Error('Не удалось распаковать архив: ' + err.message);
+  }
+  // Заголовок файла SQLite — первые 16 байт всегда "SQLite format 3\0".
+  if (raw.length < 16 || raw.toString('utf8', 0, 15) !== 'SQLite format 3') {
+    throw new Error('Внутри архива нет базы SQLite — похоже, это не бэкап');
+  }
+
+  fs.mkdirSync(BACKUP_DIR, { recursive: true });
+  const suffix = crypto.randomBytes(2).toString('hex');
+  const gzPath = path.join(BACKUP_DIR, `warehouse-${ts()}-${suffix}.db.gz`);
+  fs.writeFileSync(gzPath, buffer);
+
+  // Та же ротация, что и после обычного бэкапа — загруженный файл не должен
+  // давать возможность обойти лимит хранимых копий.
+  const removed = [];
+  const files = fs.readdirSync(BACKUP_DIR)
+    .filter(f => FILE_RE.test(f))
+    .map(f => ({ f, t: fs.statSync(path.join(BACKUP_DIR, f)).mtimeMs }))
+    .sort((a, b) => b.t - a.t);
+  files.slice(KEEP).forEach(({ f }) => {
+    fs.unlinkSync(path.join(BACKUP_DIR, f));
+    removed.push(f);
+  });
+
+  return { file: path.basename(gzPath), sizeBytes: buffer.length, removed };
+}
+
+module.exports = { createBackup, listBackups, resolveBackupPath, deleteBackup, saveUploadedBackup, BACKUP_DIR };
 
 // Запуск как самостоятельного скрипта (вручную или через cron) — поведение
 // не изменилось, просто теперь опирается на createBackup() выше.

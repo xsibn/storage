@@ -4480,8 +4480,10 @@
 
   function openBackupsModal(){
     openModal('💾 Бэкапы базы данных', `
-      <p style="font-size:12px; color:var(--ink-soft); margin:0 0 12px;">Копии базы хранятся на сервере. Здесь можно снять новую, скачать или удалить старую.</p>
+      <p style="font-size:12px; color:var(--ink-soft); margin:0 0 12px;">Копии базы хранятся на сервере. Здесь можно снять новую, загрузить с компьютера, скачать или удалить старую.</p>
       <div id="backup-modal-error" style="display:none; color:var(--danger); font-size:12px; margin-bottom:10px;"></div>
+      <label for="backup-upload-input" class="btn" style="display:inline-block; margin-bottom:12px; cursor:pointer;">⬆ Загрузить бэкап (.db.gz)</label>
+      <input type="file" id="backup-upload-input" accept=".gz" style="display:none;">
       <div id="backups-modal-list"><div class="tasks-empty">Загрузка…</div></div>
     `, `<button class="btn primary" id="backup-create-btn">+ Сделать бэкап сейчас</button>`);
     refreshBackupsModal();
@@ -4503,6 +4505,32 @@
         }finally{
           createBtn.disabled = false;
           createBtn.textContent = '+ Сделать бэкап сейчас';
+        }
+      });
+    }
+    const uploadInput = document.getElementById('backup-upload-input');
+    if(uploadInput){
+      uploadInput.addEventListener('change', async () => {
+        const file = uploadInput.files && uploadInput.files[0];
+        if(!file) return;
+        const errBox = document.getElementById('backup-modal-error');
+        const label = uploadInput.previousElementSibling;
+        const prevLabelText = label ? label.textContent : '';
+        if(label){ label.textContent = 'Загружаю…'; label.style.pointerEvents = 'none'; }
+        if(errBox) errBox.style.display = 'none';
+        try{
+          const fd = new FormData();
+          fd.append('file', file);
+          const res = await fetch(API_BASE + '/api/backups/upload', { method: 'POST', body: fd });
+          const payload = await res.json().catch(() => ({}));
+          if(!res.ok) throw new Error(payload.error || 'Не удалось загрузить бэкап');
+          const list = document.getElementById('backups-modal-list');
+          if(list){ list.innerHTML = backupsListHtml(payload.backups || []); wireBackupsListActions(); }
+        }catch(err){
+          if(errBox){ errBox.textContent = err.message; errBox.style.display = 'block'; }
+        }finally{
+          if(label){ label.textContent = prevLabelText; label.style.pointerEvents = ''; }
+          uploadInput.value = '';
         }
       });
     }

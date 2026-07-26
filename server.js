@@ -944,6 +944,9 @@ app.post('/api/registration-requests/:id/reject', auth.requirePerm('canManageUse
 // а не право из настраиваемых ролей: даже роль с canManageUsers сюда не
 // попадёт, пока это не сам 'service'.
 const backupLib = require('./backup-db');
+// Отдельный multer с бо́льшим лимитом, чем у обычного импорта — файл базы
+// (даже сжатый) может быть заметно крупнее .xlsx.
+const backupUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 300 * 1024 * 1024 } });
 
 // GET /api/backups — список существующих бэкапов
 app.get('/api/backups', auth.requireServiceRole, (req, res) => {
@@ -961,6 +964,17 @@ app.post('/api/backups', auth.requireServiceRole, async (req, res) => {
     res.json({ ok: true, ...result, backups: backupLib.listBackups() });
   } catch (err) {
     res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/backups/upload — добавить в список файл бэкапа, загруженный с компьютера
+app.post('/api/backups/upload', auth.requireServiceRole, backupUpload.single('file'), (req, res) => {
+  if (!req.file) return res.status(400).json({ error: 'Файл не выбран' });
+  try {
+    const result = backupLib.saveUploadedBackup(req.file.buffer);
+    res.json({ ok: true, ...result, backups: backupLib.listBackups() });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
   }
 });
 
