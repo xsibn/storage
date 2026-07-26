@@ -1318,6 +1318,17 @@ function deleteTask(id) {
   return { id };
 }
 
+// Убрать задание только у одного получателя (не трогая остальных). Если
+// после этого у задания не остаётся ни одного получателя — оно само
+// становится бессмысленным, поэтому удаляем и саму запись задания.
+function removeTaskRecipient(taskId, userId) {
+  const info = db.prepare('DELETE FROM task_recipients WHERE task_id = ? AND user_id = ?').run(taskId, userId);
+  if (!info.changes) throw new Error('Получатель не найден в этом задании');
+  const remaining = db.prepare('SELECT COUNT(*) AS n FROM task_recipients WHERE task_id = ?').get(taskId).n;
+  if (remaining === 0) db.prepare('DELETE FROM tasks WHERE id = ?').run(taskId);
+  return { taskId, userId, taskDeleted: remaining === 0 };
+}
+
 function listAssignableUsers() {
   return db.prepare(`SELECT id, username, display_name, role, disabled, avatar_path FROM users WHERE disabled = 0 AND role != 'service' ORDER BY display_name ASC, username ASC`).all();
 }
@@ -1720,7 +1731,7 @@ module.exports = {
   listUsers, reorderUsers, getUserByUsername, getUserById, countUsers, insertUser, updateUserRole,
   touchUserLogin, touchUserSeen,
   setUserPasswordHash, setUserDisabled, deleteUser, listAssignableUsers, setUserAvatar, updateUserIdentity,
-  createTask, getTask, listAllTasks, listMyTasks, markMyNewTasksRead, countMyNewTasks, setMyTaskStatus, deleteTask,
+  createTask, getTask, listAllTasks, listMyTasks, markMyNewTasksRead, countMyNewTasks, setMyTaskStatus, deleteTask, removeTaskRecipient,
   ensureGeneralChat, addUserToGeneralChat, isChatMember, listMyChats, totalUnreadChats, getOrCreateDm,
   createGroupChat, addGroupMembers, leaveGroupChat, deleteChat, listChatMembers, listChatMessages, sendChatMessage, markChatRead,
   createRegistrationRequest, listRegistrationRequests, countRegistrationRequests, approveRegistrationRequest, rejectRegistrationRequest,

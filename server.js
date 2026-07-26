@@ -1000,6 +1000,21 @@ app.delete('/api/tasks/:id', auth.requirePerm('canManageTasks'), (req, res) => {
   }
 });
 
+// DELETE /api/tasks/:id/recipients/:userId — снять задание только с одного
+// получателя, не трогая остальных (в отличие от DELETE /api/tasks/:id
+// выше, который удаляет его у всех разом).
+app.delete('/api/tasks/:id/recipients/:userId', auth.requirePerm('canManageTasks'), (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  const userId = parseInt(req.params.userId, 10);
+  if (!Number.isInteger(id) || !Number.isInteger(userId)) return res.status(400).json({ error: 'bad id' });
+  try {
+    const result = db.removeTaskRecipient(id, userId);
+    res.json({ ok: true, ...result });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
 // ---------- Чаты ----------
 
 // GET /api/chats — список всех чатов текущего пользователя (общий, ЛС, группы)

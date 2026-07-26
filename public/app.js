@@ -3345,6 +3345,8 @@
   // закончил), а не только тултип при наведении, который на телефоне
   // никак не увидеть.
   function openTaskRecipientDetails(chip){
+    const taskId = chip.dataset.taskId;
+    const userId = chip.dataset.userId;
     const name = chip.dataset.name || '';
     const status = chip.dataset.status || 'new';
     const rows = [
@@ -3365,8 +3367,18 @@
         </div>
       </div>
     `;
-    openModal(escHtml(name), body, '<button class="btn" id="task-recipient-close">Закрыть</button>');
+    openModal(escHtml(name), body, '<button class="btn danger" id="task-recipient-remove">🗑 Убрать у этого сотрудника</button><button class="btn" id="task-recipient-close">Закрыть</button>');
     document.getElementById('task-recipient-close').addEventListener('click', closeModal);
+    document.getElementById('task-recipient-remove').addEventListener('click', async () => {
+      if(!confirm(`Убрать это задание у сотрудника «${name}»? У остальных получателей оно останется.`)) return;
+      try{
+        const res = await fetch(`${API_BASE}/api/tasks/${taskId}/recipients/${userId}`, { method: 'DELETE' });
+        const payload = await res.json().catch(() => ({}));
+        if(!res.ok) throw new Error(payload.error || 'Не удалось убрать задание у сотрудника');
+        closeModal();
+        await loadTasks();
+      }catch(err){ alert(err.message); }
+    });
   }
 
   async function refreshTasksBadge(){
@@ -3443,7 +3455,7 @@
         <div class="tc-meta">От: ${escHtml(t.createdByName || '—')} · ${fmtActivityTime(t.createdAt)} · получателей: ${t.recipients.length}</div>
         <div class="tc-recipients">
           ${t.recipients.map(r => `
-            <span class="task-recipient-chip" data-recipient title="${TASK_STATUS_LABEL[r.status] || r.status}" data-user-id="${r.userId}" data-name="${escHtml(r.displayName)}" data-status="${r.status}" data-read-at="${r.readAt || ''}" data-started-at="${r.startedAt || ''}" data-done-at="${r.doneAt || ''}">
+            <span class="task-recipient-chip" data-recipient title="${TASK_STATUS_LABEL[r.status] || r.status}" data-task-id="${t.id}" data-user-id="${r.userId}" data-name="${escHtml(r.displayName)}" data-status="${r.status}" data-read-at="${r.readAt || ''}" data-started-at="${r.startedAt || ''}" data-done-at="${r.doneAt || ''}">
               <span class="dot ${r.status}"></span>${escHtml(r.displayName)}
             </span>
           `).join('')}
