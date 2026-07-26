@@ -938,6 +938,49 @@ app.post('/api/registration-requests/:id/reject', auth.requirePerm('canManageUse
   }
 });
 
+// ---------- Бэкапы базы данных ----------
+// Доступ к файлам бэкапа — это доступ к полной копии всех данных склада,
+// поэтому им управляет только сервисный аккаунт (auth.requireServiceRole),
+// а не право из настраиваемых ролей: даже роль с canManageUsers сюда не
+// попадёт, пока это не сам 'service'.
+const backupLib = require('./backup-db');
+
+// GET /api/backups — список существующих бэкапов
+app.get('/api/backups', auth.requireServiceRole, (req, res) => {
+  try {
+    res.json({ backups: backupLib.listBackups() });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/backups — снять новый бэкап прямо сейчас
+app.post('/api/backups', auth.requireServiceRole, async (req, res) => {
+  try {
+    const result = await backupLib.createBackup();
+    res.json({ ok: true, ...result, backups: backupLib.listBackups() });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/backups/:file/download — скачать файл бэкапа
+app.get('/api/backups/:file/download', auth.requireServiceRole, (req, res) => {
+  const full = backupLib.resolveBackupPath(req.params.file);
+  if (!full) return res.status(404).json({ error: 'Файл бэкапа не найден' });
+  res.download(full);
+});
+
+// DELETE /api/backups/:file — удалить конкретный бэкап
+app.delete('/api/backups/:file', auth.requireServiceRole, (req, res) => {
+  try {
+    backupLib.deleteBackup(req.params.file);
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
 // ---------- Задания сотрудникам ----------
 // Ставить задания и видеть прогресс по всей команде могут роли с правом
 // canManageTasks (по умолчанию — завсклад и выше). Любой сотрудник видит и

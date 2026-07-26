@@ -6,7 +6,8 @@
   "scripts": {
     "start": "node server.js",
     "dev": "node --watch server.js",
-    "users": "node cli.js"
+    "users": "node cli.js",
+    "backup": "node backup-db.js"
   },
   "engines": {
     "node": ">=18"

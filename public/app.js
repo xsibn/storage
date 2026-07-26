@@ -3008,6 +3008,7 @@
         loadAccounts();
         if(window.__loadUsersRolesPanel) window.__loadUsersRolesPanel();
       }
+      if(document.body.classList.contains('is-service') && window.__loadBackupsPanel) window.__loadBackupsPanel();
     }
     document.querySelectorAll('.bn-btn[data-bn]').forEach(b=>{
       b.classList.toggle('active', b.dataset.bn === 'warehouse' ? WAREHOUSE_VIEWS.includes(view) : b.dataset.bn === view);
@@ -4420,6 +4421,87 @@
   }
   setInterval(pollAccountsIfOnAccountsView, TASKS_POLL_MS);
   setInterval(() => { if(!document.hidden) refreshAccountsBadge(); }, TASKS_BADGE_POLL_MS);
+
+  // ---------- Бэкапы (только сервисный аккаунт) ----------
+  function formatBytes(n){
+    if(n >= 1024*1024) return (n/(1024*1024)).toFixed(1) + ' МБ';
+    if(n >= 1024) return (n/1024).toFixed(1) + ' КБ';
+    return n + ' Б';
+  }
+  function formatBackupDate(iso){
+    try{ return new Date(iso).toLocaleString('ru-RU'); }catch(e){ return iso; }
+  }
+
+  function renderBackups(backups){
+    const wrap = document.getElementById('backups-list');
+    if(!wrap) return;
+    if(!backups.length){
+      wrap.innerHTML = '<div class="tasks-empty">Бэкапов пока нет — нажмите «Сделать бэкап сейчас».</div>';
+      return;
+    }
+    wrap.innerHTML = backups.map(b => `
+      <div class="dir-row" data-backup-file="${escHtml(b.file)}">
+        <div class="u-info">
+          <div class="u-name">${escHtml(b.file)}</div>
+          <div class="u-login">${formatBackupDate(b.createdAt)} · ${formatBytes(b.sizeBytes)}</div>
+        </div>
+        <a class="btn" href="${API_BASE}/api/backups/${encodeURIComponent(b.file)}/download" title="Скачать" style="padding:6px 9px; font-size:12px;">⬇️</a>
+        <button class="btn" data-backup-delete="${escHtml(b.file)}" title="Удалить" style="padding:6px 9px; font-size:12px;">🗑</button>
+      </div>
+    `).join('');
+    wrap.querySelectorAll('[data-backup-delete]').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const file = btn.dataset.backupDelete;
+        if(!confirm(`Удалить бэкап «${file}»? Это необратимо.`)) return;
+        btn.disabled = true;
+        try{
+          const res = await fetch(`${API_BASE}/api/backups/${encodeURIComponent(file)}`, { method: 'DELETE' });
+          const payload = await res.json().catch(() => ({}));
+          if(!res.ok) throw new Error(payload.error || 'Не удалось удалить бэкап');
+          await loadBackups();
+        }catch(err){
+          alert(err.message);
+          btn.disabled = false;
+        }
+      });
+    });
+  }
+
+  async function loadBackups(){
+    const errBox = document.getElementById('backup-error');
+    if(errBox) errBox.style.display = 'none';
+    try{
+      const res = await fetch(API_BASE + '/api/backups');
+      if(!res.ok) throw new Error('Сервер вернул ошибку ' + res.status);
+      const data = await res.json();
+      renderBackups(data.backups || []);
+    }catch(err){
+      const wrap = document.getElementById('backups-list');
+      if(wrap) wrap.innerHTML = `<div class="tasks-empty">${escHtml(err.message)}</div>`;
+    }
+  }
+  window.__loadBackupsPanel = loadBackups;
+
+  const backupCreateBtn = document.getElementById('backup-create-btn');
+  if(backupCreateBtn){
+    backupCreateBtn.addEventListener('click', async () => {
+      const errBox = document.getElementById('backup-error');
+      backupCreateBtn.disabled = true;
+      backupCreateBtn.textContent = 'Снимаю бэкап…';
+      if(errBox) errBox.style.display = 'none';
+      try{
+        const res = await fetch(API_BASE + '/api/backups', { method: 'POST' });
+        const payload = await res.json().catch(() => ({}));
+        if(!res.ok) throw new Error(payload.error || 'Не удалось создать бэкап');
+        renderBackups(payload.backups || []);
+      }catch(err){
+        if(errBox){ errBox.textContent = err.message; errBox.style.display = 'block'; }
+      }finally{
+        backupCreateBtn.disabled = false;
+        backupCreateBtn.textContent = '+ Сделать бэкап сейчас';
+      }
+    });
+  }
 
   // ---------- BOOTSTRAP ----------
   (async function init(){

@@ -201,6 +201,19 @@ function requirePerm(permName) {
   };
 }
 
+// Управление бэкапами базы — это не обычное право из таблицы `roles`
+// (которое администратор мог бы выдать любой самодельной роли через
+// /api/roles), а доступ к сырому файлу базы данных целиком. Поэтому здесь
+// жёстко проверяется сама роль 'service', а не настраиваемое разрешение —
+// как и остальные вещи, зашитые именно за сервисным аккаунтом (см. db.js).
+function requireServiceRole(req, res, next) {
+  if (!req.user) return res.status(401).json({ error: 'Требуется авторизация' });
+  if (req.user.role !== 'service') {
+    return res.status(403).json({ error: 'Бэкапами может управлять только сервисный аккаунт' });
+  }
+  next();
+}
+
 function newToken() {
   return crypto.randomBytes(32).toString('hex');
 }
@@ -210,6 +223,6 @@ module.exports = {
   hashPassword, verifyPassword, validatePasswordStrength,
   parseCookies, setSessionCookie, clearSessionCookie,
   permsFor, labelFor, publicUser, isOnline,
-  attachUser, requireAuth, requirePerm, newToken,
+  attachUser, requireAuth, requirePerm, requireServiceRole, newToken,
   checkLoginRateLimit, registerFailedLogin, clearLoginRateLimit
 };

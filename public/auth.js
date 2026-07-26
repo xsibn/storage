@@ -171,6 +171,9 @@
     document.body.classList.toggle('perm-no-manage-tasks', !currentUser.perms.canManageTasks);
     document.body.classList.toggle('perm-no-manage-users', !currentUser.perms.canManageUsers);
     document.body.classList.toggle('perm-no-import-data', !currentUser.perms.canImportData);
+    // Бэкапы — не настраиваемое право, а доступ, зашитый именно за
+    // сервисным аккаунтом (см. auth.js на сервере: requireServiceRole).
+    document.body.classList.toggle('is-service', currentUser.role === 'service');
 
     // Для тех, у кого нет прав на управление аккаунтами, раздел показывает
     // только список коллег и их ролей — переименовываем пункт меню, чтобы
