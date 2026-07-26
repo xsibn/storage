@@ -438,6 +438,7 @@
       ${isService ? `<span class="role-badge" style="background:var(--accent-soft); color:var(--accent); font-size:11px; padding:3px 9px; border-radius:999px;">${escHtml(u.roleLabel)}</span>`
         : roleSelectHtml(roles, u.role, false)}
       <div class="u-actions">
+        ${!isService && !isSelf ? `<button type="button" class="icon-btn" data-open-dm="${u.id}" title="Написать">💬</button>` : ''}
         ${!isService ? `<button type="button" class="icon-btn" data-action="edit-identity" title="Изменить логин и имя">✏</button>` : ''}
         <button type="button" class="icon-btn edit-save-btn" data-action="save-identity" title="Сохранить">💾</button>
         <button type="button" class="icon-btn edit-cancel-btn" data-action="cancel-identity" title="Отмена">✕</button>

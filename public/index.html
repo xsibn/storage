@@ -168,6 +168,15 @@
     cursor:pointer; white-space:nowrap;
   }
   nav.tabs button.active{color:var(--accent); border-bottom-color:var(--accent); background:var(--accent-soft); border-radius:8px 8px 0 0;}
+  /* Задания / Чаты / Аккаунты — не разделы схемы склада, а отдельные
+     рабочие пространства (как и на телефоне — там это отдельная нижняя
+     панель). На десктопе визуально отделяем их от вкладок склада:
+     отступ вправо + вертикальный разделитель, чтобы не читались как
+     ещё один режим просмотра тех же данных. */
+  .tabs-secondary-group{
+    display:flex; gap:4px; margin-left:auto; padding-left:12px;
+    border-left:1px solid var(--line);
+  }
 
   main{flex:1; display:flex; flex-direction:column; gap:16px; max-width:1400px; width:100%; margin:0 auto;}
   .view{display:none;}
@@ -601,6 +610,26 @@
   #modal .mf{padding:14px 20px; border-top:1px solid var(--line); display:flex; justify-content:flex-end; gap:8px;}
 
   #activity-log-list{display:flex; flex-direction:column; gap:0; max-height:60vh; overflow-y:auto; border:1px solid var(--line); border-radius:8px;}
+  /* Строка поиска+фильтра над журналом — не переиспользует общий .search,
+     чтобы не зависеть от его абсолютного позиционирования внутри модалки.
+     Простая раскладка: на десктопе в один ряд, на телефоне поиск и селект
+     стоят каждый на своей строке (см. @media ниже). */
+  .al-toolbar{display:flex; gap:8px; margin:0 0 10px; align-items:center;}
+  .al-search{position:relative; flex:1 1 220px; display:flex; align-items:center; min-width:0;}
+  .al-search-icon{position:absolute; left:11px; font-size:13px; color:var(--ink-soft); pointer-events:none;}
+  .al-search input{
+    width:100%; box-sizing:border-box; padding:9px 34px 9px 32px; border:1px solid var(--line);
+    border-radius:7px; font-family:var(--sans); font-size:13px; background:var(--bg);
+  }
+  .al-search .clear-inline-btn{
+    position:absolute; right:4px; top:50%; transform:translateY(-50%);
+    width:26px; height:26px; border:none; background:none; cursor:pointer;
+    font-size:16px; line-height:1; align-items:center; justify-content:center;
+    border-radius:6px; color:var(--ink-soft); display:none;
+  }
+  .al-search .clear-inline-btn:hover{background:var(--bg); color:var(--ink);}
+  .al-search input:not(:placeholder-shown) ~ .clear-inline-btn{display:flex;}
+  #activity-log-user-filter{flex:0 1 220px; min-width:0;}
   .activity-row{display:flex; gap:12px; padding:10px 12px; border-bottom:1px solid var(--line); font-size:13px; align-items:baseline;}
   .activity-row:last-child{border-bottom:none;}
   .activity-row .a-time{color:var(--ink-soft); white-space:nowrap; font-variant-numeric:tabular-nums; flex:0 0 auto;}
@@ -728,6 +757,9 @@
     .toolbar{gap:8px;}
     .search{min-width:0; flex:1 1 100%;}
     select, #reco-abc-filter, #reco-category-filter, #table-filter{flex:1 1 auto;}
+    .al-toolbar{flex-wrap:wrap;}
+    .al-search{flex:1 1 100%;}
+    #activity-log-user-filter{flex:1 1 100%;}
 
     .grid-wrap, .table-scroll, #activity-log-list{-webkit-overflow-scrolling:touch;}
     table{font-size:11px;}
@@ -1198,9 +1230,11 @@
     <button data-view="table">Таблица данных</button>
     <button data-view="zones">Служебные зоны</button>
     <button data-view="reco">Рекомендация пикинга</button>
-    <button data-view="tasks">📋 Задания<span class="tab-badge" id="tasks-badge" style="display:none;"></span></button>
-    <button data-view="chats">💬 Чаты<span class="tab-badge" id="chats-badge" style="display:none;"></span></button>
-    <button data-view="accounts"><span id="nav-accounts-label">👥 Аккаунты</span><span class="tab-badge" id="accounts-badge" style="display:none;"></span></button>
+    <div class="tabs-secondary-group">
+      <button data-view="tasks">📋 Задания<span class="tab-badge" id="tasks-badge" style="display:none;"></span></button>
+      <button data-view="chats">💬 Чаты<span class="tab-badge" id="chats-badge" style="display:none;"></span></button>
+      <button data-view="accounts"><span id="nav-accounts-label">👥 Аккаунты</span><span class="tab-badge" id="accounts-badge" style="display:none;"></span></button>
+    </div>
   </nav>
 
   <main>
