@@ -427,7 +427,6 @@
   body.perm-no-manage-users #reg-requests-panel,
   body.perm-no-manage-users #manage-users-panel{display:none !important;}
   body:not(.perm-no-manage-users) #accounts-directory-panel{display:none !important;}
-  body.is-service #manage-backups-panel{display:block !important;}
   .tasks-empty{padding:20px 4px; color:var(--ink-soft); font-size:13px; text-align:center;}
 
   /* ---------- Чаты ---------- */
@@ -1222,6 +1221,7 @@
           <label for="file-input">⬆ Загрузить новые данные (.xlsx)</label>
           <input type="file" id="file-input" accept=".xlsx,.xls,.csv">
           <button id="export-btn">⬇ Экспорт в Excel</button>
+          <button id="backups-menu-btn" class="db-actions-service-only" style="display:none;">💾 Бэкапы</button>
         </div>
       </div>
     </div>
@@ -1512,17 +1512,6 @@
           </form>
           <div id="roles-list"></div>
         </div>
-      </div>
-
-      <!-- Видна только сервисному аккаунту (см. public/app.js: applyServiceRoleUI) -->
-      <div class="panel" id="manage-backups-panel" style="display:none;">
-        <div class="toolbar">
-          <h2 style="margin:0; flex:1 1 auto;">💾 Бэкапы базы данных</h2>
-          <button type="button" class="btn primary" id="backup-create-btn">+ Сделать бэкап сейчас</button>
-        </div>
-        <p style="font-size:12px; color:var(--ink-soft); margin:0 0 12px;">Доступно только сервисному аккаунту. Копии базы хранятся на сервере; здесь можно снять новую, скачать или удалить старую.</p>
-        <div id="backup-error" style="display:none; color:var(--danger); font-size:12px; margin-bottom:10px;"></div>
-        <div id="backups-list"><div class="tasks-empty">Загрузка…</div></div>
       </div>
     </section>
 

@@ -174,6 +174,9 @@
     // Бэкапы — не настраиваемое право, а доступ, зашитый именно за
     // сервисным аккаунтом (см. auth.js на сервере: requireServiceRole).
     document.body.classList.toggle('is-service', currentUser.role === 'service');
+    document.querySelectorAll('.db-actions-service-only').forEach(el => {
+      el.style.display = currentUser.role === 'service' ? '' : 'none';
+    });
 
     // Для тех, у кого нет прав на управление аккаунтами, раздел показывает
     // только список коллег и их ролей — переименовываем пункт меню, чтобы

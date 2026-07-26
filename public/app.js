@@ -3008,7 +3008,6 @@
         loadAccounts();
         if(window.__loadUsersRolesPanel) window.__loadUsersRolesPanel();
       }
-      if(document.body.classList.contains('is-service') && window.__loadBackupsPanel) window.__loadBackupsPanel();
     }
     document.querySelectorAll('.bn-btn[data-bn]').forEach(b=>{
       b.classList.toggle('active', b.dataset.bn === 'warehouse' ? WAREHOUSE_VIEWS.includes(view) : b.dataset.bn === view);
@@ -4422,7 +4421,7 @@
   setInterval(pollAccountsIfOnAccountsView, TASKS_POLL_MS);
   setInterval(() => { if(!document.hidden) refreshAccountsBadge(); }, TASKS_BADGE_POLL_MS);
 
-  // ---------- Бэкапы (только сервисный аккаунт) ----------
+  // ---------- Бэкапы (только сервисный аккаунт; открывается из «База данных ▾») ----------
   function formatBytes(n){
     if(n >= 1024*1024) return (n/(1024*1024)).toFixed(1) + ' МБ';
     if(n >= 1024) return (n/1024).toFixed(1) + ' КБ';
@@ -4432,14 +4431,9 @@
     try{ return new Date(iso).toLocaleString('ru-RU'); }catch(e){ return iso; }
   }
 
-  function renderBackups(backups){
-    const wrap = document.getElementById('backups-list');
-    if(!wrap) return;
-    if(!backups.length){
-      wrap.innerHTML = '<div class="tasks-empty">Бэкапов пока нет — нажмите «Сделать бэкап сейчас».</div>';
-      return;
-    }
-    wrap.innerHTML = backups.map(b => `
+  function backupsListHtml(backups){
+    if(!backups.length) return '<div class="tasks-empty">Бэкапов пока нет — нажмите «Сделать бэкап сейчас».</div>';
+    return backups.map(b => `
       <div class="dir-row" data-backup-file="${escHtml(b.file)}">
         <div class="u-info">
           <div class="u-name">${escHtml(b.file)}</div>
@@ -4449,7 +4443,10 @@
         <button class="btn" data-backup-delete="${escHtml(b.file)}" title="Удалить" style="padding:6px 9px; font-size:12px;">🗑</button>
       </div>
     `).join('');
-    wrap.querySelectorAll('[data-backup-delete]').forEach(btn => {
+  }
+
+  function wireBackupsListActions(){
+    document.querySelectorAll('[data-backup-delete]').forEach(btn => {
       btn.addEventListener('click', async () => {
         const file = btn.dataset.backupDelete;
         if(!confirm(`Удалить бэкап «${file}»? Это необратимо.`)) return;
@@ -4458,7 +4455,7 @@
           const res = await fetch(`${API_BASE}/api/backups/${encodeURIComponent(file)}`, { method: 'DELETE' });
           const payload = await res.json().catch(() => ({}));
           if(!res.ok) throw new Error(payload.error || 'Не удалось удалить бэкап');
-          await loadBackups();
+          await refreshBackupsModal();
         }catch(err){
           alert(err.message);
           btn.disabled = false;
@@ -4467,39 +4464,55 @@
     });
   }
 
-  async function loadBackups(){
-    const errBox = document.getElementById('backup-error');
-    if(errBox) errBox.style.display = 'none';
+  async function refreshBackupsModal(){
+    const list = document.getElementById('backups-modal-list');
+    if(!list) return;
     try{
       const res = await fetch(API_BASE + '/api/backups');
       if(!res.ok) throw new Error('Сервер вернул ошибку ' + res.status);
       const data = await res.json();
-      renderBackups(data.backups || []);
+      list.innerHTML = backupsListHtml(data.backups || []);
+      wireBackupsListActions();
     }catch(err){
-      const wrap = document.getElementById('backups-list');
-      if(wrap) wrap.innerHTML = `<div class="tasks-empty">${escHtml(err.message)}</div>`;
+      list.innerHTML = `<div class="tasks-empty">${escHtml(err.message)}</div>`;
     }
   }
-  window.__loadBackupsPanel = loadBackups;
 
-  const backupCreateBtn = document.getElementById('backup-create-btn');
-  if(backupCreateBtn){
-    backupCreateBtn.addEventListener('click', async () => {
-      const errBox = document.getElementById('backup-error');
-      backupCreateBtn.disabled = true;
-      backupCreateBtn.textContent = 'Снимаю бэкап…';
-      if(errBox) errBox.style.display = 'none';
-      try{
-        const res = await fetch(API_BASE + '/api/backups', { method: 'POST' });
-        const payload = await res.json().catch(() => ({}));
-        if(!res.ok) throw new Error(payload.error || 'Не удалось создать бэкап');
-        renderBackups(payload.backups || []);
-      }catch(err){
-        if(errBox){ errBox.textContent = err.message; errBox.style.display = 'block'; }
-      }finally{
-        backupCreateBtn.disabled = false;
-        backupCreateBtn.textContent = '+ Сделать бэкап сейчас';
-      }
+  function openBackupsModal(){
+    openModal('💾 Бэкапы базы данных', `
+      <p style="font-size:12px; color:var(--ink-soft); margin:0 0 12px;">Копии базы хранятся на сервере. Здесь можно снять новую, скачать или удалить старую.</p>
+      <div id="backup-modal-error" style="display:none; color:var(--danger); font-size:12px; margin-bottom:10px;"></div>
+      <div id="backups-modal-list"><div class="tasks-empty">Загрузка…</div></div>
+    `, `<button class="btn primary" id="backup-create-btn">+ Сделать бэкап сейчас</button>`);
+    refreshBackupsModal();
+    const createBtn = document.getElementById('backup-create-btn');
+    if(createBtn){
+      createBtn.addEventListener('click', async () => {
+        const errBox = document.getElementById('backup-modal-error');
+        createBtn.disabled = true;
+        createBtn.textContent = 'Снимаю бэкап…';
+        if(errBox) errBox.style.display = 'none';
+        try{
+          const res = await fetch(API_BASE + '/api/backups', { method: 'POST' });
+          const payload = await res.json().catch(() => ({}));
+          if(!res.ok) throw new Error(payload.error || 'Не удалось создать бэкап');
+          const list = document.getElementById('backups-modal-list');
+          if(list){ list.innerHTML = backupsListHtml(payload.backups || []); wireBackupsListActions(); }
+        }catch(err){
+          if(errBox){ errBox.textContent = err.message; errBox.style.display = 'block'; }
+        }finally{
+          createBtn.disabled = false;
+          createBtn.textContent = '+ Сделать бэкап сейчас';
+        }
+      });
+    }
+  }
+
+  const backupsMenuBtn = document.getElementById('backups-menu-btn');
+  if(backupsMenuBtn){
+    backupsMenuBtn.addEventListener('click', () => {
+      document.getElementById('db-actions-dropdown')?.classList.remove('open');
+      openBackupsModal();
     });
   }
 
