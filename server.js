@@ -8,6 +8,7 @@ const crypto = require('crypto');
 const express = require('express');
 const cors = require('cors');
 const multer = require('multer');
+const rateLimit = require('express-rate-limit');
 const XLSX = require('xlsx');
 
 const db = require('./db');
@@ -26,6 +27,18 @@ const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 25 
 app.use(cors({ origin: true, credentials: true }));
 app.use(express.json({ limit: '10mb' }));
 app.use(auth.attachUser);
+
+// Общий rate-limit на все /api/* — защита не столько от атак, сколько от
+// случайного бага на фронте/скрипте, который зациклится и начнёт долбить
+// API (бывает чаще, чем кажется). 300 запросов с одного IP за минуту —
+// с запасом выше любого разумного использования интерфейса.
+app.use('/api', rateLimit({
+  windowMs: 60 * 1000,
+  max: 300,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Слишком много запросов, попробуйте чуть позже.' }
+}));
 
 // ---- первичное создание сервисного аккаунта, если пользователей ещё нет ----
 if (db.countUsers() === 0) {
@@ -481,6 +494,14 @@ app.post('/api/records/swap-racks', (req, res) => {
 });
 
 // POST /api/import — загрузка нового .xlsx: полностью заменяет текущие данные в базе
+//
+// Риск: xlsx@0.18.5 (SheetJS) уязвим к ReDoS на специально испорченном
+// .xlsx-файле, что может положить сервер (см. CVE-2023-30533 и последующие
+// GHSA-4r6h-8v6p-xvw6-подобные отчёты). Эндпоинт закрыт правом
+// canImportData — если импортировать может только доверенный человек
+// из проверенного источника (выгрузка из 1С и т.п.), риск приемлемый.
+// Если нужен более строгий барьер, замените зависимость на CDN-сборку
+// SheetJS с патчем (https://cdn.sheetjs.com/), которая закрывает эту дыру.
 app.post('/api/import', auth.requirePerm('canImportData'), upload.single('file'), (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'file is required (field name "file")' });
   try {
