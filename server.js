@@ -7,6 +7,7 @@ const fs = require('fs');
 const crypto = require('crypto');
 const express = require('express');
 const cors = require('cors');
+const helmet = require('helmet');
 const multer = require('multer');
 const rateLimit = require('express-rate-limit');
 const XLSX = require('xlsx');
@@ -24,7 +25,21 @@ const app = express();
 app.set('trust proxy', 1);
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 25 * 1024 * 1024 } });
 
-app.use(cors({ origin: true, credentials: true }));
+// Стандартные security-заголовки (X-Frame-Options, X-Content-Type-Options,
+// Referrer-Policy, HSTS и т.п.). CSP отключена явно: фронтенд использует
+// инлайн-стили/атрибуты (style="..."), которые дефолтная CSP заблокировала
+// бы — включать её стоит только после отдельного аудита и с nonce/hash под
+// конкретные инлайн-куски, а не вслепую.
+app.use(helmet({ contentSecurityPolicy: false }));
+
+// Фронтенд отдаётся тем же сервером и ходит в API как same-origin (см.
+// public/app.js: API_BASE = "") — кросс-доменные запросы сайту не нужны.
+// Если понадобится отдельный клиент на другом домене/порту (например,
+// локальная разработка фронтенда отдельно от API) — пропишите его через
+// переменную окружения ALLOWED_ORIGIN, иначе CORS для сторонних Origin
+// просто выключен.
+const allowedOrigin = process.env.ALLOWED_ORIGIN || false;
+app.use(cors(allowedOrigin ? { origin: allowedOrigin, credentials: true } : { origin: false }));
 app.use(express.json({ limit: '10mb' }));
 app.use(auth.attachUser);
 
@@ -1286,4 +1301,17 @@ app.get('*', (req, res) => {
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`Адресное хранение склада: сервер запущен на порту ${PORT}`);
+});
+
+// Без этого необработанная ошибка где-нибудь в фоновой асинхронной операции
+// молча убивает процесс, и в pm2-логах остаётся только "app crashed" без
+// причины — pm2 его перезапустит, но диагностировать нечего. Логируем и
+// даём процессу упасть штатно (pm2 поднимет заново).
+process.on('uncaughtException', (err) => {
+  console.error('uncaughtException:', err);
+  process.exit(1);
+});
+process.on('unhandledRejection', (err) => {
+  console.error('unhandledRejection:', err);
+  process.exit(1);
 });
