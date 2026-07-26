@@ -985,6 +985,26 @@ app.get('/api/backups/:file/download', auth.requireServiceRole, (req, res) => {
   res.download(full);
 });
 
+// POST /api/backups/:file/restore — восстановить базу из бэкапа. Опасное
+// действие: полностью заменяет текущие данные. Требует явную фразу
+// подтверждения в теле запроса (защита от случайного клика/повторной
+// отправки формы), автоматически снимает safety-бэкап текущей базы перед
+// заменой, а затем завершает процесс — pm2/systemd поднимут сервер заново
+// уже с восстановленными данными (см. README про запуск через pm2/systemd).
+app.post('/api/backups/:file/restore', auth.requireServiceRole, async (req, res) => {
+  if ((req.body && req.body.confirm) !== 'ВОССТАНОВИТЬ') {
+    return res.status(400).json({ error: 'Нужно подтверждение: поле confirm должно быть "ВОССТАНОВИТЬ"' });
+  }
+  try {
+    const result = await backupLib.restoreBackup(req.params.file, db.db);
+    res.json({ ok: true, safetyBackup: result.safetyBackup, restarting: true, note: 'Процесс сервера сейчас перезапустится. Если он запущен не через pm2/systemd, поднимите его вручную.' });
+    console.log(`[backup] База восстановлена из ${req.params.file} пользователем ${req.user.username}. Safety-бэкап: ${result.safetyBackup}. Перезапуск процесса...`);
+    setTimeout(() => process.exit(0), 300);
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
 // DELETE /api/backups/:file — удалить конкретный бэкап
 app.delete('/api/backups/:file', auth.requireServiceRole, (req, res) => {
   try {

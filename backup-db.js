@@ -37,15 +37,15 @@ const DB_PATH = path.join(DATA_DIR, 'warehouse.db');
 const BACKUP_DIR = process.env.BACKUP_DIR || path.join(DATA_DIR, 'backups');
 const KEEP = parseInt(process.env.BACKUP_KEEP, 10) || 7;
 const REMOTE = process.env.BACKUP_REMOTE || null;
-// Обычные бэкапы: warehouse-ГГГГММДД-ЧЧММ.db.gz. Загруженные вручную получают
+// Обычные бэкапы: warehouse-ГГГГММДД-ЧЧММСС.db.gz. Загруженные вручную получают
 // короткий случайный суффикс, чтобы не путаться с тем, что снято на этом же
-// сервере в ту же минуту, и не перезаписать существующий файл молча.
-const FILE_RE = /^warehouse-\d{8}-\d{4}(-[0-9a-f]{4})?\.db\.gz$/;
+// сервере в ту же секунду, и не перезаписать существующий файл молча.
+const FILE_RE = /^warehouse-\d{8}-\d{6}(-[0-9a-f]{4})?\.db\.gz$/;
 
 function ts() {
   const d = new Date();
   const p = n => String(n).padStart(2, '0');
-  return `${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}`;
+  return `${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}`;
 }
 
 // Снимает свежий бэкап и возвращает информацию о созданном файле. Используется
@@ -58,8 +58,9 @@ async function createBackup() {
   }
   fs.mkdirSync(BACKUP_DIR, { recursive: true });
 
+  const suffix = crypto.randomBytes(2).toString('hex');
   const rawTmpPath = path.join(BACKUP_DIR, `.tmp-${ts()}-${process.pid}.db`);
-  const gzPath = path.join(BACKUP_DIR, `warehouse-${ts()}.db.gz`);
+  const gzPath = path.join(BACKUP_DIR, `warehouse-${ts()}-${suffix}.db.gz`);
 
   // .backup() — официальный безопасный способ снять копию живой SQLite-базы
   // (использует SQLite Online Backup API, не просто копирует файл байт в
@@ -181,7 +182,45 @@ function saveUploadedBackup(buffer) {
   return { file: path.basename(gzPath), sizeBytes: buffer.length, removed };
 }
 
-module.exports = { createBackup, listBackups, resolveBackupPath, deleteBackup, saveUploadedBackup, BACKUP_DIR };
+// Восстановление: текущая база заменяется содержимым выбранного бэкапа.
+// Порядок специально консервативный:
+//   1. сначала снимаем safety-бэкап ТЕКУЩЕЙ базы (если что-то пойдёт не так —
+//      всегда есть куда откатиться, восстановление никогда не бывает
+//      "последним шансом");
+//   2. распаковываем и проверяем целевой файл ДО того, как что-либо трогать;
+//   3. закрываем живое соединение (передаётся вызывающей стороной — только
+//      она держит открытый handle к БД), убираем WAL/SHM side-car файлы
+//      старой базы, пишем новую;
+//   4. дальше сервер должен перезапуститься (см. server.js) — новый процесс
+//      откроет уже восстановленный файл с нуля.
+async function restoreBackup(file, liveDb) {
+  const full = resolveBackupPath(file);
+  if (!full) throw new Error('Файл бэкапа не найден');
+
+  const buffer = fs.readFileSync(full);
+  let raw;
+  try {
+    raw = zlib.gunzipSync(buffer);
+  } catch (err) {
+    throw new Error('Не удалось распаковать архив: ' + err.message);
+  }
+  if (raw.length < 16 || raw.toString('utf8', 0, 15) !== 'SQLite format 3') {
+    throw new Error('Файл бэкапа повреждён — восстановление отменено, текущая база не тронута');
+  }
+
+  const safety = await createBackup();
+
+  if (liveDb && liveDb.open) liveDb.close();
+  for (const ext of ['-wal', '-shm']) {
+    const p = DB_PATH + ext;
+    if (fs.existsSync(p)) fs.unlinkSync(p);
+  }
+  fs.writeFileSync(DB_PATH, raw);
+
+  return { safetyBackup: safety.file };
+}
+
+module.exports = { createBackup, listBackups, resolveBackupPath, deleteBackup, saveUploadedBackup, restoreBackup, BACKUP_DIR };
 
 // Запуск как самостоятельного скрипта (вручную или через cron) — поведение
 // не изменилось, просто теперь опирается на createBackup() выше.

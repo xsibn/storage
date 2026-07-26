@@ -4440,6 +4440,7 @@
           <div class="u-login">${formatBackupDate(b.createdAt)} · ${formatBytes(b.sizeBytes)}</div>
         </div>
         <a class="btn" href="${API_BASE}/api/backups/${encodeURIComponent(b.file)}/download" title="Скачать" style="padding:6px 9px; font-size:12px;">⬇️</a>
+        <button class="btn danger" data-backup-restore="${escHtml(b.file)}" title="Восстановить из этого бэкапа" style="padding:6px 9px; font-size:12px;">⏪</button>
         <button class="btn" data-backup-delete="${escHtml(b.file)}" title="Удалить" style="padding:6px 9px; font-size:12px;">🗑</button>
       </div>
     `).join('');
@@ -4458,6 +4459,31 @@
           await refreshBackupsModal();
         }catch(err){
           alert(err.message);
+          btn.disabled = false;
+        }
+      });
+    });
+    document.querySelectorAll('[data-backup-restore]').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const file = btn.dataset.backupRestore;
+        if(!confirm(`Восстановить базу из «${file}»?\n\nВСЕ текущие данные будут заменены содержимым этого бэкапа. Перед заменой автоматически будет снят safety-бэкап текущей базы, но сервер после этого перезапустится.\n\nПродолжить?`)) return;
+        const typed = prompt('Для подтверждения наберите: ВОССТАНОВИТЬ');
+        if(typed !== 'ВОССТАНОВИТЬ'){ alert('Отменено — фраза не совпала.'); return; }
+        btn.disabled = true;
+        const errBox = document.getElementById('backup-modal-error');
+        if(errBox) errBox.style.display = 'none';
+        try{
+          const res = await fetch(`${API_BASE}/api/backups/${encodeURIComponent(file)}/restore`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ confirm: 'ВОССТАНОВИТЬ' })
+          });
+          const payload = await res.json().catch(() => ({}));
+          if(!res.ok) throw new Error(payload.error || 'Не удалось восстановить базу');
+          closeModal();
+          alert(`База восстановлена из ${file}.\nSafety-бэкап предыдущего состояния: ${payload.safetyBackup}.\n\nСервер сейчас перезапускается — обновите страницу через несколько секунд.`);
+        }catch(err){
+          if(errBox){ errBox.textContent = err.message; errBox.style.display = 'block'; }
           btn.disabled = false;
         }
       });
