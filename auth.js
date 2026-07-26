@@ -9,6 +9,50 @@ const db = require('./db');
 const COOKIE_NAME = 'wh_session';
 const SESSION_TTL_MS = 14 * 24 * 60 * 60 * 1000;
 
+// ---------- защита логина от подбора пароля ----------
+// Простой in-memory лимитер: считаем неудачные попытки по паре
+// "IP + логин" (не только по логину — иначе можно долбить один и тот же
+// аккаунт с разных IP без ограничений; не только по IP — иначе один IP за
+// NAT/офисной сетью блокировал бы всех коллег из-за ошибки одного из них).
+// Хранить это в БД избыточно — данные полностью одноразовые и переживать
+// перезапуск сервера им не нужно; после рестарта счётчики просто с нуля.
+const LOGIN_MAX_ATTEMPTS = 8;
+const LOGIN_WINDOW_MS = 10 * 60 * 1000; // 10 минут
+const loginAttempts = new Map(); // key -> { count, firstAt }
+// Не даём Map расти бесконечно, если по серверу долбят разными логинами/IP —
+// раз в час подчищаем всё, что вышло за окно.
+setInterval(() => {
+  const now = Date.now();
+  for (const [key, rec] of loginAttempts) {
+    if (now - rec.firstAt > LOGIN_WINDOW_MS) loginAttempts.delete(key);
+  }
+}, 60 * 60 * 1000).unref();
+
+function loginRateKey(req, username) {
+  return `${req.ip}::${String(username || '').toLowerCase()}`;
+}
+// Возвращает секунды до разблокировки, если лимит уже исчерпан, иначе null.
+function checkLoginRateLimit(req, username) {
+  const key = loginRateKey(req, username);
+  const rec = loginAttempts.get(key);
+  if (!rec) return null;
+  if (Date.now() - rec.firstAt > LOGIN_WINDOW_MS) { loginAttempts.delete(key); return null; }
+  if (rec.count >= LOGIN_MAX_ATTEMPTS) return Math.ceil((rec.firstAt + LOGIN_WINDOW_MS - Date.now()) / 1000);
+  return null;
+}
+function registerFailedLogin(req, username) {
+  const key = loginRateKey(req, username);
+  const rec = loginAttempts.get(key);
+  if (!rec || Date.now() - rec.firstAt > LOGIN_WINDOW_MS) {
+    loginAttempts.set(key, { count: 1, firstAt: Date.now() });
+  } else {
+    rec.count += 1;
+  }
+}
+function clearLoginRateLimit(req, username) {
+  loginAttempts.delete(loginRateKey(req, username));
+}
+
 // ---------- пароли ----------
 function hashPassword(password) {
   const salt = crypto.randomBytes(16).toString('hex');
@@ -166,5 +210,6 @@ module.exports = {
   hashPassword, verifyPassword, validatePasswordStrength,
   parseCookies, setSessionCookie, clearSessionCookie,
   permsFor, labelFor, publicUser, isOnline,
-  attachUser, requireAuth, requirePerm, newToken
+  attachUser, requireAuth, requirePerm, newToken,
+  checkLoginRateLimit, registerFailedLogin, clearLoginRateLimit
 };

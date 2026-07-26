@@ -14,6 +14,13 @@ const db = require('./db');
 const auth = require('./auth');
 
 const app = express();
+// За nginx (см. deploy/nginx.conf) — proxy_set_header X-Real-IP/X-Forwarded-For
+// уже проставляются там. Без этой строчки req.ip у Express всегда будет
+// адресом самого nginx (127.0.0.1), и лимитер попыток входа в auth.js будет
+// считать всех пользователей одним и тем же IP. `1` = доверяем ровно одному
+// хопу перед нами (самому nginx) — безопаснее, чем `true` (доверять всей
+// цепочке X-Forwarded-For, которую клиент мог бы подделать).
+app.set('trust proxy', 1);
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 25 * 1024 * 1024 } });
 
 app.use(cors({ origin: true, credentials: true }));
@@ -554,10 +561,16 @@ app.get('/api/export', (req, res) => {
 app.post('/api/auth/login', (req, res) => {
   const { username, password } = req.body || {};
   if (!username || !password) return res.status(400).json({ error: 'Введите логин и пароль' });
+  const blockedForSec = auth.checkLoginRateLimit(req, username);
+  if (blockedForSec) {
+    return res.status(429).json({ error: `Слишком много неудачных попыток входа. Попробуйте снова через ${Math.ceil(blockedForSec / 60)} мин.` });
+  }
   const user = db.getUserByUsername(username);
   if (!user || user.disabled || !auth.verifyPassword(password, user.password_hash)) {
+    auth.registerFailedLogin(req, username);
     return res.status(401).json({ error: 'Неверный логин или пароль' });
   }
+  auth.clearLoginRateLimit(req, username);
   const token = auth.newToken();
   db.createSession(token, user.id);
   db.touchUserLogin(user.id);
@@ -1163,113 +1176,6 @@ app.post('/api/chats/:id/read', (req, res) => {
   if (!db.isChatMember(id, req.user.id)) return res.status(403).json({ error: 'Вы не состоите в этом чате' });
   db.markChatRead(id, req.user.id);
   res.json({ ok: true });
-});
-
-// ---------- Чаты (общий, личные и группы) ----------
-// Общий чат — один на всю систему, в нём автоматически состоят все
-// пользователи. ЛС создаётся/переиспользуется по паре собеседников. Группы
-// создаёт любой сотрудник, указывая название и участников.
-
-// GET /api/chats — мои чаты (общий + ЛС + группы) с последним сообщением и
-// числом непрочитанных.
-app.get('/api/chats', (req, res) => {
-  db.ensureGeneralChat();
-  res.json({ chats: db.listMyChats(req.user.id) });
-});
-
-// GET /api/chats/unread-count — лёгкий счётчик чатов с непрочитанным (для бейджа).
-app.get('/api/chats/unread-count', (req, res) => {
-  res.json({ count: db.totalUnreadChats(req.user.id) });
-});
-
-// GET /api/chats/:id/messages — история сообщений (можно ?before=ID&limit=N для подгрузки старых).
-app.get('/api/chats/:id/messages', (req, res) => {
-  const id = parseInt(req.params.id, 10);
-  if (!Number.isInteger(id)) return res.status(400).json({ error: 'bad id' });
-  try {
-    const messages = db.listChatMessages(id, req.user.id, { beforeId: req.query.before, limit: req.query.limit });
-    res.json({ messages });
-  } catch (err) {
-    res.status(400).json({ error: err.message });
-  }
-});
-
-// POST /api/chats/:id/messages — отправить сообщение в чат.
-app.post('/api/chats/:id/messages', (req, res) => {
-  const id = parseInt(req.params.id, 10);
-  if (!Number.isInteger(id)) return res.status(400).json({ error: 'bad id' });
-  try {
-    const message = db.sendChatMessage(id, req.user.id, (req.body || {}).text);
-    res.status(201).json({ message });
-  } catch (err) {
-    res.status(400).json({ error: err.message });
-  }
-});
-
-// POST /api/chats/:id/read — отметить чат прочитанным до последнего сообщения.
-app.post('/api/chats/:id/read', (req, res) => {
-  const id = parseInt(req.params.id, 10);
-  if (!Number.isInteger(id)) return res.status(400).json({ error: 'bad id' });
-  if (!db.isChatMember(id, req.user.id)) return res.status(403).json({ error: 'Вы не состоите в этом чате' });
-  db.markChatRead(id, req.user.id);
-  res.json({ ok: true });
-});
-
-// POST /api/chats/dm — открыть (или создать) личный чат с указанным пользователем.
-app.post('/api/chats/dm', (req, res) => {
-  const otherUserId = parseInt((req.body || {}).userId, 10);
-  if (!Number.isInteger(otherUserId)) return res.status(400).json({ error: 'Не указан собеседник' });
-  try {
-    const chatId = db.getOrCreateDm(req.user.id, otherUserId);
-    const chat = db.listMyChats(req.user.id).find(c => c.id === chatId);
-    res.status(201).json({ chat });
-  } catch (err) {
-    res.status(400).json({ error: err.message });
-  }
-});
-
-// POST /api/chats/group — создать групповой чат.
-app.post('/api/chats/group', (req, res) => {
-  const { title, memberIds } = req.body || {};
-  try {
-    const chatId = db.createGroupChat({ title, creatorId: req.user.id, memberIds });
-    const chat = db.listMyChats(req.user.id).find(c => c.id === chatId);
-    res.status(201).json({ chat });
-  } catch (err) {
-    res.status(400).json({ error: err.message });
-  }
-});
-
-// GET /api/chats/:id/members — участники группового чата.
-app.get('/api/chats/:id/members', (req, res) => {
-  const id = parseInt(req.params.id, 10);
-  if (!Number.isInteger(id)) return res.status(400).json({ error: 'bad id' });
-  if (!db.isChatMember(id, req.user.id)) return res.status(403).json({ error: 'Вы не состоите в этом чате' });
-  res.json({ members: db.listChatMembers(id) });
-});
-
-// POST /api/chats/:id/members — добавить участников в группу.
-app.post('/api/chats/:id/members', (req, res) => {
-  const id = parseInt(req.params.id, 10);
-  if (!Number.isInteger(id)) return res.status(400).json({ error: 'bad id' });
-  try {
-    db.addGroupMembers(id, req.user.id, (req.body || {}).memberIds);
-    res.json({ members: db.listChatMembers(id) });
-  } catch (err) {
-    res.status(400).json({ error: err.message });
-  }
-});
-
-// POST /api/chats/:id/leave — выйти из группового чата.
-app.post('/api/chats/:id/leave', (req, res) => {
-  const id = parseInt(req.params.id, 10);
-  if (!Number.isInteger(id)) return res.status(400).json({ error: 'bad id' });
-  try {
-    db.leaveGroupChat(id, req.user.id);
-    res.json({ ok: true });
-  } catch (err) {
-    res.status(400).json({ error: err.message });
-  }
 });
 
 app.get('/api/health', (req, res) => res.json({ ok: true }));
