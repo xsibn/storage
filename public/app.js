@@ -17,6 +17,7 @@
     lastSync: null,
     layout: {},    // {row: {minRack, maxRack, levels}} — full known warehouse structure
     abcClasses: {}, // {article: 'A'|'B'|'C'} — fixed classification, not computed
+    barcodeCatalog: [], // [{article, barcode, name}] — справочник ВГХ (реальные штрихкоды товара)
     zones: []      // [{name, isolate, records, qty, articles}] — authoritative zone list from server
   };
 
@@ -201,6 +202,8 @@
     state.sourceLabel = data.meta.source || 'база данных';
     state.layout = data.meta.layout || {};
     state.abcClasses = data.meta.abcClasses || {};
+    state.barcodeCatalog = data.meta.barcodeCatalog || [];
+    rebuildBarcodeCatalogIndex();
     state.zones = data.meta.zones || [];
     state.lastSync = new Date();
     // Storage-range / ABC-column settings live server-side (see /api/settings)
@@ -272,6 +275,20 @@
   // so a single strict `===` against the stored article silently misses scans
   // that decode "correctly" but in a different (still valid) representation.
   // This expands one scanned string into every equivalent form worth trying.
+  // Справочник ВГХ (весогабаритных характеристик) хранит настоящие
+  // штрихкоды товара (base/группа1/группа2), а не только артикул. Строим
+  // индекс "штрихкод -> артикул" один раз при загрузке/синхронизации данных,
+  // чтобы сканер и любой ручной ввод могли перевести реальный штрихкод в
+  // артикул склада, даже если сам штрихкод нигде в stock_records не хранится.
+  let barcodeToArticle = new Map();
+  function rebuildBarcodeCatalogIndex(){
+    barcodeToArticle = new Map();
+    (state.barcodeCatalog || []).forEach(row => {
+      if(!row.barcode || !row.article) return;
+      barcodeToArticle.set(String(row.barcode), String(row.article));
+    });
+  }
+
   function barcodeCandidates(raw){
     let s = String(raw || '');
     s = s.replace(/^\]\w\d/, '');   // strip AIM symbology identifier, e.g. "]C1", "]E0"
@@ -296,6 +313,15 @@
       // stored in its longer zero-padded form
       if(code.length === 12) candidates.add('0'+code);
       if(code.length === 13) candidates.add('0'+code);
+    });
+
+    // Сверяем каждый вариант кода со справочником ВГХ (артикул ↔ штрихкод):
+    // если отсканированный/введённый код — это реальный штрихкод товара
+    // (EAN/UPC/GS1 и т.п.), а не сам артикул, добавляем в кандидаты ещё и
+    // соответствующий артикул — дальше он ищется в stock_records как обычно.
+    Array.from(candidates).forEach(code=>{
+      const article = barcodeToArticle.get(code);
+      if(article) candidates.add(article);
     });
     return Array.from(candidates);
   }

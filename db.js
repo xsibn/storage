@@ -136,6 +136,21 @@ db.exec(`
   );
   CREATE INDEX IF NOT EXISTS idx_chat_messages_chat ON chat_messages(chat_id, id);
 
+  -- Справочник «артикул ↔ штрихкод» (из таблицы ВГХ — весогабаритных
+  -- характеристик): у одного артикула может быть несколько штрихкодов
+  -- (базовая единица, первая и вторая групповые упаковки), поэтому это
+  -- отдельная таблица, а не колонка в stock_records. Используется только
+  -- для того, чтобы сканер и поиск понимали штрихкод и переводили его в
+  -- артикул — сам сток по-прежнему хранится и ищется по article.
+  CREATE TABLE IF NOT EXISTS product_barcodes (
+    id       INTEGER PRIMARY KEY AUTOINCREMENT,
+    article  TEXT NOT NULL,
+    barcode  TEXT NOT NULL,
+    name     TEXT NOT NULL DEFAULT ''
+  );
+  CREATE INDEX IF NOT EXISTS idx_pb_barcode ON product_barcodes(barcode);
+  CREATE INDEX IF NOT EXISTS idx_pb_article ON product_barcodes(article);
+
   CREATE TABLE IF NOT EXISTS registration_requests (
     id             INTEGER PRIMARY KEY AUTOINCREMENT,
     username       TEXT NOT NULL,
@@ -308,6 +323,51 @@ function getAbcClasses() {
   const out = {};
   rows.forEach(r => { out[r.article] = r.class; });
   return out;
+}
+
+// ---------- Справочник штрихкодов (таблица ВГХ) ----------
+// Как и ABC-классы: источник правды — файл в seed/, перезаписываем целиком
+// на каждом старте сервера (не трогаем сток stock_records). rows — массив
+// { article, name, barcodes: [...] } — ровно то, что лежит в
+// seed/barcode-catalog.json.
+function seedBarcodeCatalog(rows) {
+  const del = db.prepare('DELETE FROM product_barcodes');
+  const insert = db.prepare('INSERT INTO product_barcodes (article, barcode, name) VALUES (?, ?, ?)');
+  const tx = db.transaction((list) => {
+    del.run();
+    for (const row of list) {
+      const article = String(row.article || '').trim();
+      const name = String(row.name || '').trim();
+      if (!article) continue;
+      const codes = Array.isArray(row.barcodes) ? row.barcodes : [];
+      if (!codes.length) {
+        // без штрихкода — всё равно держим строку, чтобы наименование из
+        // справочника ВГХ было доступно (например, для показа в интерфейсе)
+        insert.run(article, '', name);
+      } else {
+        codes.forEach(code => {
+          const c = String(code || '').trim();
+          if (c) insert.run(article, c, name);
+        });
+      }
+    }
+  });
+  tx(rows);
+}
+
+// Отдаём целиком клиенту (записей немного, сотни-тысячи — не мегабайты),
+// чтобы сканер мог сверяться со штрихкодом даже до отдельного запроса к
+// серверу на каждое сканирование, как и остальной сток.
+function getBarcodeCatalog() {
+  return db.prepare('SELECT article, barcode, name FROM product_barcodes WHERE barcode != \'\'').all();
+}
+
+// Серверный поиск артикула по штрихкоду — принимает уже нормализованный
+// (только цифры) код и пробует его среди сохранённых штрихкодов.
+function findArticleByBarcode(code) {
+  if (!code) return null;
+  const row = db.prepare('SELECT article, name FROM product_barcodes WHERE barcode = ? LIMIT 1').get(code);
+  return row || null;
 }
 
 
@@ -1725,6 +1785,7 @@ module.exports = {
   bulkMove, bulkDelete, listActivity, undoLastAction, undoActivityById, deleteActivityEntry, clearActivity,
   listMyActivity, undoMyActivityById,
   seedAbcClasses, getAbcClasses,
+  seedBarcodeCatalog, getBarcodeCatalog, findArticleByBarcode,
   ensureZonesFromData, listZones, createZone, renameZone, setZoneIsolate, deleteZone,
   setCurrentActor,
   listRoles, getRole, roleExists, createRole, renameRole, updateRolePerms, deleteRole,

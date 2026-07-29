@@ -123,6 +123,21 @@ if (fs.existsSync(abcClassesPath)) {
   }
 }
 
+// ---- справочник «артикул ↔ штрихкод» из таблицы ВГХ (весогабаритных
+// характеристик) — как и ABC-классы, это не сток, а постоянный справочник,
+// задаётся файлом и перезагружается на каждом старте сервера. Нужен, чтобы
+// сканер (камера или ТСД) понимал реальный штрихкод товара, а не только
+// артикул/код ТЕ, которые раньше единственные участвовали в поиске.
+const barcodeCatalogPath = path.join(__dirname, 'seed', 'barcode-catalog.json');
+if (fs.existsSync(barcodeCatalogPath)) {
+  try {
+    const catalogRows = JSON.parse(fs.readFileSync(barcodeCatalogPath, 'utf-8'));
+    db.seedBarcodeCatalog(catalogRows);
+  } catch (err) {
+    console.error('Не удалось загрузить справочник штрихкодов (ВГХ):', err.message);
+  }
+}
+
 // ---- регистрируем уже существующие зоны (Карантин, Приёмка и т.п.) как управляемые ----
 db.ensureZonesFromData();
 
@@ -194,6 +209,7 @@ app.get('/api/records', (req, res) => {
       count: records.length,
       layout,
       abcClasses: db.getAbcClasses(),
+      barcodeCatalog: db.getBarcodeCatalog(),
       zones: db.listZones(),
       storageRange: JSON.parse(db.getMeta('storageRange') || 'null'),
       abcCols: JSON.parse(db.getMeta('abcCols') || 'null')
