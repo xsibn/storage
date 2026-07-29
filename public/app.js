@@ -649,8 +649,10 @@
           return;
         }
         const arts = Array.from(new Set(items.map(i=>i.article)));
+        const candLower = term ? barcodeCandidates(mapFilterTerm.trim()).map(x=>x.toLowerCase()) : [];
         const matches = term && (
-          items.some(i=> i.article.toLowerCase().includes(term) || i.cell.toLowerCase().includes(term) || i.name.toLowerCase().includes(term) || (i.te && i.te.toLowerCase().includes(term)))
+          items.some(i=> candLower.includes(i.article.toLowerCase()) || (i.te && candLower.includes(i.te.toLowerCase())) ||
+            i.article.toLowerCase().includes(term) || i.cell.toLowerCase().includes(term) || i.name.toLowerCase().includes(term) || (i.te && i.te.toLowerCase().includes(term)))
         );
         const cls = arts.length>1 ? 'multi' : 'filled';
         const dim = term && !matches ? 'opacity:.25;' : '';
@@ -1503,7 +1505,15 @@
     if(tableFilter==='service') rows = rows.filter(r=>r.isService);
     const term = tableTerm.trim().toLowerCase();
     if(term){
-      rows = rows.filter(r=> r.article.toLowerCase().includes(term) || r.name.toLowerCase().includes(term) || r.cell.toLowerCase().includes(term) || (r.te && r.te.toLowerCase().includes(term)));
+      // Переводим введённый/отсканированный текст через справочник штрихкодов
+      // (barcodeCandidates уже сверяет его со всеми EAN/UPC/GS1-вариантами и
+      // с product_barcodes), чтобы реальный штрихкод товара, а не только
+      // артикул/ячейка/ТЕ, тоже находился в этом поиске.
+      const candLower = barcodeCandidates(tableTerm.trim()).map(x=>x.toLowerCase());
+      rows = rows.filter(r=>
+        candLower.includes(r.article.toLowerCase()) || (r.te && candLower.includes(r.te.toLowerCase())) ||
+        r.article.toLowerCase().includes(term) || r.name.toLowerCase().includes(term) || r.cell.toLowerCase().includes(term) || (r.te && r.te.toLowerCase().includes(term))
+      );
     }
 
     renderCategoryFilterMenu(rows);
