@@ -966,6 +966,33 @@
     return matches;
   }
 
+  // Переходит к ОДНОЙ конкретной найденной записи — либо когда код дал ровно
+  // одно совпадение, либо когда пользователь выбрал нужную запись из списка
+  // (см. renderBarcodeManualResults ниже, поиск по последним символам ТЕ).
+  function selectFoundRecord(r, context){
+    const label = r.te || r.article;
+    if(context === 'map'){
+      document.querySelector('nav.tabs button[data-view="map"]').click();
+      document.getElementById('map-search').value = label;
+      mapFilterTerm = label;
+      if(r.isService){
+        renderGrid();
+        alert(`Товар «${r.article}» найден только в служебной зоне — на схеме склада его нет.`);
+        return;
+      }
+      pulseAddressesOnMap([r]);
+      return;
+    }
+    document.querySelector('nav.tabs button[data-view="table"]').click();
+    tableTerm = label;
+    document.getElementById('table-search').value = label;
+    renderAll();
+    openDrawer(`Найдено по ${r.te ? 'ТЕ' : 'артикулу'} «${label}»`, [{
+      article: r.article, name: r.name, qty: r.qty, mfg: r.mfg, exp: r.exp,
+      te: r.te, cell: r.cell
+    }]);
+  }
+
   function handleScannedCode(rawCode, context){
     const code = String(rawCode || '').trim();
     if(!code) return;
@@ -974,39 +1001,24 @@
       alert(`Товар со штрихкодом «${code}» не найден в текущих данных склада.`);
       return;
     }
-    if(context === 'map'){
-      // остаёмся на схеме склада: сразу переходим на нужный ряд и подсвечиваем ячейку(и)
-      document.querySelector('nav.tabs button[data-view="map"]').click();
-      document.getElementById('map-search').value = code;
-      mapFilterTerm = code;
-      const addressMatches = matches.filter(r => !r.isService);
-      if(!addressMatches.length){
-        renderGrid();
-        alert(`Товар со штрихкодом «${code}» найден только в служебной зоне — на схеме склада его нет.`);
-        return;
-      }
-      pulseAddressesOnMap(addressMatches);
+    // Скан камерой почти всегда даёт ровно одно совпадение — сразу переходим
+    // к нему. Если их несколько, не гадаем и не сваливаем всё в одну карточку:
+    // просим уточнить запрос в поле ручного ввода, где появится список выбора.
+    if(matches.length === 1){
+      selectFoundRecord(matches[0], context);
       return;
     }
-    // переключаемся на вкладку "Таблица данных" и подставляем код в поиск
-    document.querySelector('nav.tabs button[data-view="table"]').click();
-    tableTerm = code;
-    document.getElementById('table-search').value = code;
-    renderAll();
-    // и сразу открываем карточку найденного товара
-    openDrawer(`Найдено по коду «${code}»`, matches.map(r=>({
-      article: r.article, name: r.name, qty: r.qty, mfg: r.mfg, exp: r.exp,
-      te: r.te, cell: r.cell
-    })));
+    alert(`По коду «${code}» найдено ${matches.length} совпадений. Введите его вручную в поле ниже — появится список для выбора.`);
   }
 
   function openBarcodeScanner(context){
     const body = `
       <div id="barcode-reader"></div>
       <div id="barcode-status" style="margin-top:10px; font-size:12.5px; color:var(--ink-soft);">Наведите камеру на штрих-код товара…</div>
-      <div class="form-field" style="margin-top:14px;">
+      <div class="form-field" style="margin-top:14px; position:relative;">
         <label>Или введите код вручную</label>
-        <input type="text" id="barcode-manual-input" placeholder="Артикул, код ТЕ или ячейка…">
+        <input type="text" id="barcode-manual-input" placeholder="Артикул, ячейка или последние символы ТЕ…" autocomplete="off">
+        <div class="search-results" id="barcode-manual-results"></div>
       </div>
     `;
     const footer = `<button class="btn" id="barcode-manual-submit">Найти</button><button class="btn primary" id="barcode-cancel">Закрыть</button>`;
@@ -1015,9 +1027,64 @@
     document.getElementById('barcode-cancel').addEventListener('click', closeModal);
 
     const manualInput = document.getElementById('barcode-manual-input');
+    const resultsBox = document.getElementById('barcode-manual-results');
+
+    function closeManualResults(){
+      resultsBox.classList.remove('open');
+      resultsBox.innerHTML = '';
+    }
+
+    // По мере ввода (например, последних 4 символов ТЕ) показываем список
+    // подходящих записей — клик по одной сразу переходит к ней, без
+    // необходимости вводить код целиком.
+    function renderManualResults(){
+      const val = manualInput.value.trim();
+      if(val.length < 4){ closeManualResults(); return; }
+      const matches = findRecordsByCode(val);
+      if(!matches.length){
+        resultsBox.innerHTML = `<div class="sr-empty">Ничего не найдено: «${escapeHtml(val)}»</div>`;
+        resultsBox.classList.add('open');
+        return;
+      }
+      const shown = matches.slice(0, 30);
+      resultsBox.innerHTML = shown.map((r,i)=>`
+        <div class="sr-item" data-idx="${i}">
+          <div class="sr-main">
+            <div class="sr-art">${escapeHtml(r.article)}</div>
+            <div class="sr-name">${escapeHtml(r.name || '—')}${r.te ? ' · ТЕ '+escapeHtml(r.te) : ''}</div>
+          </div>
+          <div class="sr-meta">
+            <span class="sr-cell">${escapeHtml(r.cell)}</span>
+            <span class="sr-qty">${fmtNum(r.qty)} шт</span>
+          </div>
+        </div>
+      `).join('') + (matches.length > shown.length ? `<div class="sr-more">и ещё ${matches.length - shown.length}… уточните запрос</div>` : '');
+      resultsBox.classList.add('open');
+      resultsBox.querySelectorAll('.sr-item').forEach(el=>{
+        el.addEventListener('click', ()=>{
+          const r = shown[parseInt(el.dataset.idx,10)];
+          closeModal();
+          selectFoundRecord(r, context);
+        });
+      });
+    }
+    manualInput.addEventListener('input', renderManualResults);
+    manualInput.addEventListener('focus', renderManualResults);
+
     const submitManual = ()=>{
       const val = manualInput.value.trim();
       if(!val) return;
+      const matches = findRecordsByCode(val);
+      if(matches.length === 1){
+        closeModal();
+        selectFoundRecord(matches[0], context);
+        return;
+      }
+      if(matches.length > 1){
+        // несколько совпадений — не гадаем, просто показываем список выбора
+        renderManualResults();
+        return;
+      }
       closeModal();
       handleScannedCode(val, context);
     };
