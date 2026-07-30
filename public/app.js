@@ -1001,14 +1001,34 @@
       alert(`Товар со штрихкодом «${code}» не найден в текущих данных склада.`);
       return;
     }
-    // Скан камерой почти всегда даёт ровно одно совпадение — сразу переходим
-    // к нему. Если их несколько, не гадаем и не сваливаем всё в одну карточку:
-    // просим уточнить запрос в поле ручного ввода, где появится список выбора.
+    // Один и тот же штрихкод упаковки — это нормально, если он лежит в
+    // нескольких ячейках/ТЕ сразу, так что при скане камерой не просим
+    // вводить что-то ещё вручную, а сразу показываем всё найденное.
     if(matches.length === 1){
       selectFoundRecord(matches[0], context);
       return;
     }
-    alert(`По коду «${code}» найдено ${matches.length} совпадений. Введите его вручную в поле ниже — появится список для выбора.`);
+    if(context === 'map'){
+      document.querySelector('nav.tabs button[data-view="map"]').click();
+      document.getElementById('map-search').value = code;
+      mapFilterTerm = code;
+      const addressMatches = matches.filter(r => !r.isService);
+      if(!addressMatches.length){
+        renderGrid();
+        alert(`Товар со штрихкодом «${code}» найден только в служебной зоне — на схеме склада его нет.`);
+        return;
+      }
+      pulseAddressesOnMap(addressMatches);
+      return;
+    }
+    document.querySelector('nav.tabs button[data-view="table"]').click();
+    tableTerm = code;
+    document.getElementById('table-search').value = code;
+    renderAll();
+    openDrawer(`Найдено по коду «${code}» (${matches.length})`, matches.map(r=>({
+      article: r.article, name: r.name, qty: r.qty, mfg: r.mfg, exp: r.exp,
+      te: r.te, cell: r.cell
+    })));
   }
 
   function openBarcodeScanner(context){
