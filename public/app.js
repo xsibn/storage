@@ -210,7 +210,7 @@
     // so they're the same on every device, not stuck in this browser's
     // localStorage. Only apply them if this is the first load or nothing has
     // been changed locally since — applySettingsFromServer() handles merging.
-    applySettingsFromServer(data.meta.storageRange, data.meta.abcCols);
+    applySettingsFromServer(data.meta.storageRange, data.meta.abcCols, data.meta.pickRowOrder, data.meta.halfBottleRow);
   }
 
   async function syncFromServer(showAlert){
@@ -2306,6 +2306,43 @@
   }
   let ABC_COLS = loadAbcCols();
 
+  // Порядок обхода рядов при пикинге (змейка) и ряд, куда принудительно кладут
+  // бутылки 0,5 л — раньше было жёстко зашито (06→05→04→03→02→01, 0,5 л
+  // всегда в ряд 04), теперь редактируется в UI («⚙ Порядок пикинга») и
+  // синхронизируется через сервер так же, как ABC_COLS/STORAGE_RANGE выше.
+  const PICK_ROW_ORDER_DEFAULT = ['06','05','04','03','02','01'];
+  const HALF_BOTTLE_ROW_DEFAULT = '04';
+  function isValidRowOrder(arr){
+    return Array.isArray(arr) && arr.length === PICK_ROW_ORDER_DEFAULT.length &&
+      arr.every(r => PICK_ROW_ORDER_DEFAULT.includes(r)) &&
+      new Set(arr).size === PICK_ROW_ORDER_DEFAULT.length;
+  }
+  function loadPickRowOrder(){
+    try{
+      const saved = JSON.parse(localStorage.getItem('pickRowOrder'));
+      if(isValidRowOrder(saved)) return saved;
+    }catch(e){}
+    return [...PICK_ROW_ORDER_DEFAULT];
+  }
+  function savePickRowOrder(){
+    try{ localStorage.setItem('pickRowOrder', JSON.stringify(PICK_ROW_ORDER)); }catch(e){}
+    persistSettings({ pickRowOrder: PICK_ROW_ORDER });
+  }
+  let PICK_ROW_ORDER = loadPickRowOrder();
+
+  function loadHalfBottleRow(){
+    try{
+      const saved = localStorage.getItem('halfBottleRow');
+      if(saved && PICK_ROW_ORDER_DEFAULT.includes(saved)) return saved;
+    }catch(e){}
+    return HALF_BOTTLE_ROW_DEFAULT;
+  }
+  function saveHalfBottleRow(){
+    try{ localStorage.setItem('halfBottleRow', HALF_BOTTLE_ROW); }catch(e){}
+    persistSettings({ halfBottleRow: HALF_BOTTLE_ROW });
+  }
+  let HALF_BOTTLE_ROW = loadHalfBottleRow();
+
   // Settings (storage-range per row, ABC pick-face width) used to live only in
   // localStorage, so each device/browser kept its own copy — set the range to
   // 91 on a desktop, the phone still showed the old value (e.g. 66) because it
@@ -2322,7 +2359,7 @@
       });
     }catch(e){ /* offline — localStorage copy above still saved locally */ }
   }
-  function applySettingsFromServer(serverStorageRange, serverAbcCols){
+  function applySettingsFromServer(serverStorageRange, serverAbcCols, serverPickRowOrder, serverHalfBottleRow){
     // The server is the source of truth once it has a value for a given
     // setting; a device that never touched a setting still gets whatever the
     // last device to change it saved. Only fall back to this browser's own
@@ -2348,16 +2385,26 @@
       };
       if(JSON.stringify(merged) !== JSON.stringify(ABC_COLS)){ ABC_COLS = merged; changed = true; }
     }
+    if(isValidRowOrder(serverPickRowOrder) && JSON.stringify(serverPickRowOrder) !== JSON.stringify(PICK_ROW_ORDER)){
+      PICK_ROW_ORDER = serverPickRowOrder;
+      changed = true;
+    }
+    if(typeof serverHalfBottleRow === 'string' && PICK_ROW_ORDER_DEFAULT.includes(serverHalfBottleRow) && serverHalfBottleRow !== HALF_BOTTLE_ROW){
+      HALF_BOTTLE_ROW = serverHalfBottleRow;
+      changed = true;
+    }
     if(changed){
       try{ localStorage.setItem('storageRange', JSON.stringify(STORAGE_RANGE)); }catch(e){}
       try{ localStorage.setItem('abcCols', JSON.stringify(ABC_COLS)); }catch(e){}
+      try{ localStorage.setItem('pickRowOrder', JSON.stringify(PICK_ROW_ORDER)); }catch(e){}
+      try{ localStorage.setItem('halfBottleRow', HALF_BOTTLE_ROW); }catch(e){}
       recoCache = null;
     }
     // If this browser had local-only settings from before this feature existed
     // (e.g. it was the "91" device) and the server has never been told about
     // them, push them up once so other devices pick them up too.
     if(!settingsSyncedFromServer && serverStorageRange==null && serverAbcCols==null){
-      persistSettings({ storageRange: STORAGE_RANGE, abcCols: ABC_COLS });
+      persistSettings({ storageRange: STORAGE_RANGE, abcCols: ABC_COLS, pickRowOrder: PICK_ROW_ORDER, halfBottleRow: HALF_BOTTLE_ROW });
     }
     settingsSyncedFromServer = true;
   }
@@ -2444,25 +2491,25 @@
     }
     articles.sort(placementComparator);
 
-    // Fixed business rule: 0.5 L bottles always go to row 04 — but row 04 is not
-    // exclusive to them; whatever cells the 0.5 L group doesn't use are still
-    // fair game for the normal route. Add more entries here if other
-    // volumes/rows need the same kind of pin.
-    const FORCED_ROW_BY_VOLUME = { '0.50': '04' };
+    // Business rule: 0.5 L bottles always go to one designated row (default 04,
+    // configurable in «⚙ Порядок пикинга») — but that row is not exclusive to
+    // them; whatever cells the 0.5 L group doesn't use are still fair game for
+    // the normal route.
+    const FORCED_ROW_BY_VOLUME = { '0.50': HALF_BOTTLE_ROW };
     function forcedRowFor(a){ return a.vol==null ? null : (FORCED_ROW_BY_VOLUME[a.vol.toFixed(2)] || null); }
 
-    // Physical walking path ("змейка"): only rows 01–06 are real (07–12 are stale
-    // leftovers from the old warehouse in the DB and are never used for new
-    // placements). Picking starts at the far end of row 06 (lowest rack in that
-    // row, e.g. 06-28-01, next to "начало пикинга"/"зона возврата" на layout)
-    // and runs in ASCENDING rack order through row 06 (28→66, confirmed), then
-    // zig-zags back and forth through rows 05→01, reversing direction each row
-    // (05 descending, 04 ascending, 03 descending, 02 ascending, 01 descending)
-    // so the path never jumps across the warehouse.
+    // Physical walking path ("змейка"): configurable in the UI («⚙ Порядок
+    // пикинга»), default is only rows 01–06 (07–12 are stale leftovers from the
+    // old warehouse in the DB and are never used for new placements). By
+    // default picking starts at the far end of row 06 (lowest rack in that row,
+    // e.g. 06-28-01, next to "начало пикинга"/"зона возврата" на layout) and
+    // runs in ASCENDING rack order through row 06 (28→66), then zig-zags back
+    // and forth through the remaining rows in PICK_ROW_ORDER, reversing
+    // direction on every row so the path never jumps across the warehouse.
     const rowRacks = {}; // row -> ordered [{row,rack}] in that row's own walking direction
     const walkIndex = {}; // "row-rack" -> position in the true physical walking order
     let walkPtr = 0;
-    ACTIVE_ROWS.forEach((row, idx)=>{
+    PICK_ROW_ORDER.forEach((row, idx)=>{
       const extent = aisleExtent(row);
       let racks = extent ? extent.racks.slice().sort((a,b)=>a-b) : [];
       racks = racksInStorageZone(row, racks);
@@ -2499,7 +2546,7 @@
     const pinnedRows = new Set(Object.values(FORCED_ROW_BY_VOLUME));
     let assigned = [];
     const pool = [];
-    ACTIVE_ROWS.forEach(row=>{
+    PICK_ROW_ORDER.forEach(row=>{
       const queue = rowRacks[row] || [];
       if(pinnedRows.has(row)){
         const pinned = articles.filter(a=>forcedRowFor(a)===row).sort(placementComparator);
@@ -2625,6 +2672,68 @@
     recoCache = null;
     renderReco();
   });
+
+  // Модалка «Порядок пикинга»: разрешает поменять порядок обхода рядов
+  // (маршрут-змейка) и выбрать, в какой ряд принудительно кладутся бутылки
+  // 0,5 л. Работает с локальным черновиком (workingOrder) и применяет его
+  // только по кнопке «Сохранить», чтобы случайный клик по стрелке сразу не
+  // ломал текущий расчёт.
+  function openPickRouteSettingsModal(){
+    let workingOrder = PICK_ROW_ORDER.slice();
+
+    const body = `
+      <div class="form-field">
+        <label>Порядок обхода рядов при пикинге (сверху — начало маршрута, дальше змейкой)</label>
+        <div id="pick-order-list"></div>
+      </div>
+      <div class="form-field" style="margin-top:14px;">
+        <label>Ряд для бутылок 0,5 л (кладутся туда в первую очередь, остаток ряда — под общий маршрут)</label>
+        <select id="half-bottle-row-select">${PICK_ROW_ORDER_DEFAULT.slice().sort().map(row=>
+          `<option value="${row}" ${row===HALF_BOTTLE_ROW ? 'selected' : ''}>Ряд ${row}</option>`).join('')}</select>
+      </div>
+    `;
+    const footer = `<button class="btn" id="pick-order-reset">Сбросить по умолчанию</button><button class="btn primary" id="pick-order-save">Сохранить</button>`;
+    openModal('Настройки маршрута пикинга', body, footer);
+
+    function renderList(){
+      document.getElementById('pick-order-list').innerHTML = workingOrder.map((row,i)=>`
+        <div style="display:flex; align-items:center; gap:8px; padding:8px 10px; border:1px solid var(--line); border-radius:8px; margin-bottom:6px; background:var(--bg);">
+          <span style="font-weight:600; width:22px; text-align:center; color:var(--ink-soft);">${i+1}</span>
+          <span style="flex:1;">Ряд ${row}</span>
+          <button type="button" class="btn" data-act="up" data-idx="${i}" title="Выше" ${i===0?'disabled':''}>↑</button>
+          <button type="button" class="btn" data-act="down" data-idx="${i}" title="Ниже" ${i===workingOrder.length-1?'disabled':''}>↓</button>
+        </div>
+      `).join('');
+      document.querySelectorAll('#pick-order-list [data-act]').forEach(btn=>{
+        btn.addEventListener('click', ()=>{
+          const idx = parseInt(btn.dataset.idx, 10);
+          const swapIdx = idx + (btn.dataset.act === 'up' ? -1 : 1);
+          if(swapIdx < 0 || swapIdx >= workingOrder.length) return;
+          [workingOrder[idx], workingOrder[swapIdx]] = [workingOrder[swapIdx], workingOrder[idx]];
+          renderList();
+        });
+      });
+    }
+    renderList();
+
+    document.getElementById('pick-order-reset').addEventListener('click', ()=>{
+      workingOrder = PICK_ROW_ORDER_DEFAULT.slice();
+      document.getElementById('half-bottle-row-select').value = HALF_BOTTLE_ROW_DEFAULT;
+      renderList();
+    });
+
+    document.getElementById('pick-order-save').addEventListener('click', ()=>{
+      PICK_ROW_ORDER = workingOrder.slice();
+      HALF_BOTTLE_ROW = document.getElementById('half-bottle-row-select').value;
+      savePickRowOrder();
+      saveHalfBottleRow();
+      recoCache = null;
+      closeModal();
+      renderReco();
+    });
+  }
+  document.getElementById('reco-pick-order-btn')?.addEventListener('click', openPickRouteSettingsModal);
+
 
   function hexToRgb(hex){
     const m = hex.replace('#','');

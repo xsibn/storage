@@ -212,7 +212,9 @@ app.get('/api/records', (req, res) => {
       barcodeCatalog: db.getBarcodeCatalog(),
       zones: db.listZones(),
       storageRange: JSON.parse(db.getMeta('storageRange') || 'null'),
-      abcCols: JSON.parse(db.getMeta('abcCols') || 'null')
+      abcCols: JSON.parse(db.getMeta('abcCols') || 'null'),
+      pickRowOrder: JSON.parse(db.getMeta('pickRowOrder') || 'null'),
+      halfBottleRow: db.getMeta('halfBottleRow') || null
     }
   });
 });
@@ -222,9 +224,11 @@ app.get('/api/records', (req, res) => {
 // localStorage браузера — так они одинаковы на всех устройствах, а не только
 // на том, где их поменяли.
 app.put('/api/settings', (req, res) => {
-  const { storageRange, abcCols } = req.body || {};
+  const { storageRange, abcCols, pickRowOrder, halfBottleRow } = req.body || {};
   if (storageRange !== undefined) db.setMeta('storageRange', JSON.stringify(storageRange));
   if (abcCols !== undefined) db.setMeta('abcCols', JSON.stringify(abcCols));
+  if (pickRowOrder !== undefined) db.setMeta('pickRowOrder', JSON.stringify(pickRowOrder));
+  if (halfBottleRow !== undefined) db.setMeta('halfBottleRow', halfBottleRow);
   res.json({ ok: true });
 });
 
