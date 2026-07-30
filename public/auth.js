@@ -612,11 +612,18 @@
     input.addEventListener('input', () => renderUsersRows(lastUsersFull, lastRoles));
   }
 
-  async function renderUsersList() {
+  async function renderUsersList(opts) {
+    opts = opts || {};
     const listEl = $('users-list');
     if (!listEl) return;
     wireUsersSearchOnce();
-    listEl.innerHTML = '<div style="padding:10px; color:var(--ink-soft); font-size:12.5px;">Загрузка…</div>';
+    // Фоновые обновления (см. refreshUsersListIfIdle) не должны стирать
+    // список на надпись "Загрузка…" перед подстановкой новых данных — это
+    // на миг схлопывает контейнер и обратно растягивает его, отчего страницу
+    // подбрасывает к началу. Плашку показываем только на первом открытии.
+    if (opts.showLoading !== false) {
+      listEl.innerHTML = '<div style="padding:10px; color:var(--ink-soft); font-size:12.5px;">Загрузка…</div>';
+    }
     try {
       const [users, roles] = await Promise.all([loadUsers(), loadRoles()]);
       // Сервисный аккаунт — служебная запись для самой системы, не сотрудник;
@@ -817,7 +824,7 @@
   function refreshUsersListIfIdle() {
     const listEl = $('users-list');
     if (!listEl || listEl.querySelector('.user-row.editing')) return;
-    renderUsersList();
+    renderUsersList({ showLoading: false });
   }
   window.__refreshUsersListIfIdle = refreshUsersListIfIdle;
 
