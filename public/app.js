@@ -2692,14 +2692,15 @@
           `<option value="${row}" ${row===HALF_BOTTLE_ROW ? 'selected' : ''}>Ряд ${row}</option>`).join('')}</select>
       </div>
     `;
-    const footer = `<button class="btn" id="pick-order-reset">Сбросить по умолчанию</button><button class="btn primary" id="pick-order-save">Сохранить</button>`;
+    const footer = `<button class="btn" id="pick-order-reverse">↕ Реверс</button><button class="btn" id="pick-order-reset">Сбросить по умолчанию</button><button class="btn primary" id="pick-order-save">Сохранить</button>`;
     openModal('Настройки маршрута пикинга', body, footer);
 
     function renderList(){
+      const halfRow = document.getElementById('half-bottle-row-select')?.value || HALF_BOTTLE_ROW;
       document.getElementById('pick-order-list').innerHTML = workingOrder.map((row,i)=>`
-        <div style="display:flex; align-items:center; gap:8px; padding:8px 10px; border:1px solid var(--line); border-radius:8px; margin-bottom:6px; background:var(--bg);">
+        <div style="display:flex; align-items:center; gap:8px; padding:8px 10px; border:1px solid ${row===halfRow?'var(--accent)':'var(--line)'}; border-radius:8px; margin-bottom:6px; background:var(--bg);">
           <span style="font-weight:600; width:22px; text-align:center; color:var(--ink-soft);">${i+1}</span>
-          <span style="flex:1;">Ряд ${row}</span>
+          <span style="flex:1;">Ряд ${row}${row===halfRow ? ' · сюда 0,5 л' : ''}</span>
           <button type="button" class="btn" data-act="up" data-idx="${i}" title="Выше" ${i===0?'disabled':''}>↑</button>
           <button type="button" class="btn" data-act="down" data-idx="${i}" title="Ниже" ${i===workingOrder.length-1?'disabled':''}>↓</button>
         </div>
@@ -2715,7 +2716,17 @@
       });
     }
     renderList();
+    document.getElementById('half-bottle-row-select').addEventListener('change', renderList);
 
+    document.getElementById('pick-order-reverse').addEventListener('click', ()=>{
+      // Просто переворачиваем весь маршрут задом наперёд — какой ряд был
+      // первым, становится последним, и наоборот. Привязка «0,5 л → ряд 04»
+      // хранится по НАЗВАНИЮ ряда (HALF_BOTTLE_ROW), а не по позиции в
+      // маршруте, так что она сама «подъезжает» на новое место — на каком бы
+      // шаге маршрута ни оказался ряд 04, туда и будут класть 0,5 л.
+      workingOrder = workingOrder.slice().reverse();
+      renderList();
+    });
     document.getElementById('pick-order-reset').addEventListener('click', ()=>{
       workingOrder = PICK_ROW_ORDER_DEFAULT.slice();
       document.getElementById('half-bottle-row-select').value = HALF_BOTTLE_ROW_DEFAULT;
