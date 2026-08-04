@@ -158,6 +158,31 @@ db.exec(`
     password_hash  TEXT NOT NULL,
     created_at     TEXT NOT NULL DEFAULT (datetime('now'))
   );
+
+  -- Push-подписки (Web Push API): один пользователь может иметь несколько
+  -- подписок одновременно (телефон + компьютер + другой браузер) — поэтому
+  -- это отдельная таблица, а не колонка в users. endpoint уникален сам по
+  -- себе (его выдаёт push-сервис браузера/ОС), поэтому по нему и делаем
+  -- upsert при повторной подписке того же устройства.
+  CREATE TABLE IF NOT EXISTS push_subscriptions (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id     INTEGER NOT NULL,
+    endpoint    TEXT NOT NULL UNIQUE,
+    p256dh      TEXT NOT NULL,
+    auth        TEXT NOT NULL,
+    ua          TEXT NOT NULL DEFAULT '',
+    created_at  TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+  CREATE INDEX IF NOT EXISTS idx_push_subs_user ON push_subscriptions(user_id);
+
+  -- Настройки уведомлений на человека: какие категории пушить. По
+  -- умолчанию (нет строки в таблице) обе категории считаются включёнными.
+  CREATE TABLE IF NOT EXISTS notification_prefs (
+    user_id      INTEGER PRIMARY KEY,
+    tasks        INTEGER NOT NULL DEFAULT 1,
+    chats        INTEGER NOT NULL DEFAULT 1,
+    updated_at   TEXT NOT NULL DEFAULT (datetime('now'))
+  );
 `);
 
 // Безопасная миграция для БД, созданных до появления заданий: добавляем
@@ -1749,6 +1774,77 @@ function rejectRegistrationRequest(id) {
   return { id };
 }
 
+// ---------- Push-уведомления ----------
+
+// Сохранить/обновить подписку устройства. Один и тот же endpoint (одно и
+// то же устройство/браузер) может со временем "переехать" к другому
+// пользователю на том же телефоне (переавторизация) — поэтому это upsert
+// по endpoint, а не просто INSERT.
+function savePushSubscription(userId, sub, ua) {
+  if (!sub || !sub.endpoint || !sub.keys || !sub.keys.p256dh || !sub.keys.auth) {
+    throw new Error('Некорректная подписка');
+  }
+  db.prepare(`
+    INSERT INTO push_subscriptions (user_id, endpoint, p256dh, auth, ua)
+    VALUES (?, ?, ?, ?, ?)
+    ON CONFLICT(endpoint) DO UPDATE SET
+      user_id = excluded.user_id,
+      p256dh = excluded.p256dh,
+      auth = excluded.auth,
+      ua = excluded.ua
+  `).run(userId, sub.endpoint, sub.keys.p256dh, sub.keys.auth, ua || '');
+}
+
+function deletePushSubscription(endpoint) {
+  if (!endpoint) return;
+  db.prepare('DELETE FROM push_subscriptions WHERE endpoint = ?').run(endpoint);
+}
+
+function deletePushSubscriptionsForUser(userId) {
+  db.prepare('DELETE FROM push_subscriptions WHERE user_id = ?').run(userId);
+}
+
+// Список подписок для набора пользователей — используется сервером, когда
+// нужно разослать пуш о новом задании/сообщении сразу нескольким людям.
+function listPushSubscriptionsForUsers(userIds) {
+  const ids = Array.from(new Set((userIds || []).map(Number).filter(Boolean)));
+  if (!ids.length) return [];
+  const placeholders = ids.map(() => '?').join(',');
+  return db.prepare(`SELECT * FROM push_subscriptions WHERE user_id IN (${placeholders})`).all(...ids);
+}
+
+function hasPushSubscriptions(userId) {
+  return db.prepare('SELECT COUNT(*) AS n FROM push_subscriptions WHERE user_id = ?').get(userId).n > 0;
+}
+
+function getNotificationPrefs(userId) {
+  const row = db.prepare('SELECT * FROM notification_prefs WHERE user_id = ?').get(userId);
+  return { tasks: row ? !!row.tasks : true, chats: row ? !!row.chats : true };
+}
+
+function setNotificationPrefs(userId, { tasks, chats }) {
+  const current = getNotificationPrefs(userId);
+  const t = tasks === undefined ? current.tasks : !!tasks;
+  const c = chats === undefined ? current.chats : !!chats;
+  db.prepare(`
+    INSERT INTO notification_prefs (user_id, tasks, chats, updated_at)
+    VALUES (?, ?, ?, datetime('now'))
+    ON CONFLICT(user_id) DO UPDATE SET tasks = excluded.tasks, chats = excluded.chats, updated_at = datetime('now')
+  `).run(userId, t ? 1 : 0, c ? 1 : 0);
+  return { tasks: t, chats: c };
+}
+
+// Пользователи из списка, у которых включена данная категория уведомлений
+// (по умолчанию включена, если строки в notification_prefs ещё нет).
+function filterUsersWithPrefEnabled(userIds, category) {
+  const ids = Array.from(new Set((userIds || []).map(Number).filter(Boolean)));
+  if (!ids.length) return [];
+  const placeholders = ids.map(() => '?').join(',');
+  const rows = db.prepare(`SELECT user_id, ${category} AS v FROM notification_prefs WHERE user_id IN (${placeholders})`).all(...ids);
+  const disabled = new Set(rows.filter(r => !r.v).map(r => r.user_id));
+  return ids.filter(id => !disabled.has(id));
+}
+
 // ---------- Сессии ----------
 const SESSION_TTL_DAYS = 14;
 
@@ -1796,5 +1892,8 @@ module.exports = {
   ensureGeneralChat, addUserToGeneralChat, isChatMember, listMyChats, totalUnreadChats, getOrCreateDm,
   createGroupChat, addGroupMembers, leaveGroupChat, deleteChat, listChatMembers, listChatMessages, sendChatMessage, markChatRead,
   createRegistrationRequest, listRegistrationRequests, countRegistrationRequests, approveRegistrationRequest, rejectRegistrationRequest,
-  createSession, getSession, deleteSession, deleteAllSessionsForUser
+  createSession, getSession, deleteSession, deleteAllSessionsForUser,
+  savePushSubscription, deletePushSubscription, deletePushSubscriptionsForUser,
+  listPushSubscriptionsForUsers, hasPushSubscriptions,
+  getNotificationPrefs, setNotificationPrefs, filterUsersWithPrefEnabled
 };

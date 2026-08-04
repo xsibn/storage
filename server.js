@@ -14,6 +14,7 @@ const XLSX = require('xlsx');
 
 const db = require('./db');
 const auth = require('./auth');
+const push = require('./push');
 
 const app = express();
 // За nginx (см. deploy/nginx.conf) — proxy_set_header X-Real-IP/X-Forwarded-For
@@ -1115,6 +1116,7 @@ app.post('/api/tasks', auth.requirePerm('canManageTasks'), (req, res) => {
       createdByName: `${req.user.display_name || req.user.username}`
     });
     res.status(201).json({ task });
+    notifyTaskRecipients(task);
   } catch (err) {
     res.status(400).json({ error: err.message });
   }
@@ -1297,6 +1299,7 @@ app.post('/api/chats/:id/messages', (req, res) => {
       }
       const message = db.sendChatMessage(id, req.user.id, (req.body || {}).text, attachment);
       res.status(201).json({ message });
+      notifyChatMessage(id, message);
     } catch (err) {
       res.status(400).json({ error: err.message });
     }
@@ -1310,6 +1313,89 @@ app.post('/api/chats/:id/read', (req, res) => {
   db.markChatRead(id, req.user.id);
   res.json({ ok: true });
 });
+
+// ---------- Push-уведомления ----------
+// Работает по стандарту Web Push (VAPID) — одинаково на Android (Chrome и
+// любой Chromium-браузер) и на iPhone (Safari, при условии что сайт
+// добавлен на экран "Домой" — так требует сама Apple, iOS 16.4+).
+
+// GET /api/push/public-key — публичный VAPID-ключ, нужен фронтенду для
+// подписки через PushManager.subscribe(). Отдаём без авторизации: ключ не
+// секретный, это просто открытая половина пары.
+app.get('/api/push/public-key', (req, res) => {
+  res.json({ publicKey: push.getPublicKey() });
+});
+
+// GET /api/push/settings — какие категории уведомлений включены у меня
+app.get('/api/push/settings', (req, res) => {
+  res.json({ prefs: db.getNotificationPrefs(req.user.id), hasSubscriptions: db.hasPushSubscriptions(req.user.id) });
+});
+
+// PUT /api/push/settings — включить/выключить категории (задания / чаты)
+app.put('/api/push/settings', (req, res) => {
+  const { tasks, chats } = req.body || {};
+  const prefs = db.setNotificationPrefs(req.user.id, { tasks, chats });
+  res.json({ prefs });
+});
+
+// POST /api/push/subscribe — сохранить подписку текущего устройства
+app.post('/api/push/subscribe', (req, res) => {
+  const { subscription } = req.body || {};
+  try {
+    db.savePushSubscription(req.user.id, subscription, String(req.headers['user-agent'] || '').slice(0, 300));
+    res.status(201).json({ ok: true });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+// POST /api/push/unsubscribe — отключить уведомления на этом устройстве
+app.post('/api/push/unsubscribe', (req, res) => {
+  const { endpoint } = req.body || {};
+  db.deletePushSubscription(endpoint);
+  res.json({ ok: true });
+});
+
+// Разослать пуш о новом задании всем получателям, кроме того, кто его
+// поставил (сам себе постановщик уведомление не получает). Отправка идёт
+// уже после ответа клиенту — создание задания не должно ждать сеть до
+// push-сервисов Google/Apple/Mozilla.
+function notifyTaskRecipients(task) {
+  try {
+    const recipientIds = (task.recipients || []).map(r => r.userId);
+    const targetIds = db.filterUsersWithPrefEnabled(recipientIds, 'tasks');
+    const subs = db.listPushSubscriptionsForUsers(targetIds);
+    if (!subs.length) return;
+    const preview = String(task.text || '').slice(0, 180);
+    push.sendToSubscriptions(subs, {
+      title: 'Новое задание',
+      body: task.createdByName ? `${task.createdByName}: ${preview}` : preview,
+      tag: `task-${task.id}`,
+      url: '/?section=tasks'
+    }, (endpoint) => db.deletePushSubscription(endpoint)).catch(() => {});
+  } catch (err) {
+    console.error('notifyTaskRecipients:', err && err.message);
+  }
+}
+
+// Разослать пуш о новом сообщении чата всем его участникам, кроме автора.
+function notifyChatMessage(chatId, message) {
+  try {
+    const members = db.listChatMembers(chatId).filter(u => u.id !== message.userId);
+    const targetIds = db.filterUsersWithPrefEnabled(members.map(m => m.id), 'chats');
+    const subs = db.listPushSubscriptionsForUsers(targetIds);
+    if (!subs.length) return;
+    const preview = message.text ? message.text.slice(0, 180) : (message.attachmentName ? `📎 ${message.attachmentName}` : 'Новое сообщение');
+    push.sendToSubscriptions(subs, {
+      title: message.authorName || 'Новое сообщение',
+      body: preview,
+      tag: `chat-${chatId}`,
+      url: `/?section=chats&chat=${chatId}`
+    }, (endpoint) => db.deletePushSubscription(endpoint)).catch(() => {});
+  } catch (err) {
+    console.error('notifyChatMessage:', err && err.message);
+  }
+}
 
 app.get('/api/health', (req, res) => res.json({ ok: true }));
 
