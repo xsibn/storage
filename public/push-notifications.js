@@ -318,9 +318,37 @@
   window.addEventListener('install-prompt-ready', renderHintBanners);
   window.addEventListener('appinstalled', () => { window.__deferredInstallPrompt = null; renderHintBanners(); });
 
+  async function downloadTasksArchive(btn) {
+    const originalText = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = 'Формирую файл…';
+    try {
+      const res = await apiFetch('/api/tasks/export');
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      let filename = 'архив_заданий.xlsx';
+      const disp = res.headers.get('Content-Disposition') || '';
+      const starMatch = disp.match(/filename\*=UTF-8''([^;]+)/i);
+      if (starMatch) filename = decodeURIComponent(starMatch[1]);
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = filename;
+      document.body.appendChild(a); a.click(); a.remove();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      alert('Не удалось скачать архив заданий: ' + err.message);
+    } finally {
+      btn.disabled = false;
+      btn.textContent = originalText;
+    }
+  }
+
   function init() {
     const btn = document.getElementById('pp-notifications');
     if (btn) btn.addEventListener('click', renderSettingsModal);
+
+    const exportBtn = document.getElementById('tasks-export-btn');
+    if (exportBtn) exportBtn.addEventListener('click', () => downloadTasksArchive(exportBtn));
 
     (async () => {
       if (window.__whenAuthed) { try { await window.__whenAuthed; } catch (e) { return; } }

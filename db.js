@@ -94,7 +94,8 @@ db.exec(`
     text             TEXT NOT NULL,
     created_by_id    INTEGER,
     created_by_name  TEXT NOT NULL DEFAULT '',
-    created_at       TEXT NOT NULL DEFAULT (datetime('now'))
+    created_at       TEXT NOT NULL DEFAULT (datetime('now')),
+    deleted_at       TEXT
   );
 
   CREATE TABLE IF NOT EXISTS task_recipients (
@@ -105,6 +106,7 @@ db.exec(`
     read_at     TEXT,
     started_at  TEXT,
     done_at     TEXT,
+    deleted_at  TEXT,
     UNIQUE(task_id, user_id)
   );
   CREATE INDEX IF NOT EXISTS idx_task_recipients_task ON task_recipients(task_id);
@@ -227,6 +229,12 @@ ensureColumn('chat_messages', 'attachment_path', 'TEXT');
 ensureColumn('chat_messages', 'attachment_name', 'TEXT');
 ensureColumn('chat_messages', 'attachment_type', 'TEXT');
 ensureColumn('chat_messages', 'attachment_size', 'INTEGER');
+// Архив заданий: удаление задания/получателя раньше было безвозвратным —
+// теперь это "мягкое" удаление (проставляем deleted_at, строку не трогаем),
+// чтобы в выгрузке в Excel можно было показать вообще всё, что когда-либо
+// ставилось, включая удалённое.
+ensureColumn('tasks', 'deleted_at', 'TEXT');
+ensureColumn('task_recipients', 'deleted_at', 'TEXT');
 
 // Порядок пользователей в списке управления — свободно задаваемый вручную
 // (перетаскиванием/кнопками), а не только по id/алфавиту. На новой базе
@@ -1298,7 +1306,8 @@ function rowToTask(r) {
     text: r.text,
     createdById: r.created_by_id,
     createdByName: r.created_by_name,
-    createdAt: r.created_at
+    createdAt: r.created_at,
+    deletedAt: r.deleted_at || null
   };
 }
 
@@ -1310,7 +1319,8 @@ function rowToRecipient(r) {
     status: r.status,
     readAt: r.read_at,
     startedAt: r.started_at,
-    doneAt: r.done_at
+    doneAt: r.done_at,
+    deletedAt: r.deleted_at || null
   };
 }
 
@@ -1332,32 +1342,35 @@ function createTask({ text, createdById, createdByName, userIds }) {
 }
 
 // Полная карточка задания вместе со статусами всех получателей — для тех,
-// кто вправе ставить задания (обзор выполнения по команде).
+// кто вправе ставить задания (обзор выполнения по команде). Живые
+// (неудалённые) получатели только — как и раньше.
 function getTask(id) {
   const task = db.prepare('SELECT * FROM tasks WHERE id = ?').get(id);
   if (!task) return null;
   const recipients = db.prepare(`
     SELECT tr.*, u.username, u.display_name FROM task_recipients tr
     JOIN users u ON u.id = tr.user_id
-    WHERE tr.task_id = ? ORDER BY u.display_name ASC, u.username ASC
+    WHERE tr.task_id = ? AND tr.deleted_at IS NULL ORDER BY u.display_name ASC, u.username ASC
   `).all(id).map(rowToRecipient);
   return { ...rowToTask(task), recipients };
 }
 
-// Все задания (с получателями) — видят только те, кто вправе их ставить.
+// Все (неудалённые) задания — видят только те, кто вправе их ставить.
 function listAllTasks() {
-  const tasks = db.prepare('SELECT * FROM tasks ORDER BY created_at DESC').all();
+  const tasks = db.prepare('SELECT * FROM tasks WHERE deleted_at IS NULL ORDER BY created_at DESC').all();
   return tasks.map(t => getTask(t.id));
 }
 
 // Мои задания — свой статус в каждом. Перед выдачей списка "новые"
-// автоматически помечаются прочитанными (см. markMyNewTasksRead).
+// автоматически помечаются прочитанными (см. markMyNewTasksRead). Задание,
+// снятое лично с меня (или удалённое целиком), в моём списке больше не
+// показывается — но при этом остаётся в архиве/экспорте.
 function listMyTasks(userId) {
   const rows = db.prepare(`
     SELECT tr.*, t.text AS task_text, t.created_by_name, t.created_at AS task_created_at
     FROM task_recipients tr
     JOIN tasks t ON t.id = tr.task_id
-    WHERE tr.user_id = ?
+    WHERE tr.user_id = ? AND tr.deleted_at IS NULL AND t.deleted_at IS NULL
     ORDER BY t.created_at DESC
   `).all(userId);
   return rows.map(r => ({
@@ -1373,19 +1386,19 @@ function listMyTasks(userId) {
 }
 
 function markMyNewTasksRead(userId) {
-  db.prepare(`UPDATE task_recipients SET status = 'read', read_at = datetime('now') WHERE user_id = ? AND status = 'new'`)
+  db.prepare(`UPDATE task_recipients SET status = 'read', read_at = datetime('now') WHERE user_id = ? AND status = 'new' AND deleted_at IS NULL`)
     .run(userId);
 }
 
 function countMyNewTasks(userId) {
-  return db.prepare(`SELECT COUNT(*) AS n FROM task_recipients WHERE user_id = ? AND status = 'new'`).get(userId).n;
+  return db.prepare(`SELECT COUNT(*) AS n FROM task_recipients WHERE user_id = ? AND status = 'new' AND deleted_at IS NULL`).get(userId).n;
 }
 
 // Сотрудник двигает свой статус вперёд: read → in_progress → done (только
 // вперёд — так прогресс нельзя случайно "откатить" повторным нажатием).
 function setMyTaskStatus(taskId, userId, status) {
   if (!TASK_STATUSES.includes(status)) throw new Error('Некорректный статус');
-  const row = db.prepare('SELECT * FROM task_recipients WHERE task_id = ? AND user_id = ?').get(taskId, userId);
+  const row = db.prepare('SELECT * FROM task_recipients WHERE task_id = ? AND user_id = ? AND deleted_at IS NULL').get(taskId, userId);
   if (!row) throw new Error('Задание не найдено');
   const from = TASK_STATUSES.indexOf(row.status);
   const to = TASK_STATUSES.indexOf(status);
@@ -1396,27 +1409,61 @@ function setMyTaskStatus(taskId, userId, status) {
   return getTask(taskId);
 }
 
+// "Удаление" задания — мягкое: строка остаётся в базе с проставленным
+// deleted_at, чтобы она не пропадала из архива/выгрузки в Excel. Из всех
+// обычных списков (listAllTasks/listMyTasks/счётчики) такое задание больше
+// не видно — как будто удалено по-настоящему.
 function deleteTask(id) {
-  const info = db.prepare('DELETE FROM tasks WHERE id = ?').run(id);
-  if (!info.changes) throw new Error('Задание не найдено');
-  db.prepare('DELETE FROM task_recipients WHERE task_id = ?').run(id);
+  const task = db.prepare('SELECT * FROM tasks WHERE id = ? AND deleted_at IS NULL').get(id);
+  if (!task) throw new Error('Задание не найдено');
+  db.prepare(`UPDATE tasks SET deleted_at = datetime('now') WHERE id = ?`).run(id);
+  db.prepare(`UPDATE task_recipients SET deleted_at = datetime('now') WHERE task_id = ? AND deleted_at IS NULL`).run(id);
   return { id };
 }
 
 // Убрать задание только у одного получателя (не трогая остальных). Если
-// после этого у задания не остаётся ни одного получателя — оно само
-// становится бессмысленным, поэтому удаляем и саму запись задания.
+// после этого у задания не остаётся ни одного живого получателя — оно само
+// становится бессмысленным, поэтому "удаляем" (мягко) и саму запись задания.
 function removeTaskRecipient(taskId, userId) {
-  const info = db.prepare('DELETE FROM task_recipients WHERE task_id = ? AND user_id = ?').run(taskId, userId);
+  const info = db.prepare(`UPDATE task_recipients SET deleted_at = datetime('now') WHERE task_id = ? AND user_id = ? AND deleted_at IS NULL`).run(taskId, userId);
   if (!info.changes) throw new Error('Получатель не найден в этом задании');
-  const remaining = db.prepare('SELECT COUNT(*) AS n FROM task_recipients WHERE task_id = ?').get(taskId).n;
-  if (remaining === 0) db.prepare('DELETE FROM tasks WHERE id = ?').run(taskId);
+  const remaining = db.prepare('SELECT COUNT(*) AS n FROM task_recipients WHERE task_id = ? AND deleted_at IS NULL').get(taskId).n;
+  if (remaining === 0) db.prepare(`UPDATE tasks SET deleted_at = datetime('now') WHERE id = ? AND deleted_at IS NULL`).run(taskId);
   return { taskId, userId, taskDeleted: remaining === 0 };
+}
+
+// Архив для выгрузки в Excel: абсолютно все задания и все их получатели,
+// когда-либо существовавшие — включая удалённые (заданием целиком или
+// только отдельным получателем). Одна строка = один получатель одного
+// задания, чтобы получилась плоская таблица, удобная для Excel.
+function listTaskArchiveRows() {
+  return db.prepare(`
+    SELECT
+      t.id            AS task_id,
+      t.text          AS task_text,
+      t.created_by_name AS created_by_name,
+      t.created_at    AS task_created_at,
+      t.deleted_at    AS task_deleted_at,
+      u.id            AS recipient_id,
+      u.display_name  AS recipient_display_name,
+      u.username      AS recipient_username,
+      tr.user_id      AS recipient_user_id,
+      tr.status       AS status,
+      tr.read_at      AS read_at,
+      tr.started_at   AS started_at,
+      tr.done_at      AS done_at,
+      tr.deleted_at   AS recipient_deleted_at
+    FROM tasks t
+    LEFT JOIN task_recipients tr ON tr.task_id = t.id
+    LEFT JOIN users u ON u.id = tr.user_id
+    ORDER BY t.created_at DESC, recipient_display_name ASC
+  `).all();
 }
 
 function listAssignableUsers() {
   return db.prepare(`SELECT id, username, display_name, role, disabled, avatar_path FROM users WHERE disabled = 0 AND role != 'service' ORDER BY display_name ASC, username ASC`).all();
 }
+
 
 function setUserDisabled(id, disabled) {
   const user = getUserById(id);
@@ -1889,6 +1936,7 @@ module.exports = {
   touchUserLogin, touchUserSeen,
   setUserPasswordHash, setUserDisabled, deleteUser, listAssignableUsers, setUserAvatar, updateUserIdentity,
   createTask, getTask, listAllTasks, listMyTasks, markMyNewTasksRead, countMyNewTasks, setMyTaskStatus, deleteTask, removeTaskRecipient,
+  listTaskArchiveRows,
   ensureGeneralChat, addUserToGeneralChat, isChatMember, listMyChats, totalUnreadChats, getOrCreateDm,
   createGroupChat, addGroupMembers, leaveGroupChat, deleteChat, listChatMembers, listChatMessages, sendChatMessage, markChatRead,
   createRegistrationRequest, listRegistrationRequests, countRegistrationRequests, approveRegistrationRequest, rejectRegistrationRequest,

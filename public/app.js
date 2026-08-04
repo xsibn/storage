@@ -4434,6 +4434,55 @@
   const newTaskBtn = document.getElementById('new-task-btn');
   if(newTaskBtn) newTaskBtn.addEventListener('click', openNewTaskModal);
 
+  // ---------- АРХИВ ЗАДАНИЙ В EXCEL (все задания и их получатели, включая удалённые) ----------
+  const tasksExportBtn = document.getElementById('tasks-export-btn');
+  if(tasksExportBtn) tasksExportBtn.addEventListener('click', async () => {
+    const prevLabel = tasksExportBtn.textContent;
+    tasksExportBtn.disabled = true;
+    tasksExportBtn.textContent = '⏳ Формирую…';
+    progressStart('Формирование архива на сервере…');
+    try{
+      const res = await fetch(API_BASE + '/api/tasks/export');
+      if(!res.ok) throw new Error('HTTP '+res.status);
+      const total = parseInt(res.headers.get('Content-Length')||'0', 10);
+      const reader = res.body ? res.body.getReader() : null;
+      let filename = 'архив_заданий.xlsx';
+      const disp = res.headers.get('Content-Disposition') || '';
+      const starMatch = disp.match(/filename\*=UTF-8''([^;]+)/i);
+      if(starMatch) filename = decodeURIComponent(starMatch[1]);
+
+      let blob;
+      if(reader && total){
+        const chunks = [];
+        let received = 0;
+        while(true){
+          const {done, value} = await reader.read();
+          if(done) break;
+          chunks.push(value);
+          received += value.length;
+          progressSet(received/total*100, `Скачивание… ${Math.round(received/total*100)}%`);
+        }
+        blob = new Blob(chunks, {type: res.headers.get('Content-Type')||'application/octet-stream'});
+      } else {
+        blob = await res.blob();
+      }
+
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = filename;
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(()=>URL.revokeObjectURL(url), 2000);
+      setSyncStatus('архив заданий скачан · ' + new Date().toLocaleTimeString('ru-RU'));
+    }catch(err){
+      setSyncStatus('ошибка выгрузки архива заданий', true);
+      alert('Не удалось скачать архив: ' + err.message);
+    }finally{
+      progressEnd();
+      tasksExportBtn.disabled = false;
+      tasksExportBtn.textContent = prevLabel;
+    }
+  });
+
   // ---------- АККАУНТЫ: заявки на регистрацию ----------
   let rolesForApprovalCache = null;
 

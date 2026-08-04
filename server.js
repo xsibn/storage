@@ -1106,6 +1106,39 @@ app.get('/api/tasks/assignable-users', auth.requirePerm('canManageTasks'), (req,
   });
 });
 
+// GET /api/tasks/export — выгрузка архива заданий в .xlsx: абсолютно все
+// задания и их получатели, включая удалённые (задание удалено целиком или
+// снято только с одного получателя) — see db.listTaskArchiveRows.
+const TASK_STATUS_LABELS = { new: 'Новое', read: 'Прочитано', in_progress: 'В работе', done: 'Готово' };
+app.get('/api/tasks/export', auth.requirePerm('canManageTasks'), (req, res) => {
+  const rows = db.listTaskArchiveRows();
+  const sheetRows = rows.map(r => ({
+    '№ задания': r.task_id,
+    'Текст задания': r.task_text,
+    'Поставил': r.created_by_name,
+    'Создано': r.task_created_at,
+    'Получатель': r.recipient_display_name || r.recipient_username || (r.recipient_user_id ? `#${r.recipient_user_id}` : ''),
+    'Статус': TASK_STATUS_LABELS[r.status] || r.status || '',
+    'Прочитано': r.read_at || '',
+    'В работе с': r.started_at || '',
+    'Готово': r.done_at || '',
+    'Задание удалено': r.task_deleted_at || '',
+    'Получатель снят': r.recipient_deleted_at || ''
+  }));
+  const ws = XLSX.utils.json_to_sheet(sheetRows);
+  ws['!cols'] = [
+    { wch: 9 }, { wch: 50 }, { wch: 20 }, { wch: 18 }, { wch: 22 },
+    { wch: 12 }, { wch: 18 }, { wch: 18 }, { wch: 18 }, { wch: 18 }, { wch: 18 }
+  ];
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Архив заданий');
+  const buf = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
+  const encodedName = encodeURIComponent('архив_заданий.xlsx');
+  res.setHeader('Content-Disposition', `attachment; filename="tasks-archive.xlsx"; filename*=UTF-8''${encodedName}`);
+  res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+  res.send(buf);
+});
+
 // POST /api/tasks — создать задание и разослать выбранным сотрудникам
 app.post('/api/tasks', auth.requirePerm('canManageTasks'), (req, res) => {
   const { text, userIds } = req.body || {};
