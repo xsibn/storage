@@ -167,6 +167,7 @@
             await subscribe();
           }
           await renderSettingsModal();
+          renderHintBanners();
         } catch (err) {
           if (errBox) { errBox.textContent = err.message || 'Не удалось изменить настройку'; errBox.style.display = 'block'; }
           masterBtn.disabled = false;
@@ -193,9 +194,138 @@
     if (btn) btn.addEventListener('click', closeSharedModal);
   }
 
+  // ---------- Баннеры-подсказки ("установить как приложение" / "включить уведомления") ----------
+  // Ненавязчивые баннеры под шапкой: показываем только то, что реально
+  // применимо прямо сейчас, и не показываем повторно после закрытия
+  // человеком (на 14 дней — не навсегда, чтобы не потерять того, кто
+  // случайно смахнул баннер, но и не мешать каждый день).
+  const DISMISS_DAYS = 2;
+  const LS_INSTALL_DISMISSED = 'hint_install_dismissed_until';
+  const LS_NOTIF_DISMISSED = 'hint_notif_dismissed_until';
+
+  function isDismissed(key) {
+    const until = Number(localStorage.getItem(key) || 0);
+    return Date.now() < until;
+  }
+  function dismiss(key) {
+    localStorage.setItem(key, String(Date.now() + DISMISS_DAYS * 24 * 60 * 60 * 1000));
+  }
+
+  function iosInstallInstructionsHtml() {
+    return `
+      <p>Нажмите <b>«Поделиться»</b> (значок ⬆️ снизу в Safari) → <b>«На экран «Домой»»</b> → «Добавить». Дальше открывайте склад как обычное приложение — с уведомлениями и без адресной строки.</p>
+    `;
+  }
+
+  function canOfferInstall() {
+    if (isStandalone()) return false; // уже установлено
+    if (isIOS()) return true; // на iOS кнопки браузера нет, но сайт всё равно можно поставить руками
+    return !!window.__deferredInstallPrompt; // Android/десктоп — только если браузер предложил
+  }
+
+  function canOfferNotifications() {
+    if (!pushSupported()) return false;
+    if (Notification.permission !== 'default') return false; // уже решили (разрешили/запретили)
+    if (isIOS() && !isStandalone()) return false; // на iOS сначала обязательна установка
+    return true;
+  }
+
+  function bannerHtml({ id, icon, title, sub, actionLabel, actionId }) {
+    return `
+      <div class="hint-banner" id="${id}">
+        <span class="hb-icon">${icon}</span>
+        <span class="hb-text">
+          <span class="hb-title">${escHtml(title)}</span>
+          <span class="hb-sub">${escHtml(sub)}</span>
+        </span>
+        <span class="hb-actions">
+          <button type="button" class="btn primary" id="${actionId}">${escHtml(actionLabel)}</button>
+          <button type="button" class="hb-dismiss" data-dismiss="${id}" aria-label="Закрыть">✕</button>
+        </span>
+      </div>`;
+  }
+
+  function renderHintBanners() {
+    const host = document.getElementById('hint-banners');
+    if (!host) return;
+
+    // Не больше одного баннера за раз, чтобы не заваливать интерфейс —
+    // установка приложения важнее (без неё на iOS уведомления вообще
+    // недоступны), поэтому её подсказка приоритетнее.
+    const showInstall = canOfferInstall() && !isDismissed(LS_INSTALL_DISMISSED);
+    const showNotif = !showInstall && canOfferNotifications() && !isDismissed(LS_NOTIF_DISMISSED);
+
+    if (showInstall) {
+      host.innerHTML = bannerHtml({
+        id: 'hint-install',
+        icon: '📲',
+        title: 'Установите как приложение',
+        sub: isIOS() ? 'Быстрый доступ с экрана «Домой» и уведомления' : 'Быстрый запуск с рабочего стола/экрана «Домой»',
+        actionLabel: isIOS() ? 'Как установить' : 'Установить',
+        actionId: 'hint-install-action'
+      });
+      document.getElementById('hint-install-action').addEventListener('click', async () => {
+        if (isIOS()) {
+          openSharedModal('📲 Установка на iPhone', iosInstallInstructionsHtml(), '<button class="btn" id="np-close">Понятно</button>');
+          wireClose();
+          return;
+        }
+        const prompt = window.__deferredInstallPrompt;
+        if (!prompt) return;
+        prompt.prompt();
+        try { await prompt.userChoice; } catch (e) { /* ignore */ }
+        window.__deferredInstallPrompt = null;
+        renderHintBanners();
+      });
+      wireDismiss(host, LS_INSTALL_DISMISSED);
+      return;
+    }
+
+    if (showNotif) {
+      host.innerHTML = bannerHtml({
+        id: 'hint-notif',
+        icon: '🔔',
+        title: 'Включите уведомления',
+        sub: 'Узнавайте о новых заданиях и сообщениях сразу',
+        actionLabel: 'Включить',
+        actionId: 'hint-notif-action'
+      });
+      document.getElementById('hint-notif-action').addEventListener('click', async () => {
+        const actionBtn = document.getElementById('hint-notif-action');
+        if (actionBtn) actionBtn.disabled = true;
+        try {
+          const perm = await Notification.requestPermission();
+          if (perm === 'granted') await subscribe();
+        } catch (e) { /* тихо: если не вышло, баннер просто останется/скроется по permission */ }
+        renderHintBanners();
+      });
+      wireDismiss(host, LS_NOTIF_DISMISSED);
+      return;
+    }
+
+    host.innerHTML = '';
+  }
+
+  function wireDismiss(host, key) {
+    host.querySelectorAll('[data-dismiss]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        dismiss(key);
+        renderHintBanners();
+      });
+    });
+  }
+
+  window.addEventListener('install-prompt-ready', renderHintBanners);
+  window.addEventListener('appinstalled', () => { window.__deferredInstallPrompt = null; renderHintBanners(); });
+
   function init() {
     const btn = document.getElementById('pp-notifications');
     if (btn) btn.addEventListener('click', renderSettingsModal);
+
+    (async () => {
+      if (window.__whenAuthed) { try { await window.__whenAuthed; } catch (e) { return; } }
+      renderHintBanners();
+    })();
   }
 
   if (document.readyState === 'loading') {

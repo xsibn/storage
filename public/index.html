@@ -10,6 +10,19 @@
 <link rel="manifest" href="/manifest.json">
 <meta name="theme-color" content="#2C5CE0">
 
+<script>
+  // Ловим событие установки как можно раньше (до того, как отрисуется
+  // остальной интерфейс) — если поймать его позже, событие может успеть
+  // "проехать" мимо и кнопка установки останется недоступной до
+  // перезагрузки страницы.
+  window.__deferredInstallPrompt = null;
+  window.addEventListener('beforeinstallprompt', (e) => {
+    e.preventDefault();
+    window.__deferredInstallPrompt = e;
+    window.dispatchEvent(new CustomEvent('install-prompt-ready'));
+  });
+</script>
+
 <!-- PWA: установка на iOS (Safari игнорирует manifest.json, нужны свои теги) -->
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
@@ -115,6 +128,29 @@
   }
   .actions-bar-buttons{display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-left:auto;}
   .status-group{display:flex; align-items:center; gap:12px; flex-wrap:wrap;}
+
+  /* Баннеры-подсказки (установить как приложение / включить уведомления) */
+  .hint-banner{
+    max-width:1400px; width:100%; margin:0 auto; box-sizing:border-box;
+    background:var(--accent-soft); border:1px solid var(--accent); border-radius:12px;
+    padding:11px 16px; display:flex; align-items:center; gap:12px; flex-wrap:wrap;
+  }
+  .hint-banner .hb-icon{font-size:20px; line-height:1; flex:0 0 auto;}
+  .hint-banner .hb-text{flex:1 1 260px; min-width:0;}
+  .hint-banner .hb-title{font-size:13px; font-weight:700; color:var(--ink);}
+  .hint-banner .hb-sub{font-size:12px; color:var(--ink-soft); margin-top:1px;}
+  .hint-banner .hb-actions{display:flex; align-items:center; gap:8px; flex:0 0 auto; margin-left:auto;}
+  .hint-banner .hb-actions .btn{white-space:nowrap;}
+  .hint-banner .hb-dismiss{
+    background:none; border:none; color:var(--ink-soft); font-size:16px; cursor:pointer;
+    padding:2px 4px; line-height:1;
+  }
+  .hint-banner .hb-dismiss:hover{color:var(--ink);}
+  @media (max-width:640px){
+    .hint-banner{padding:10px 12px;}
+    .hint-banner .hb-actions{width:100%; margin-left:0;}
+    .hint-banner .hb-actions .btn{flex:1 1 auto;}
+  }
 
   .btn{
     font-family:var(--sans); font-size:12.5px; font-weight:600; padding:8px 14px;
@@ -1186,6 +1222,8 @@
 <div id="progress-wrap"><div id="progress-bar"></div></div>
 <div id="progress-label"></div>
 <div id="app">
+
+  <div id="hint-banners"></div>
 
   <header>
     <h1>Адресное хранение <span class="tag" id="src-tag">подключение…</span></h1>
