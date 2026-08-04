@@ -112,7 +112,16 @@ function clearSessionCookie(res) {
 //   canManageTasks       — ставить задания сотрудникам (создавать/удалять,
 //                          видеть прогресс по всей команде)
 //   canImportData        — загружать новый .xlsx, полностью заменяя сток
-const EMPTY_PERMS = { canManageUsers: false, canManageActivity: false, canReadActivity: false, canManageTasks: false, canImportData: false };
+//   canBecomeTtAdmin     — автоматически стать администратором в «Учёте
+//                          времени» при первом входе туда, если там ещё
+//                          нет ни одного администратора (см. timetracker/server.js)
+//   canAccessWarehouse   — доступ к основному функционалу склада (схема,
+//                          таблица, зоны, пикинг, импорт/экспорт); без него
+//                          доступен только «Учёт времени» (см. server.js —
+//                          middleware перед складскими /api/* маршрутами —
+//                          и public/auth.js, который в этом случае сразу
+//                          отправляет на /time/)
+const EMPTY_PERMS = { canManageUsers: false, canManageActivity: false, canReadActivity: false, canManageTasks: false, canImportData: false, canBecomeTtAdmin: false, canAccessWarehouse: false };
 
 function permsFor(roleKey) {
   const role = db.getRole(roleKey);
