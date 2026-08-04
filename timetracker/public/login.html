@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Вход — учёт рабочего времени</title>
+<link rel="manifest" href="/time/manifest.json" />
+<meta name="theme-color" content="#0c0f16" />
+<link rel="icon" href="/time/icons/icon-192.png" type="image/png" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" />
+<link rel="stylesheet" href="/time/css/theme.css" />
+<style>
+  body{margin:0; min-height:100vh; display:flex; align-items:center; justify-content:center; padding:24px; text-align:center;}
+  .box{max-width:360px;}
+  .box a{display:inline-block; margin-top:16px; padding:10px 18px; border-radius:8px; background:#2563eb; color:#fff; text-decoration:none; font-weight:600;}
+  p{color:#9aa4b2;}
+</style>
+</head>
+<body>
+  <div class="box">
+    <h2>Единый вход</h2>
+    <p>Логин и пароль теперь общие для «Склада» и «Учёта времени» — войти нужно один раз, в «Складе».<br>Сейчас перенаправим туда…</p>
+    <p id="fallback" style="display:none;"><a id="portalLink" href="/">Перейти ко входу</a></p>
+  </div>
+<script>
+// Если уже авторизованы (сессия «Склада» видна и здесь) — сразу на главную.
+fetch('/time/api/auth/me').then(r => r.ok ? r.json() : null).then(user => {
+  if (user) { location.href = '/'; return; }
+  fetch('/time/api/config').then(r => r.json()).then(cfg => {
+    const url = cfg.portalUrl || (location.protocol + '//' + location.hostname + ':' + cfg.storagePort + '/');
+    document.getElementById('portalLink').href = url;
+    document.getElementById('fallback').style.display = '';
+    location.href = url;
+  });
+});
+</script>
+<script>
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('/time/sw.js').catch(() => {});
+  });
+}
+</script>
+</body>
+</html>

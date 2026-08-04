@@ -1219,6 +1219,11 @@
   </div>
 </div>
 
+<!-- В едином процессе (см. merged/gateway) «Учёт времени» живёт на этом же
+     домене по пути /time/ — отдельный порт не нужен (auth.js использует его
+     по умолчанию). Если у вас всё ещё старая схема "два порта", раскомментируйте:
+<script>window.__TIMETRACKER_PORT = 3001;</script> -->
+
 <div id="progress-wrap"><div id="progress-bar"></div></div>
 <div id="progress-label"></div>
 <div id="app">
@@ -1228,6 +1233,7 @@
   <header>
     <h1>Адресное хранение <span class="tag" id="src-tag">подключение…</span></h1>
     <div class="stats" id="stats"></div>
+    <a class="btn" id="timetracker-link" href="#" style="display:none; text-decoration:none;" title="Открыть учёт рабочего времени">⏱ Учёт времени</a>
     <div class="profile-widget" id="profile-widget">
       <button class="profile-pill" id="profile-pill" type="button">
         <span class="profile-avatar" id="profile-avatar"><span class="status-dot"></span></span>
@@ -1581,6 +1587,9 @@
     <button type="button" class="bn-btn" id="bn-profile-btn">
       <span class="bn-icon">👤</span><span class="bn-label">Профиль</span>
     </button>
+    <a href="#" id="bn-timetracker-link" class="bn-btn" style="display:none;">
+      <span class="bn-icon">⏱</span><span class="bn-label">Время</span>
+    </a>
   </nav>
 
   <div id="drawer-backdrop"></div>

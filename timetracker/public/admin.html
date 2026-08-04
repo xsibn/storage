@@ -1,0 +1,663 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Сотрудники — учёт времени</title>
+<link rel="manifest" href="/time/manifest.json" />
+<meta name="theme-color" content="#0c0f16" />
+<link rel="icon" href="/time/icons/icon-192.png" type="image/png" />
+<link rel="apple-touch-icon" href="/time/icons/apple-touch-icon.png" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<meta name="apple-mobile-web-app-title" content="Учёт времени" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" />
+<link rel="stylesheet" href="/time/css/theme.css" />
+<style>
+  body {
+    margin: 0;
+    padding: 0 0 60px;
+  }
+  .wrap { max-width: 960px; margin: 0 auto; padding: 0 16px; }
+  h1 { font-size: 22px; margin-bottom: 4px; }
+  .sub { color: var(--muted); margin-bottom: 24px; font-size: 14px; max-width: 62ch; }
+  .export-dash { color: var(--muted); }
+  .export-row input[type="date"] {
+    background: var(--bg); border: 1px solid var(--border); border-radius: 8px;
+    color: var(--text); padding: 7px 10px; font-size: 13px; font-family: inherit;
+  }
+  .export-row button {
+    padding: 8px 16px; border-radius: 8px; border: none; background: var(--accent);
+    color: var(--accent-ink); font-weight: 600; cursor: pointer; font-size: 13px;
+  }
+  .head-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+  .employee-search {
+    width: 100%;
+    box-sizing: border-box;
+    margin: 14px 0;
+    padding: 10px 14px;
+    border-radius: 10px;
+    border: 1px solid var(--border, #2a3040);
+    background: var(--panel, #12151f);
+    color: inherit;
+    font-size: 14px;
+  }
+  .employee-search:focus { outline: none; border-color: #5b8cff; }
+  .btn-add {
+    padding: 9px 16px; border-radius: 10px; border: none; background: var(--accent);
+    color: var(--accent-ink); font-weight: 600; cursor: pointer; font-size: 13px;
+  }
+  table { width: 100%; border-collapse: collapse; }
+  th, td { padding: 12px 14px; text-align: left; border-bottom: 1px solid var(--border); font-size: 14px; }
+  th { color: var(--muted); font-weight: 600; font-size: 13px; text-transform: uppercase; letter-spacing: 0.4px; }
+  tr:last-child td { border-bottom: none; }
+  .btn-small {
+    padding: 6px 12px; border-radius: 8px; border: 1px solid var(--border);
+    background: transparent; color: var(--text); font-size: 13px; cursor: pointer;
+  }
+  .btn-small:hover { border-color: var(--accent); }
+  .btn-small.btn-danger { color: #ff5470; border-color: rgba(255,84,112,0.4); }
+  .btn-small.btn-danger:hover { border-color: #ff5470; background: rgba(255,84,112,0.08); }
+  .badge { padding: 3px 9px; border-radius: 20px; font-size: 12px; font-weight: 600; }
+  .badge.active { background: rgba(52,199,123,0.15); color: #34c77b; }
+  .badge.inactive { background: rgba(255,84,112,0.15); color: #ff5470; }
+  .mono { color: var(--muted); font-variant-numeric: tabular-nums; }
+  .pos-list { display: flex; flex-direction: column; gap: 2px; }
+  .pos-list .pos-main { color: var(--text); }
+  .pos-list .pos-extra { color: var(--muted); font-size: 12.5px; }
+
+  .overlay {
+    display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.55);
+    align-items: center; justify-content: center; padding: 20px; z-index: 10; overflow-y: auto;
+  }
+  .overlay.open { display: flex; }
+  .modal {
+    background: var(--panel); border: 1px solid var(--border); border-radius: 16px;
+    padding: 22px; width: 100%; max-width: 440px; margin: auto;
+  }
+  .modal h2 { font-size: 16px; margin: 0 0 16px; }
+  .modal label { display: block; font-size: 12px; color: var(--muted); margin: 10px 0 4px; }
+  .modal input {
+    width: 100%; background: var(--bg); border: 1px solid var(--border); border-radius: 10px;
+    color: var(--text); padding: 9px 12px; font-size: 14px; font-family: inherit;
+    color-scheme: dark;
+  }
+  .modal .row { display: flex; gap: 10px; }
+  .modal .row > div { flex: 1; }
+  .modal .msg { font-size: 13px; margin-top: 10px; min-height: 16px; }
+  .modal .msg.error { color: #ff5470; }
+  .modal .msg.ok { color: #34c77b; }
+  .modal-actions { display: flex; gap: 10px; margin-top: 16px; }
+  .modal-actions button {
+    flex: 1; padding: 10px; border-radius: 10px; border: 1px solid var(--border);
+    background: transparent; color: var(--text); cursor: pointer; font-family: inherit; font-size: 14px;
+  }
+  .modal-actions button.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); font-weight: 600; }
+
+  .positions-block { border: 1px solid var(--border); border-radius: 12px; padding: 12px; margin-top: 12px; }
+  .position-card {
+    border: 1px solid var(--border); border-radius: 10px; padding: 10px; margin-bottom: 10px;
+    background: var(--bg);
+  }
+  .position-card:last-child { margin-bottom: 0; }
+  .position-card .position-head {
+    display: flex; align-items: center; justify-content: space-between; margin-bottom: 2px;
+  }
+  .position-head .tag {
+    font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.4px;
+  }
+  .position-head .remove-pos {
+    background: none; border: none; color: #ff5470; cursor: pointer; font-size: 13px; padding: 2px 6px;
+  }
+  .add-position-btn {
+    width: 100%; margin-top: 4px; padding: 9px; border-radius: 10px; border: 1px dashed var(--border);
+    background: transparent; color: var(--accent); cursor: pointer; font-size: 13px; font-family: inherit;
+  }
+  .hint { font-size: 11.5px; color: var(--muted); margin-top: 4px; }
+
+  .codes-modal { max-width: 640px; }
+  .codes-controls { display: flex; gap: 10px; align-items: flex-end; flex-wrap: wrap; margin-bottom: 14px; }
+  .codes-controls label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 4px; }
+  .codes-controls input, .codes-controls select {
+    background: var(--bg); border: 1px solid var(--border); border-radius: 8px;
+    color: var(--text); padding: 8px 10px; font-size: 13px; font-family: inherit; color-scheme: dark;
+  }
+  .days-grid {
+    display: grid; grid-template-columns: repeat(7, 1fr); gap: 6px; margin-bottom: 14px;
+  }
+  .day-cell {
+    border: 1px solid var(--border); border-radius: 8px; padding: 6px 4px; text-align: center;
+    cursor: pointer; background: var(--bg); font-size: 12px; user-select: none;
+  }
+  .day-cell.weekend { border-color: #3a3040; }
+  .day-cell.selected { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent) inset; }
+  .day-cell .day-num { color: var(--muted); font-size: 11px; }
+  .day-cell .day-code { font-weight: 700; font-size: 13px; min-height: 15px; }
+  .day-cell .day-code.auto-y { color: #34c77b; }
+  .day-cell .day-code.auto-v { color: var(--muted); }
+  .day-cell .day-code.manual { color: #ffb84f; }
+  .code-palette { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 14px; }
+  .code-palette button {
+    padding: 6px 10px; border-radius: 8px; border: 1px solid var(--border); background: transparent;
+    color: var(--text); font-size: 12px; cursor: pointer; font-family: inherit;
+  }
+  .code-palette button:hover { border-color: var(--accent); }
+  .code-palette button.clear { color: #ff5470; }
+  .range-row { display: flex; gap: 8px; align-items: flex-end; flex-wrap: wrap; border-top: 1px solid var(--border); padding-top: 12px; }
+  .range-row label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 4px; }
+  .range-row input, .range-row select {
+    background: var(--bg); border: 1px solid var(--border); border-radius: 8px;
+    color: var(--text); padding: 7px 9px; font-size: 13px; font-family: inherit; color-scheme: dark;
+  }
+  .range-row button {
+    padding: 8px 14px; border-radius: 8px; border: none; background: var(--accent);
+    color: var(--accent-ink); font-weight: 600; cursor: pointer; font-size: 13px;
+  }
+</style>
+</head>
+<body>
+<header class="app-header">
+  <a class="brand" href="/time/index.html">
+    <img class="mark" src="/time/icons/icon-192.png" alt="" />
+    <div><div class="name">Учёт времени</div><div class="who">админ-панель</div></div>
+  </a>
+  <nav class="app-nav">
+    <a href="/time/admin.html" class="current">👤 Сотрудники</a>
+    <a href="/time/schedule.html">📅 Графики</a>
+    <a href="/time/timesheet.html">🗓 Табель-коды</a>
+    <a href="/time/logs.html">📋 Журнал</a>
+    <a href="/time/export.html">📊 Экспорт</a>
+    <button class="logout-btn" onclick="logout()">Выйти</button>
+  </nav>
+</header>
+<div class="wrap">
+  <div class="head-row">
+    <div>
+      <h1>Сотрудники</h1>
+      <div class="sub">
+        Аккаунты сотрудников создаёт администратор. Здесь можно добавить сотрудника, задать
+        ему одну или несколько должностей (например, при совмещении), изменить их и
+        включить/отключить пропуск.
+      </div>
+    </div>
+    <button class="btn-add" onclick="openAddModal()">+ Добавить сотрудника</button>
+  </div>
+
+  <input type="text" id="employeeSearch" class="employee-search" placeholder="🔎 Поиск сотрудника по ФИО, логину или должности…" oninput="renderEmployeeRows()" />
+
+  <div class="table-card">
+    <table>
+      <thead>
+        <tr><th>ФИО</th><th>Логин</th><th>Должности</th><th>Статус</th><th>Действия</th></tr>
+      </thead>
+      <tbody id="rows"></tbody>
+    </table>
+  </div>
+</div>
+
+<!-- Модалка: добавление сотрудника -->
+<div class="overlay" id="addOverlay">
+  <div class="modal">
+    <h2>Новый сотрудник</h2>
+    <label>ФИО</label>
+    <input type="text" id="addFullName" placeholder="Иванов Иван Иванович" />
+    <div class="row">
+      <div>
+        <label>Логин общей учётной записи</label>
+        <input type="text" id="addLogin" autocomplete="off" placeholder="как в «Складе»" />
+      </div>
+    </div>
+    <div class="hint">Аккаунт (логин и пароль) заводится один раз в «Складе», в разделе «Аккаунты» — здесь только привязка уже существующего логина к профилю учёта времени.</div>
+
+    <div class="positions-block" id="addPositionsBlock"></div>
+    <button class="add-position-btn" onclick="addPositionCard('add')">+ Добавить должность</button>
+    <div class="hint">Первая должность — основная: по ней считаются реально отработанные часы. Остальные — совмещение, часы для них задаются вручную.</div>
+
+    <div class="msg" id="addMsg"></div>
+    <div class="modal-actions">
+      <button onclick="closeAddModal()">Отмена</button>
+      <button class="primary" onclick="submitAdd()">Создать</button>
+    </div>
+  </div>
+</div>
+
+<!-- Модалка: редактирование должностей -->
+<div class="overlay" id="posOverlay">
+  <div class="modal">
+    <h2 id="posModalTitle">Должности сотрудника</h2>
+    <div class="positions-block" id="editPositionsBlock"></div>
+    <button class="add-position-btn" onclick="addPositionCard('edit')">+ Добавить должность</button>
+    <div class="hint">Первая должность — основная: по ней считаются реально отработанные часы. Остальные — совмещение, часы для них задаются вручную.</div>
+    <div class="msg" id="posMsg"></div>
+    <div class="modal-actions">
+      <button onclick="closePosModal()">Отмена</button>
+      <button class="primary" onclick="submitPositions()">Сохранить</button>
+    </div>
+  </div>
+</div>
+
+<!-- Модалка: коды табеля (отпуск, больничный и т.п.) -->
+<div class="overlay" id="codesOverlay">
+  <div class="modal codes-modal">
+    <h2 id="codesModalTitle">Коды табеля</h2>
+    <div class="codes-controls">
+      <div>
+        <label>Месяц</label>
+        <input type="month" id="codesMonth" onchange="loadCodesForMonth()" />
+      </div>
+    </div>
+
+    <div class="hint" style="margin-bottom:8px;">
+      Кликните на день, затем выберите код ниже. «Я» и обычные «В» считаются автоматически
+      по отметкам прихода/ухода — ставьте код только для отпуска, больничного и т.п.
+    </div>
+    <div class="days-grid" id="daysGrid"></div>
+
+    <div class="code-palette" id="codePalette"></div>
+
+    <div class="range-row">
+      <div>
+        <label>Период с</label>
+        <input type="date" id="rangeFrom" />
+      </div>
+      <div>
+        <label>по</label>
+        <input type="date" id="rangeTo" />
+      </div>
+      <div>
+        <label>Код (например, отпуск)</label>
+        <select id="rangeCode"></select>
+      </div>
+      <button onclick="applyRangeCode()">Применить к периоду</button>
+    </div>
+
+    <div class="msg" id="codesMsg"></div>
+    <div class="modal-actions">
+      <button onclick="closeCodesModal()">Закрыть</button>
+    </div>
+  </div>
+</div>
+
+<script>
+let currentEmployees = [];
+
+async function checkAuth() {
+  const resp = await fetch('/time/api/auth/me');
+  if (!resp.ok) { location.href = '/time/login.html'; return false; }
+  const user = await resp.json();
+  if (user.role !== 'admin') { location.href = '/time/login.html'; return false; }
+  return true;
+}
+
+async function logout() {
+  await fetch('/time/api/auth/logout', { method: 'POST' });
+  location.href = '/time/login.html';
+}
+
+function escapeHtml(str) {
+  const div = document.createElement('div');
+  div.textContent = str == null ? '' : String(str);
+  return div.innerHTML;
+}
+
+function formatPositions(positions) {
+  if (!positions || !positions.length) return '<span style="color:var(--muted)">—</span>';
+  return '<div class="pos-list">' + positions.map((p, i) => {
+    const sched = (p.work_start || p.work_end) ? ` <span class="mono">${escapeHtml(p.work_start || '—')}–${escapeHtml(p.work_end || '—')}</span>` : '';
+    const hours = p.daily_hours ? ` · ${escapeHtml(p.daily_hours)} ч/день` : '';
+    return `<div class="${i === 0 ? 'pos-main' : 'pos-extra'}">${i === 0 ? '' : '＋ '}${escapeHtml(p.name)}${sched}${hours}</div>`;
+  }).join('') + '</div>';
+}
+
+async function loadEmployees() {
+  const resp = await fetch('/time/api/employees');
+  if (resp.status === 401 || resp.status === 403) { location.href = '/time/login.html'; return; }
+  const employees = await resp.json();
+  currentEmployees = employees;
+  renderEmployeeRows();
+}
+
+function renderEmployeeRows() {
+  const query = (document.getElementById('employeeSearch')?.value || '').trim().toLowerCase();
+  const filtered = !query ? currentEmployees : currentEmployees.filter(e => {
+    const haystack = [
+      e.full_name,
+      e.login,
+      ...(e.positions || []).map(p => p.name),
+    ].join(' ').toLowerCase();
+    return haystack.includes(query);
+  });
+
+  const rows = document.getElementById('rows');
+  rows.innerHTML = filtered.map(e => `
+    <tr>
+      <td>${escapeHtml(e.full_name)}</td>
+      <td class="mono">${escapeHtml(e.login)}</td>
+      <td>${formatPositions(e.positions)}</td>
+      <td><span class="badge ${e.active ? 'active' : 'inactive'}">${e.active ? 'Активен' : 'Отключён'}</span></td>
+      <td>
+        <button class="btn-small" onclick="openPosModal(${e.id})">✏️ Должности</button>
+        <button class="btn-small" onclick="openCodesModal(${e.id})">📅 Коды табеля</button>
+        <button class="btn-small" onclick="toggleActive(${e.id}, ${e.active ? 0 : 1})">${e.active ? 'Отключить' : 'Включить'}</button>
+        <button class="btn-small btn-danger" onclick="deleteEmployee(${e.id}, '${escapeHtml(e.full_name).replace(/'/g, "\\'")}')">🗑 Удалить</button>
+      </td>
+    </tr>
+  `).join('') || (query
+    ? '<tr><td colspan="5" style="color:#8a94ab;">Ничего не найдено</td></tr>'
+    : '<tr><td colspan="5" style="color:#8a94ab;">Пока нет сотрудников — добавьте первого кнопкой выше</td></tr>');
+}
+
+async function toggleActive(id, active) {
+  await fetch(`/time/api/employees/${id}/active`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ active: !!active }),
+  });
+  loadEmployees();
+}
+
+async function deleteEmployee(id, fullName) {
+  if (!confirm(`Удалить сотрудника «${fullName}» без возможности восстановления? Прошлые отметки и коды табеля останутся в журнале и экспорте, но сам аккаунт и доступ к пропуску будут удалены.`)) return;
+
+  const resp = await fetch(`/time/api/employees/${id}`, { method: 'DELETE' });
+  const data = await resp.json().catch(() => ({}));
+  if (!resp.ok) {
+    alert(data.error || 'Не удалось удалить сотрудника');
+    return;
+  }
+  loadEmployees();
+}
+
+// --- Карточки должностей (переиспользуются в модалках добавления и редактирования) ---
+
+function positionCardHtml(scope, idx, pos) {
+  pos = pos || { name: '', work_start: '', work_end: '', daily_hours: '' };
+  const isMain = idx === 0;
+  return `
+    <div class="position-card" data-idx="${idx}">
+      <div class="position-head">
+        <span class="tag">${isMain ? 'Основная должность' : 'Доп. должность (совмещение)'}</span>
+        <button class="remove-pos" onclick="removePositionCard('${scope}', ${idx})" title="Удалить должность">✕</button>
+      </div>
+      <label>Название должности</label>
+      <input type="text" class="pos-name" placeholder="Например, Кладовщик" value="${escapeHtml(pos.name)}" />
+      <div class="row">
+        <div>
+          <label>Начало смены</label>
+          <input type="time" class="pos-start" value="${escapeHtml(pos.work_start || '')}" />
+        </div>
+        <div>
+          <label>Конец смены</label>
+          <input type="time" class="pos-end" value="${escapeHtml(pos.work_end || '')}" />
+        </div>
+      </div>
+      <label>Часы в смену${isMain ? ' (переопределяет фактическое время прихода/ухода — например, 8 при графике с обедом)' : ' (для табеля)'}</label>
+      <input type="number" class="pos-hours" min="0" step="0.5" placeholder="${isMain ? 'Оставьте пустым — считать по факту' : 'Например, 4'}" value="${escapeHtml(pos.daily_hours != null ? pos.daily_hours : '')}" />
+      ${isMain ? '<div class="hint">Если не заполнить — часы считаются по факту приход/уход.</div>' : ''}
+    </div>
+  `;
+}
+
+function blockEl(scope) {
+  return document.getElementById(scope === 'add' ? 'addPositionsBlock' : 'editPositionsBlock');
+}
+
+function renderPositionCards(scope, positions) {
+  const block = blockEl(scope);
+  block.innerHTML = positions.map((p, i) => positionCardHtml(scope, i, p)).join('') ||
+    '<div class="hint">Должностей пока нет — добавьте хотя бы одну.</div>';
+}
+
+function readPositionCards(scope) {
+  const block = blockEl(scope);
+  const cards = Array.from(block.querySelectorAll('.position-card'));
+  return cards.map(card => ({
+    name: card.querySelector('.pos-name').value.trim(),
+    work_start: card.querySelector('.pos-start').value || null,
+    work_end: card.querySelector('.pos-end').value || null,
+    daily_hours: card.querySelector('.pos-hours') ? (card.querySelector('.pos-hours').value || null) : null,
+  })).filter(p => p.name);
+}
+
+function addPositionCard(scope) {
+  const positions = readPositionCards(scope);
+  positions.push({ name: '', work_start: '', work_end: '', daily_hours: '' });
+  renderPositionCards(scope, positions);
+}
+
+function removePositionCard(scope, idx) {
+  const positions = readPositionCards(scope);
+  positions.splice(idx, 1);
+  renderPositionCards(scope, positions);
+}
+
+// --- Добавление сотрудника ---
+
+function openAddModal() {
+  document.getElementById('addFullName').value = '';
+  document.getElementById('addLogin').value = '';
+  renderPositionCards('add', [{ name: '', work_start: '', work_end: '', daily_hours: '' }]);
+  document.getElementById('addMsg').textContent = '';
+  document.getElementById('addMsg').className = 'msg';
+  document.getElementById('addOverlay').classList.add('open');
+}
+
+function closeAddModal() {
+  document.getElementById('addOverlay').classList.remove('open');
+}
+
+async function submitAdd() {
+  const msg = document.getElementById('addMsg');
+  const full_name = document.getElementById('addFullName').value.trim();
+  const login = document.getElementById('addLogin').value.trim();
+  const positions = readPositionCards('add');
+
+  const resp = await fetch('/time/api/employees', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ full_name, login, positions }),
+  });
+  const data = await resp.json().catch(() => ({}));
+
+  if (!resp.ok) {
+    msg.textContent = data.error || 'Не удалось создать сотрудника';
+    msg.className = 'msg error';
+    return;
+  }
+
+  msg.textContent = 'Сотрудник создан';
+  msg.className = 'msg ok';
+  setTimeout(() => { closeAddModal(); loadEmployees(); }, 500);
+}
+
+// --- Редактирование должностей ---
+
+let editingEmployeeId = null;
+
+function openPosModal(id) {
+  const emp = currentEmployees.find(e => e.id === id);
+  if (!emp) return;
+  editingEmployeeId = id;
+  document.getElementById('posModalTitle').textContent = `Должности — ${emp.full_name}`;
+  renderPositionCards('edit', (emp.positions && emp.positions.length) ? emp.positions : [{ name: '', work_start: '', work_end: '', daily_hours: '' }]);
+  document.getElementById('posMsg').textContent = '';
+  document.getElementById('posMsg').className = 'msg';
+  document.getElementById('posOverlay').classList.add('open');
+}
+
+function closePosModal() {
+  document.getElementById('posOverlay').classList.remove('open');
+  editingEmployeeId = null;
+}
+
+async function submitPositions() {
+  if (!editingEmployeeId) return;
+  const msg = document.getElementById('posMsg');
+  const positions = readPositionCards('edit');
+
+  const resp = await fetch(`/time/api/employees/${editingEmployeeId}/positions`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ positions }),
+  });
+  const data = await resp.json().catch(() => ({}));
+
+  if (!resp.ok) {
+    msg.textContent = data.error || 'Не удалось сохранить';
+    msg.className = 'msg error';
+    return;
+  }
+
+  msg.textContent = 'Сохранено';
+  msg.className = 'msg ok';
+  setTimeout(() => { closePosModal(); loadEmployees(); }, 500);
+}
+
+// --- Коды табеля ---
+
+let timesheetCodes = [];
+let codesEmployeeId = null;
+let codesData = new Map(); // 'YYYY-MM-DD' -> code
+let selectedDay = null;
+
+function currentMonthValue() {
+  const now = new Date();
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+}
+
+async function ensureTimesheetCodes() {
+  if (timesheetCodes.length) return;
+  const resp = await fetch('/time/api/timesheet-codes');
+  timesheetCodes = resp.ok ? await resp.json() : [];
+}
+
+function renderCodePalette() {
+  const palette = document.getElementById('codePalette');
+  palette.innerHTML = timesheetCodes.map(c =>
+    `<button title="${escapeHtml(c.label)}" onclick="applyDayCode('${c.code}')">${escapeHtml(c.code)}</button>`
+  ).join('') + '<button class="clear" onclick="applyDayCode(\'\')">✕ Очистить</button>';
+
+  const rangeSelect = document.getElementById('rangeCode');
+  rangeSelect.innerHTML = timesheetCodes
+    .filter(c => c.code !== 'В')
+    .map(c => `<option value="${c.code}">${escapeHtml(c.code)} — ${escapeHtml(c.label)}</option>`).join('');
+}
+
+async function openCodesModal(id) {
+  const emp = currentEmployees.find(e => e.id === id);
+  if (!emp) return;
+  codesEmployeeId = id;
+  selectedDay = null;
+  document.getElementById('codesModalTitle').textContent = `Коды табеля — ${emp.full_name}`;
+  document.getElementById('codesMonth').value = currentMonthValue();
+  document.getElementById('codesMsg').textContent = '';
+  await ensureTimesheetCodes();
+  renderCodePalette();
+  document.getElementById('codesOverlay').classList.add('open');
+  await loadCodesForMonth();
+}
+
+function closeCodesModal() {
+  document.getElementById('codesOverlay').classList.remove('open');
+  codesEmployeeId = null;
+}
+
+async function loadCodesForMonth() {
+  if (!codesEmployeeId) return;
+  const month = document.getElementById('codesMonth').value;
+  if (!month) return;
+  const resp = await fetch(`/time/api/day-codes?month=${month}&employee_id=${codesEmployeeId}`);
+  const list = resp.ok ? await resp.json() : [];
+  codesData = new Map(list.map(r => [r.date, r.code]));
+  selectedDay = null;
+
+  const [y, m] = month.split('-').map(Number);
+  const daysInMonth = new Date(y, m, 0).getDate();
+  const grid = document.getElementById('daysGrid');
+  let html = '';
+  for (let day = 1; day <= daysInMonth; day++) {
+    const dateKey = `${month}-${String(day).padStart(2, '0')}`;
+    const dow = new Date(y, m - 1, day).getDay();
+    const isWeekend = dow === 0 || dow === 6;
+    const manual = codesData.get(dateKey);
+    const codeClass = manual ? 'manual' : (isWeekend ? 'auto-v' : '');
+    const codeLabel = manual || (isWeekend ? 'В' : '');
+    html += `<div class="day-cell ${isWeekend ? 'weekend' : ''}" data-date="${dateKey}" onclick="selectDay('${dateKey}')">
+      <div class="day-num">${day}</div>
+      <div class="day-code ${codeClass}">${escapeHtml(codeLabel)}</div>
+    </div>`;
+  }
+  grid.innerHTML = html;
+}
+
+function selectDay(dateKey) {
+  selectedDay = dateKey;
+  document.querySelectorAll('#daysGrid .day-cell').forEach(el => {
+    el.classList.toggle('selected', el.dataset.date === dateKey);
+  });
+}
+
+async function applyDayCode(code) {
+  if (!selectedDay || !codesEmployeeId) {
+    document.getElementById('codesMsg').textContent = 'Сначала выберите день в календаре';
+    document.getElementById('codesMsg').className = 'msg error';
+    return;
+  }
+  const resp = await fetch('/time/api/day-codes', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ employee_id: codesEmployeeId, date: selectedDay, code }),
+  });
+  const msg = document.getElementById('codesMsg');
+  if (!resp.ok) {
+    const data = await resp.json().catch(() => ({}));
+    msg.textContent = data.error || 'Не удалось сохранить код';
+    msg.className = 'msg error';
+    return;
+  }
+  msg.textContent = 'Сохранено';
+  msg.className = 'msg ok';
+  await loadCodesForMonth();
+  selectDay(selectedDay);
+}
+
+async function applyRangeCode() {
+  const from = document.getElementById('rangeFrom').value;
+  const to = document.getElementById('rangeTo').value;
+  const code = document.getElementById('rangeCode').value;
+  const msg = document.getElementById('codesMsg');
+  if (!from || !to || !code || !codesEmployeeId) {
+    msg.textContent = 'Укажите период и код';
+    msg.className = 'msg error';
+    return;
+  }
+  const resp = await fetch('/time/api/day-codes/range', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ employee_id: codesEmployeeId, from, to, code }),
+  });
+  if (!resp.ok) {
+    const data = await resp.json().catch(() => ({}));
+    msg.textContent = data.error || 'Не удалось применить период';
+    msg.className = 'msg error';
+    return;
+  }
+  msg.textContent = `Код ${code} проставлен на весь период`;
+  msg.className = 'msg ok';
+  await loadCodesForMonth();
+}
+
+(async () => {
+  if (await checkAuth()) { loadEmployees(); }
+})();
+</script>
+<script>
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('/time/sw.js').catch(() => {});
+  });
+}
+</script>
+</body>
+</html>

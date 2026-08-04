@@ -1,0 +1,618 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Журнал — приход/уход</title>
+<link rel="manifest" href="/time/manifest.json" />
+<meta name="theme-color" content="#0c0f16" />
+<link rel="icon" href="/time/icons/icon-192.png" type="image/png" />
+<link rel="apple-touch-icon" href="/time/icons/apple-touch-icon.png" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<meta name="apple-mobile-web-app-title" content="Учёт времени" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" />
+<link rel="stylesheet" href="/time/css/theme.css" />
+<style>
+  body {
+    margin: 0;
+    padding: 0 0 60px;
+  }
+  .wrap { max-width: 900px; margin: 0 auto; padding: 0 16px; }
+  h1 { font-size: 22px; margin-bottom: 4px; }
+  .sub { color: var(--muted); margin-bottom: 20px; font-size: 14px; }
+  .employee-search {
+    width: 100%;
+    box-sizing: border-box;
+    margin: 0 0 18px;
+    padding: 10px 14px;
+    border-radius: 10px;
+    border: 1px solid var(--border, #2a3040);
+    background: var(--panel, #12151f);
+    color: inherit;
+    font-size: 14px;
+  }
+  .employee-search:focus { outline: none; border-color: #5b8cff; }
+  a.back { color: var(--muted); font-size: 13px; text-decoration: none; margin-right: 14px; }
+  .day-group { margin-bottom: 22px; }
+  .day-title {
+    color: var(--muted); font-size: 13px; font-weight: 600; text-transform: uppercase;
+    letter-spacing: 0.4px; margin: 18px 0 8px;
+  }
+  table { width: 100%; border-collapse: collapse; background: transparent; }
+  th, td { padding: 12px 14px; text-align: left; border-bottom: 1px solid var(--border); font-size: 14px; }
+  th { color: var(--muted); font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: 0.4px; }
+  tr:last-child td { border-bottom: none; }
+  .time-in { color: var(--green); font-weight: 600; }
+  .time-out { color: var(--red); font-weight: 600; }
+  .time-out.pending { color: var(--muted); font-weight: 400; font-style: italic; }
+  .duration { color: var(--muted); }
+  .refresh { color: var(--muted); font-size: 12px; margin-top: 16px; text-align: center; }
+  .add-row {
+    display: flex; justify-content: flex-end; margin: 0 0 4px;
+  }
+  .add-btn {
+    padding: 8px 16px; border-radius: 8px; border: 1px solid var(--border);
+    background: var(--panel); color: var(--text); font-weight: 600; cursor: pointer; font-size: 13px;
+  }
+  .cell-actions { display: inline-flex; gap: 6px; margin-left: 8px; vertical-align: middle; }
+  .icon-btn {
+    border: none; background: transparent; color: var(--muted); cursor: pointer;
+    font-size: 13px; padding: 2px 4px; border-radius: 6px; line-height: 1;
+  }
+  .icon-btn:hover { color: var(--text); background: var(--border); }
+
+  .overlay {
+    display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.55);
+    align-items: center; justify-content: center; padding: 20px; z-index: 10;
+  }
+  .overlay.open { display: flex; }
+  .modal {
+    background: var(--panel); border: 1px solid var(--border); border-radius: 16px;
+    padding: 22px; width: 100%; max-width: 360px;
+  }
+  .modal h2 { font-size: 16px; margin: 0 0 16px; }
+  .modal label { display: block; font-size: 12px; color: var(--muted); margin: 10px 0 4px; }
+  .modal select, .modal input {
+    width: 100%; background: var(--bg); border: 1px solid var(--border); border-radius: 10px;
+    color: var(--text); padding: 9px 12px; font-size: 14px; font-family: inherit;
+    color-scheme: dark;
+  }
+  .modal .msg { font-size: 13px; margin-top: 10px; min-height: 16px; }
+  .modal .msg.error { color: var(--red); }
+  .modal .msg.ok { color: var(--green); }
+  .modal-actions { display: flex; gap: 10px; margin-top: 16px; }
+  .modal-actions button {
+    flex: 1; padding: 10px; border-radius: 10px; border: 1px solid var(--border);
+    background: transparent; color: var(--text); cursor: pointer; font-family: inherit; font-size: 14px;
+  }
+  .modal-actions button.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); font-weight: 600; }
+  .modal-actions button.danger { background: var(--red); border-color: var(--red); color: #fff; }
+
+  .marks-modal { max-width: 640px; }
+  .marks-controls { display: flex; gap: 10px; align-items: flex-end; flex-wrap: wrap; margin-bottom: 12px; }
+  .marks-controls > div { flex: 1; min-width: 160px; }
+  .marks-controls label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 4px; }
+  .marks-controls select, .marks-controls input {
+    width: 100%; background: var(--bg); border: 1px solid var(--border); border-radius: 8px;
+    color: var(--text); padding: 8px 10px; font-size: 13px; font-family: inherit; color-scheme: dark;
+  }
+  .marks-hint { font-size: 11.5px; color: var(--muted); margin-bottom: 12px; }
+  .days-grid {
+    display: grid; grid-template-columns: repeat(7, 1fr); gap: 6px; margin-bottom: 14px;
+  }
+  .day-cell {
+    border: 1px solid var(--border); border-radius: 8px; padding: 6px 4px; text-align: center;
+    cursor: pointer; background: var(--bg); font-size: 12px; user-select: none;
+  }
+  .day-cell.weekend { border-color: #3a3040; }
+  .day-cell.selected { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent) inset; }
+  .day-cell .day-num { color: var(--muted); font-size: 11px; }
+  .day-cell .day-count { font-weight: 700; font-size: 13px; min-height: 15px; }
+  .day-cell .day-count.paired { color: var(--green); }
+  .day-cell .day-count.open { color: #ffb84f; }
+  .day-detail { border-top: 1px solid var(--border); padding-top: 12px; }
+  .day-detail-title { font-size: 13px; font-weight: 600; margin-bottom: 10px; }
+  .mark-row { display: flex; gap: 8px; align-items: center; margin-bottom: 8px; }
+  .mark-row select, .mark-row input[type="time"] {
+    background: var(--bg); border: 1px solid var(--border); border-radius: 8px;
+    color: var(--text); padding: 7px 9px; font-size: 13px; font-family: inherit; color-scheme: dark;
+  }
+  .mark-row select { flex: 1; }
+  .mark-row input[type="time"] { flex: 1; }
+  .add-entry-btn {
+    width: 100%; margin-top: 2px; margin-bottom: 4px; padding: 9px; border-radius: 10px; border: 1px dashed var(--border);
+    background: transparent; color: var(--accent); cursor: pointer; font-size: 13px; font-family: inherit;
+  }
+  .marks-empty-hint { color: var(--muted); font-size: 13px; padding: 8px 0; }
+</style>
+</head>
+<body>
+<header class="app-header">
+  <a class="brand" href="/time/index.html">
+    <img class="mark" src="/time/icons/icon-192.png" alt="" />
+    <div><div class="name">Учёт времени</div><div class="who">журнал смен</div></div>
+  </a>
+  <nav class="app-nav">
+    <a href="/time/admin.html">👤 Сотрудники</a>
+    <a href="/time/schedule.html">📅 Графики</a>
+    <a href="/time/timesheet.html">🗓 Табель-коды</a>
+    <a href="/time/logs.html" class="current">📋 Журнал</a>
+    <a href="/time/export.html">📊 Экспорт</a>
+    <button class="logout-btn" onclick="logout()">Выйти</button>
+  </nav>
+</header>
+<div class="wrap">
+  <h1>Журнал прихода / ухода</h1>
+
+  <div class="add-row">
+    <button class="add-btn" onclick="openMarksModal()">🕒 Отметки приход/уход</button>
+  </div>
+
+  <input type="text" id="employeeSearch" class="employee-search" placeholder="🔎 Поиск сотрудника по ФИО…" oninput="renderLogs()" />
+
+  <div id="content">Загрузка…</div>
+  <div class="refresh">Обновляется автоматически каждые 15 секунд</div>
+</div>
+
+<div class="overlay" id="marksOverlay">
+  <div class="modal marks-modal">
+    <h2 id="marksModalTitle">Отметки приход/уход</h2>
+    <div class="marks-controls">
+      <div>
+        <label>Сотрудник</label>
+        <select id="marksEmployee" onchange="onMarksEmployeeChange()"></select>
+      </div>
+      <div>
+        <label>Месяц</label>
+        <input type="month" id="marksMonth" onchange="renderMarksGrid()" />
+      </div>
+    </div>
+    <div class="marks-hint">Кликните на день, чтобы посмотреть и отредактировать отметки за этот день.</div>
+    <div class="days-grid" id="marksDaysGrid"></div>
+    <div class="day-detail" id="marksDayDetail" style="display:none;">
+      <div class="day-detail-title" id="marksDayTitle"></div>
+      <div id="marksEntriesList"></div>
+      <button class="add-entry-btn" onclick="addMarkEntry()">➕ Добавить отметку</button>
+    </div>
+    <div class="msg" id="marksMsg"></div>
+    <div class="modal-actions">
+      <button onclick="closeMarksModal()">Закрыть</button>
+    </div>
+  </div>
+</div>
+
+<script>
+let currentLogs = [];
+let currentEmployees = [];
+
+// Хранилище отдаёт время в UTC как 'YYYY-MM-DD HH:MM:SS'. Для полей
+// datetime-local нужно локальное время браузера — конвертируем в обе стороны,
+// чтобы то, что видит админ в таблице (локальное время), совпадало с тем,
+// что он редактирует в форме.
+function localInputValueToUtcTimestamp(value) {
+  const d = new Date(value); // трактуется как локальное время браузера
+  const pad = n => String(n).padStart(2, '0');
+  return `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())} ${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}:${pad(d.getUTCSeconds())}`;
+}
+
+function pairShifts(logs, employeeId) {
+  // Сортируем по фактическому времени отметки, а не по порядку прихода с
+  // сервера (id/порядок в массиве) — ручное добавление/редактирование
+  // задним числом может дать записи id, не совпадающий с хронологией.
+  const own = logs.filter(l => l.employee_id === employeeId).slice()
+    .sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
+  const shifts = [];
+  let openIn = null;
+  for (const log of own) {
+    if (log.type === 'in') {
+      if (openIn) shifts.push({ in: openIn, out: null }); // пришёл повторно без ухода — редкий край
+      openIn = log;
+    } else if (log.type === 'out' && openIn) {
+      shifts.push({ in: openIn, out: log });
+      openIn = null;
+    }
+  }
+  if (openIn) shifts.push({ in: openIn, out: null });
+  return shifts.reverse(); // новые смены сверху
+}
+
+function formatTime(ts) {
+  return new Date(ts.replace(' ', 'T') + 'Z').toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
+}
+function formatDate(ts) {
+  return new Date(ts.replace(' ', 'T') + 'Z').toLocaleDateString('ru-RU', { day: '2-digit', month: 'long', year: 'numeric' });
+}
+// Реальное отработанное время по отметкам (в часах, округлено вниз до целого).
+function rawWorkedHours(inTs, outTs) {
+  const ms = new Date(outTs.replace(' ', 'T') + 'Z') - new Date(inTs.replace(' ', 'T') + 'Z');
+  const totalMin = Math.max(0, Math.floor(ms / 60000));
+  return Math.floor(totalMin / 60);
+}
+
+// Формат числа часов — только целые (часы уже округлены вниз в rawWorkedHours).
+function formatHoursNum(h) {
+  return String(Math.floor(h));
+}
+
+// Порог, с которого превышение суммарного графика (сумма daily_hours всех
+// должностей сотрудника) считается переработкой.
+const OVERTIME_THRESHOLD_HOURS = 1;
+
+// Разносит фактически отработанные (целые) часы по должностям сотрудника:
+// каждая должность получает часы строго в пределах своей дневной нормы
+// (daily_hours), в порядке основная → совмещаемые. Всё, что отработано
+// сверх суммы норм всех должностей (например, график 8+4=12ч, а по факту
+// 13ч) — это переработка ("сверхурочные"), не подменяет часы последней
+// должности, а считается отдельно и приписывается к основной должности.
+// Задержка меньше часа переработкой не считается и остаётся на основной
+// должности как обычные часы.
+function allocateHoursAcrossPositions(worked, positions) {
+  const alloc = new Array(positions.length).fill(0);
+  let remaining = worked;
+  let openEnded = false;
+  for (let i = 0; i < positions.length; i++) {
+    const pos = positions[i];
+    const hasCap = pos.daily_hours !== null && pos.daily_hours !== undefined && pos.daily_hours !== '';
+    if (!hasCap) {
+      alloc[i] = remaining;
+      remaining = 0;
+      openEnded = true;
+      break;
+    }
+    const cap = Number(pos.daily_hours);
+    const allocated = Math.max(0, Math.min(remaining, cap));
+    alloc[i] = allocated;
+    remaining -= allocated;
+  }
+  let overtime = 0;
+  if (!openEnded && remaining > 0) {
+    if (remaining >= OVERTIME_THRESHOLD_HOURS) overtime = remaining;
+    alloc[0] += remaining;
+  }
+  return { alloc, overtime };
+}
+
+// Колонка "Отработано": берём РЕАЛЬНОЕ время по отметкам приход/уход
+// (целые часы) и разносим его по должностям сотрудника в пределах их норм;
+// излишек сверх суммарного графика показываем отдельно как переработку.
+function formatDuration(emp, inTs, outTs) {
+  const positions = emp && Array.isArray(emp.positions) ? emp.positions.filter(p => p && p.name) : [];
+  const raw = rawWorkedHours(inTs, outTs);
+
+  if (!positions.length) {
+    return `${raw} ч`;
+  }
+
+  const { alloc, overtime } = allocateHoursAcrossPositions(raw, positions);
+  const parts = positions.map((pos, i) => {
+    const label = formatHoursNum(alloc[i]) + ' ч';
+    return positions.length > 1 ? `${label} (${escapeHtml(pos.name)})` : label;
+  });
+  if (overtime > 0) {
+    parts.push(`${formatHoursNum(overtime)} ч сверхурочно`);
+  }
+
+  return parts.join(' + ');
+}
+
+async function checkAuth() {
+  const resp = await fetch('/time/api/auth/me');
+  if (!resp.ok) { location.href = '/time/login.html'; return false; }
+  const user = await resp.json();
+  if (user.role !== 'admin') { location.href = '/time/login.html'; return false; }
+  return true;
+}
+
+async function load() {
+  const [logsResp, employeesResp] = await Promise.all([
+    fetch('/time/api/logs'),
+    fetch('/time/api/employees'),
+  ]);
+  if (logsResp.status === 401 || logsResp.status === 403) { location.href = '/time/login.html'; return; }
+  const logs = await logsResp.json();
+  const employees = await employeesResp.json();
+  currentLogs = logs;
+  currentEmployees = employees;
+  renderLogs();
+}
+
+function renderLogs() {
+  const logs = currentLogs;
+  const employees = currentEmployees;
+  const query = (document.getElementById('employeeSearch')?.value || '').trim().toLowerCase();
+  const matchesQuery = (emp) => !query || (emp.full_name || '').toLowerCase().includes(query);
+
+  // Собираем смены по каждому сотруднику, затем сводим всё в один список с датой
+  const allShifts = [];
+  for (const emp of employees) {
+    if (!matchesQuery(emp)) continue;
+    const shifts = pairShifts(logs, emp.id);
+    for (const s of shifts) {
+      allShifts.push({ employee: emp, ...s });
+    }
+  }
+
+  // Сортируем по времени прихода, новые сверху
+  allShifts.sort((a, b) => new Date(b.in.timestamp) - new Date(a.in.timestamp));
+
+  // Группируем по дате
+  const groups = {};
+  for (const s of allShifts) {
+    const dateKey = formatDate(s.in.timestamp);
+    if (!groups[dateKey]) groups[dateKey] = [];
+    groups[dateKey].push(s);
+  }
+
+  const content = document.getElementById('content');
+  if (!allShifts.length) {
+    content.innerHTML = `<div style="color:#8a94ab;">${query ? 'Ничего не найдено' : 'Пока нет отметок прихода/ухода'}</div>`;
+    return;
+  }
+
+  content.innerHTML = Object.entries(groups).map(([date, shifts]) => `
+    <div class="day-group">
+      <div class="day-title">${date}</div>
+      <div class="table-scroll">
+      <table>
+        <thead><tr><th>Сотрудник</th><th>Приход</th><th>Уход</th><th>Отработано</th></tr></thead>
+        <tbody>
+          ${shifts.map(s => `
+            <tr>
+              <td>${escapeHtml(s.employee.full_name)}</td>
+              <td class="time-in">
+                ${formatTime(s.in.timestamp)}
+                <span class="cell-actions">
+                  <button class="icon-btn" title="Редактировать" onclick="openMarksModal(${s.employee.id}, '${localDateKeyFromTimestamp(s.in.timestamp)}')">✏️</button>
+                </span>
+              </td>
+              <td class="${s.out ? 'time-out' : 'time-out pending'}">
+                ${s.out ? formatTime(s.out.timestamp) : 'ещё на месте'}
+                ${s.out ? `<span class="cell-actions"><button class="icon-btn" title="Редактировать" onclick="openMarksModal(${s.employee.id}, '${localDateKeyFromTimestamp(s.in.timestamp)}')">✏️</button></span>` : ''}
+              </td>
+              <td class="duration">${s.out ? formatDuration(s.employee, s.in.timestamp, s.out.timestamp) : '—'}</td>
+            </tr>
+          `).join('')}
+        </tbody>
+      </table>
+      </div>
+    </div>
+  `).join('');
+}
+
+async function logout() {
+  await fetch('/time/api/auth/logout', { method: 'POST' });
+  location.href = '/time/login.html';
+}
+
+function escapeHtml(str) {
+  const div = document.createElement('div');
+  div.textContent = str;
+  return div.innerHTML;
+}
+
+// --- Управление отметками прихода/ухода (единая модалка) ---
+
+function localDateKeyFromTimestamp(ts) {
+  const d = new Date(ts.replace(' ', 'T') + 'Z');
+  const pad = n => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+function timeValueFromTimestamp(ts) {
+  const d = new Date(ts.replace(' ', 'T') + 'Z');
+  const pad = n => String(n).padStart(2, '0');
+  return `${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+function currentMonthValue() {
+  const now = new Date();
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+}
+
+let marksEmployeeId = null;
+let selectedMarksDay = null;
+let marksEntries = []; // [{ id: number|null, type: 'in'|'out', time: 'HH:MM' }]
+
+function openMarksModal(employeeId, dateKey) {
+  if (!currentEmployees.length) return;
+  marksEmployeeId = employeeId || (currentEmployees[0] && currentEmployees[0].id);
+
+  const select = document.getElementById('marksEmployee');
+  select.innerHTML = currentEmployees
+    .map(e => `<option value="${e.id}">${escapeHtml(e.full_name)}</option>`)
+    .join('');
+  select.value = marksEmployeeId;
+
+  document.getElementById('marksMonth').value = dateKey ? dateKey.slice(0, 7) : currentMonthValue();
+  document.getElementById('marksMsg').textContent = '';
+  document.getElementById('marksMsg').className = 'msg';
+
+  updateMarksModalTitle();
+  renderMarksGrid();
+  if (dateKey) {
+    selectMarksDay(dateKey);
+  } else {
+    selectedMarksDay = null;
+    document.getElementById('marksDayDetail').style.display = 'none';
+  }
+
+  document.getElementById('marksOverlay').classList.add('open');
+}
+
+function closeMarksModal() {
+  document.getElementById('marksOverlay').classList.remove('open');
+  marksEmployeeId = null;
+  selectedMarksDay = null;
+  marksEntries = [];
+}
+
+function updateMarksModalTitle() {
+  const emp = currentEmployees.find(e => e.id === Number(marksEmployeeId));
+  document.getElementById('marksModalTitle').textContent = `Отметки приход/уход — ${emp ? emp.full_name : ''}`;
+}
+
+function onMarksEmployeeChange() {
+  marksEmployeeId = Number(document.getElementById('marksEmployee').value);
+  selectedMarksDay = null;
+  document.getElementById('marksDayDetail').style.display = 'none';
+  updateMarksModalTitle();
+  renderMarksGrid();
+}
+
+function renderMarksGrid() {
+  const month = document.getElementById('marksMonth').value;
+  if (!month || !marksEmployeeId) return;
+  const [y, m] = month.split('-').map(Number);
+  const daysInMonth = new Date(y, m, 0).getDate();
+
+  const own = currentLogs.filter(l => l.employee_id === Number(marksEmployeeId));
+  const grid = document.getElementById('marksDaysGrid');
+  let html = '';
+  for (let day = 1; day <= daysInMonth; day++) {
+    const pad = n => String(n).padStart(2, '0');
+    const dateKey = `${month}-${pad(day)}`;
+    const dow = new Date(y, m - 1, day).getDay();
+    const isWeekend = dow === 0 || dow === 6;
+    const count = own.filter(l => localDateKeyFromTimestamp(l.timestamp) === dateKey).length;
+    const countClass = count === 0 ? '' : (count % 2 === 0 ? 'paired' : 'open');
+    html += `<div class="day-cell ${isWeekend ? 'weekend' : ''} ${selectedMarksDay === dateKey ? 'selected' : ''}" data-date="${dateKey}" onclick="selectMarksDay('${dateKey}')">
+      <div class="day-num">${day}</div>
+      <div class="day-count ${countClass}">${count || ''}</div>
+    </div>`;
+  }
+  grid.innerHTML = html;
+}
+
+function selectMarksDay(dateKey) {
+  selectedMarksDay = dateKey;
+  const month = dateKey.slice(0, 7);
+  if (document.getElementById('marksMonth').value !== month) {
+    document.getElementById('marksMonth').value = month;
+  }
+  renderMarksGrid();
+
+  const own = currentLogs
+    .filter(l => l.employee_id === Number(marksEmployeeId) && localDateKeyFromTimestamp(l.timestamp) === dateKey)
+    .slice()
+    .sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
+  marksEntries = own.map(l => ({ id: l.id, type: l.type, time: timeValueFromTimestamp(l.timestamp) }));
+
+  const d = new Date(`${dateKey}T00:00:00`);
+  document.getElementById('marksDayTitle').textContent =
+    `Отметки за ${d.toLocaleDateString('ru-RU', { day: '2-digit', month: 'long', year: 'numeric' })}`;
+  document.getElementById('marksDayDetail').style.display = 'block';
+  document.getElementById('marksMsg').textContent = '';
+  document.getElementById('marksMsg').className = 'msg';
+  renderMarkEntries();
+}
+
+function renderMarkEntries() {
+  const list = document.getElementById('marksEntriesList');
+  if (!marksEntries.length) {
+    list.innerHTML = '<div class="marks-empty-hint">Отметок за этот день нет</div>';
+    return;
+  }
+  list.innerHTML = marksEntries.map((e, idx) => `
+    <div class="mark-row">
+      <select onchange="updateMarkEntry(${idx}, 'type', this.value)">
+        <option value="in" ${e.type === 'in' ? 'selected' : ''}>Приход</option>
+        <option value="out" ${e.type === 'out' ? 'selected' : ''}>Уход</option>
+      </select>
+      <input type="time" value="${e.time}" onchange="updateMarkEntry(${idx}, 'time', this.value)" />
+      <button class="icon-btn" title="Сохранить" onclick="saveMarkEntry(${idx})">💾</button>
+      <button class="icon-btn" title="Удалить" onclick="deleteMarkEntry(${idx})">🗑</button>
+    </div>
+  `).join('');
+}
+
+function updateMarkEntry(idx, field, value) {
+  if (!marksEntries[idx]) return;
+  marksEntries[idx][field] = value;
+}
+
+function addMarkEntry() {
+  marksEntries.push({ id: null, type: 'in', time: '09:00' });
+  renderMarkEntries();
+}
+
+async function saveMarkEntry(idx) {
+  const entry = marksEntries[idx];
+  const msg = document.getElementById('marksMsg');
+  if (!entry || !entry.time || !selectedMarksDay) {
+    msg.textContent = 'Укажите время';
+    msg.className = 'msg error';
+    return;
+  }
+
+  const timestamp = localInputValueToUtcTimestamp(`${selectedMarksDay}T${entry.time}`);
+  let resp;
+  if (entry.id) {
+    resp = await fetch(`/time/api/logs/${entry.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ type: entry.type, timestamp }),
+    });
+  } else {
+    resp = await fetch('/time/api/logs', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ employee_id: marksEmployeeId, type: entry.type, timestamp }),
+    });
+  }
+  const data = await resp.json().catch(() => ({}));
+
+  if (!resp.ok) {
+    msg.textContent = data.error || 'Не удалось сохранить отметку';
+    msg.className = 'msg error';
+    return;
+  }
+
+  await load();
+  selectMarksDay(selectedMarksDay);
+  msg.textContent = 'Сохранено';
+  msg.className = 'msg ok';
+}
+
+async function deleteMarkEntry(idx) {
+  const entry = marksEntries[idx];
+  if (!entry) return;
+  const msg = document.getElementById('marksMsg');
+
+  if (!entry.id) {
+    marksEntries.splice(idx, 1);
+    renderMarkEntries();
+    return;
+  }
+
+  if (!confirm('Удалить эту отметку без возможности восстановления?')) return;
+
+  const resp = await fetch(`/time/api/logs/${entry.id}`, { method: 'DELETE' });
+  const data = await resp.json().catch(() => ({}));
+  if (!resp.ok) {
+    msg.textContent = data.error || 'Не удалось удалить отметку';
+    msg.className = 'msg error';
+    return;
+  }
+
+  await load();
+  selectMarksDay(selectedMarksDay);
+  msg.textContent = 'Отметка удалена';
+  msg.className = 'msg ok';
+}
+
+(async () => {
+  if (await checkAuth()) {
+    load();
+    setInterval(load, 15000);
+  }
+})();
+</script>
+<script>
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('/time/sw.js').catch(() => {});
+  });
+}
+</script>
+</body>
+</html>

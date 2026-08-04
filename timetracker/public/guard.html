@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+<title>Пост охраны — QR для отметки</title>
+<link rel="manifest" href="/time/manifest.json" />
+<meta name="theme-color" content="#0c0f16" />
+<link rel="icon" href="/time/icons/icon-192.png" type="image/png" />
+<link rel="apple-touch-icon" href="/time/icons/apple-touch-icon.png" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<meta name="apple-mobile-web-app-title" content="Учёт времени" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" />
+<link rel="stylesheet" href="/time/css/theme.css" />
+<style>
+  body {
+    margin: 0; min-height: 100vh;
+    display: flex; flex-direction: column; align-items: center; padding: 0 16px 40px;
+  }
+  .head-block { display: flex; flex-direction: column; align-items: center; max-width: 340px; width: 100%; }
+  .qr-box {
+    background: white; border-radius: 24px; padding: 20px; width: 320px; max-width: 100%; aspect-ratio: 1 / 1;
+    display: flex; align-items: center; justify-content: center; box-sizing: border-box;
+    box-shadow: 0 0 0 1px var(--border), 0 20px 50px -20px rgba(240,163,65,0.25);
+  }
+  .qr-box img { width: 100%; height: 100%; }
+  .timer-wrap { margin-top: 22px; width: 320px; max-width: 100%; }
+  .timer-bar { height: 6px; border-radius: 8px; background: var(--panel); overflow: hidden; border: 1px solid var(--border); }
+  .timer-fill { height: 100%; background: var(--accent); transition: width 1s linear; }
+  .timer-label { text-align: center; margin-top: 8px; color: var(--muted); font-family: var(--font-mono); font-size: 12.5px; }
+  .note {
+    margin-top: 26px; max-width: 340px; text-align: center; color: var(--muted); font-size: 13px; line-height: 1.55;
+  }
+</style>
+</head>
+<body>
+  <header class="app-header" style="width: 320px; max-width: 100%; margin-bottom: 4px;">
+    <a class="brand" href="/time/index.html">
+      <img class="mark" src="/time/icons/icon-192.png" alt="" />
+      <div>
+        <div class="name">Пост охраны</div>
+      </div>
+    </a>
+    <nav class="app-nav">
+      <button class="logout-btn" onclick="logout()">Выйти</button>
+    </nav>
+  </header>
+  <div class="head-block">
+    <div class="eyebrow"><span class="dot"></span>QR обновляется каждую минуту</div>
+    <h1 style="font-size:16px;font-weight:700;letter-spacing:0.02em;text-align:center;margin:0 0 20px;color:var(--text);">
+      Покажите этот QR сотруднику для отметки прихода / ухода
+    </h1>
+  </div>
+  <div class="qr-box"><img id="qrImg" src="/time/api/guard-qrcode.png" alt="QR" /></div>
+
+  <div class="timer-wrap">
+    <div class="timer-bar"><div class="timer-fill" id="fill"></div></div>
+    <div class="timer-label" id="label">обновление через 60 сек</div>
+  </div>
+
+  <div class="note">
+    Код действителен ровно 1 минуту и одноразовый для каждого сотрудника —
+    сфотографированный или пересланный код повторно использовать не получится.
+  </div>
+
+<script>
+  const WINDOW_SECONDS = 60;
+  const img = document.getElementById('qrImg');
+  const fill = document.getElementById('fill');
+  const label = document.getElementById('label');
+
+  async function checkAuth() {
+    const resp = await fetch('/time/api/auth/me');
+    if (!resp.ok) { location.href = '/time/login.html'; return; }
+    const user = await resp.json();
+    if (user.role !== 'guard') { location.href = '/time/login.html'; }
+  }
+  async function logout() {
+    await fetch('/time/api/auth/logout', { method: 'POST' });
+    location.href = '/time/login.html';
+  }
+  checkAuth();
+
+  function refreshQr() {
+    img.src = '/time/api/guard-qrcode.png?t=' + Date.now();
+  }
+
+  function tick() {
+    const secondsIntoWindow = Math.floor(Date.now() / 1000) % WINDOW_SECONDS;
+    const secondsLeft = WINDOW_SECONDS - secondsIntoWindow;
+    const percent = (secondsLeft / WINDOW_SECONDS) * 100;
+    fill.style.width = percent + '%';
+    label.textContent = `обновление через ${secondsLeft} сек`;
+
+    // Как только начался новый "тик" минуты — подтягиваем новую картинку
+    if (secondsLeft === WINDOW_SECONDS) {
+      refreshQr();
+    }
+  }
+
+  setInterval(tick, 1000);
+  tick();
+</script>
+<script>
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('/time/sw.js').catch(() => {});
+  });
+}
+</script>
+</body>
+</html>

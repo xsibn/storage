@@ -166,6 +166,19 @@
     $('pp-manage-users').style.display = currentUser.perms.canManageUsers ? '' : 'none';
     $('pp-avatar-remove-btn').style.display = currentUser.avatarUrl ? '' : 'none';
 
+    // Ссылка на «Учёт времени» — теперь тот же домен, просто другой путь
+    // (/time/); при полном слиянии в один процесс (см. merged/gateway) это
+    // предпочтительнее старой схемы "тот же хост, другой порт", т.к. не
+    // требует объяснять браузеру дополнительный TCP-порт. Cookie сессии
+    // общая, повторный вход не нужен.
+    const ttUrl = window.__TIMETRACKER_PORT
+      ? `${location.protocol}//${location.hostname}:${window.__TIMETRACKER_PORT}/`
+      : '/time/';
+    const ttLink = $('timetracker-link');
+    if (ttLink) { ttLink.href = ttUrl; ttLink.style.display = ''; }
+    const ttLinkMobile = $('bn-timetracker-link');
+    if (ttLinkMobile) { ttLinkMobile.href = ttUrl; ttLinkMobile.style.display = ''; }
+
     document.body.classList.toggle('perm-no-read-activity', !currentUser.perms.canReadActivity);
     document.body.classList.toggle('perm-no-manage-activity', !currentUser.perms.canManageActivity);
     document.body.classList.toggle('perm-no-manage-tasks', !currentUser.perms.canManageTasks);
