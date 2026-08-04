@@ -63,6 +63,18 @@ app.use((req, res, next) => {
       req.user = db.createUser({ role: 'admin', full_name: shared.display_name || shared.username, login: shared.username });
     }
   }
+
+  // Роль «Пост» на «Складе» существует ровно для одной задачи — показывать
+  // QR-код охраны здесь, в «Учёте времени» — и больше ничего не умеет (нет
+  // даже доступа к схеме склада, см. storage/server.js). Заводить профиль
+  // охранника вручную через /admin.html для каждого такого аккаунта было бы
+  // лишним шагом, поэтому привязываем его сюда автоматически, при первом же
+  // заходе, у КАЖДОГО аккаунта с этой ролью (а не только у первого, в
+  // отличие от админа выше — постов может быть несколько, по одному на
+  // каждую проходную).
+  if (shared && !req.user && shared.role === 'post') {
+    req.user = db.createUser({ role: 'guard', full_name: shared.display_name || shared.username, login: shared.username });
+  }
   next();
 });
 
