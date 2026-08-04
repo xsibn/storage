@@ -77,6 +77,7 @@
     <div><div class="name">Учёт времени</div><div class="who">экспорт в Excel</div></div>
   </a>
   <nav class="app-nav">
+    <a href="/" id="portal-back-link" title="Вернуться на портал «Склад»">← Склад</a>
     <a href="/time/admin.html">👤 Сотрудники</a>
     <a href="/time/schedule.html">📅 Графики</a>
     <a href="/time/timesheet.html">🗓 Табель-коды</a>
@@ -143,6 +144,7 @@
 </div>
 
 <script>
+fetch('/time/api/config').then(r=>r.json()).then(cfg=>{const el=document.getElementById('portal-back-link'); if(el) el.href = cfg.portalUrl || '/';}).catch(()=>{});
 async function checkAuth() {
   const resp = await fetch('/time/api/auth/me');
   if (!resp.ok) { location.href = '/time/login.html'; return false; }

@@ -3405,6 +3405,45 @@
     });
   });
 
+  // ---------- ВЫПАДАЮЩЕЕ МЕНЮ РАЗДЕЛОВ (клик по заголовку "Адресное хранение") ----------
+  // Тот же паттерн .dropdown/.dropdown-menu, что и у "База данных" ниже.
+  // Работает одинаково и на десктопе, и на телефоне — заголовок в шапке
+  // виден всегда, просто уменьшается по ширине на маленьких экранах.
+  const appMenuDropdown = document.getElementById('app-menu-dropdown');
+  const appMenuToggle = document.getElementById('app-menu-toggle');
+  function setAppMenuOpen(open){
+    appMenuDropdown.classList.toggle('open', open);
+    appMenuToggle.setAttribute('aria-expanded', open ? 'true' : 'false');
+  }
+  appMenuToggle.addEventListener('click', (e)=>{
+    e.stopPropagation();
+    setAppMenuOpen(!appMenuDropdown.classList.contains('open'));
+  });
+  appMenuToggle.addEventListener('keydown', (e)=>{
+    if(e.key === 'Enter' || e.key === ' '){ e.preventDefault(); appMenuToggle.click(); }
+  });
+  document.addEventListener('click', (e)=>{
+    if(appMenuDropdown.classList.contains('open') && !appMenuDropdown.contains(e.target)){
+      setAppMenuOpen(false);
+    }
+  });
+  document.getElementById('app-menu-warehouse').addEventListener('click', ()=>{
+    setAppMenuOpen(false);
+    activateView(lastWarehouseView);
+  });
+  document.getElementById('app-menu-tasks').addEventListener('click', ()=>{
+    setAppMenuOpen(false);
+    activateView('tasks');
+  });
+  // "Учёт времени" ведёт на отдельное приложение (не раздел этого сайта) —
+  // пункт появляется только после входа, когда известна ссылка (см. auth.js,
+  // который выставляет её так же, как раньше кнопке "timetracker-link").
+  document.getElementById('app-menu-timetracker-item').addEventListener('click', (e)=>{
+    setAppMenuOpen(false);
+    const href = e.currentTarget.dataset.href;
+    if(href) location.href = href;
+  });
+
   // ---------- DB ACTIONS DROPDOWN (import + export grouped together) ----------
   const dbDropdown = document.getElementById('db-actions-dropdown');
   document.getElementById('db-actions-toggle').addEventListener('click', (e)=>{
@@ -3637,7 +3676,7 @@
       const res = await fetch(API_BASE + '/api/tasks/unread-count');
       if(!res.ok) return;
       const { count } = await res.json();
-      [document.getElementById('tasks-badge'), document.getElementById('bn-tasks-badge')].forEach(badge => {
+      [document.getElementById('tasks-badge'), document.getElementById('bn-tasks-badge'), document.getElementById('app-menu-tasks-badge')].forEach(badge => {
         if(!badge) return;
         if(count > 0){ badge.textContent = count; badge.style.display = ''; }
         else badge.style.display = 'none';

@@ -82,6 +82,7 @@
 </style>
 </head>
 <body>
+  <a href="/" id="portal-back-link-index" style="display:inline-block; margin-bottom:10px; font-size:13px; color:var(--muted); text-decoration:none;" title="Вернуться на портал «Склад»">← Склад</a>
   <div class="top-mark">
     <img class="mark" src="/time/icons/icon-192.png" alt="" />
     <h1>Учёт рабочего времени</h1>
@@ -103,6 +104,7 @@
   <div class="cards" id="cards">Загрузка…</div>
 
 <script>
+setPortalLink('portal-back-link-index');
 async function init() {
   const resp = await fetch('/time/api/auth/me');
   const cards = document.getElementById('cards');

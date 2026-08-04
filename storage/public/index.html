@@ -108,6 +108,14 @@
   header h1{
     font-size:16px; font-weight:700; margin:0; letter-spacing:.2px; white-space:nowrap;
   }
+  h1.app-menu-toggle{
+    cursor:pointer; user-select:none; display:flex; align-items:center; border-radius:8px;
+    padding:4px 8px; margin:-4px -8px; transition:.12s;
+  }
+  h1.app-menu-toggle:hover, h1.app-menu-toggle:focus-visible{background:var(--bg); color:var(--accent); outline:none;}
+  h1.app-menu-toggle .menu-caret{font-size:11px; color:var(--ink-soft); margin-left:6px; transition:transform .12s;}
+  #app-menu-dropdown.open h1.app-menu-toggle .menu-caret{transform:rotate(180deg);}
+  #app-menu-dropdown .dropdown-menu{left:0; right:auto; min-width:190px;}
   header h1 .tag{
     font-family:var(--mono); font-size:11px; color:var(--accent); background:var(--accent-soft);
     padding:2px 6px; border-radius:4px; margin-left:8px; vertical-align:middle;
@@ -1231,9 +1239,15 @@
   <div id="hint-banners"></div>
 
   <header>
-    <h1>Адресное хранение <span class="tag" id="src-tag">подключение…</span></h1>
+    <div class="dropdown" id="app-menu-dropdown">
+      <h1 class="app-menu-toggle" id="app-menu-toggle" tabindex="0" role="button" aria-haspopup="true" aria-expanded="false" title="Разделы">Адресное хранение <span class="tag" id="src-tag">подключение…</span><span class="menu-caret">▾</span></h1>
+      <div class="dropdown-menu" id="app-menu-menu">
+        <button type="button" id="app-menu-warehouse">📦 Склад</button>
+        <button type="button" id="app-menu-timetracker-item" style="display:none;">⏱ Учёт времени</button>
+        <button type="button" id="app-menu-tasks">🗒 Задания<span class="tab-badge" id="app-menu-tasks-badge" style="display:none;"></span></button>
+      </div>
+    </div>
     <div class="stats" id="stats"></div>
-    <a class="btn" id="timetracker-link" href="#" style="display:none; text-decoration:none;" title="Открыть учёт рабочего времени">⏱ Учёт времени</a>
     <div class="profile-widget" id="profile-widget">
       <button class="profile-pill" id="profile-pill" type="button">
         <span class="profile-avatar" id="profile-avatar"><span class="status-dot"></span></span>
@@ -1277,7 +1291,6 @@
     <button data-view="zones">Служебные зоны</button>
     <button data-view="reco">Рекомендация пикинга</button>
     <div class="tabs-secondary-group">
-      <button data-view="tasks">📋 Задания<span class="tab-badge" id="tasks-badge" style="display:none;"></span></button>
       <button data-view="chats">💬 Чаты<span class="tab-badge" id="chats-badge" style="display:none;"></span></button>
       <button data-view="accounts"><span id="nav-accounts-label">👥 Аккаунты</span><span class="tab-badge" id="accounts-badge" style="display:none;"></span></button>
     </div>

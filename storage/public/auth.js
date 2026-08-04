@@ -178,6 +178,8 @@
     if (ttLink) { ttLink.href = ttUrl; ttLink.style.display = ''; }
     const ttLinkMobile = $('bn-timetracker-link');
     if (ttLinkMobile) { ttLinkMobile.href = ttUrl; ttLinkMobile.style.display = ''; }
+    const ttMenuItem = $('app-menu-timetracker-item');
+    if (ttMenuItem) { ttMenuItem.dataset.href = ttUrl; ttMenuItem.style.display = ''; }
 
     document.body.classList.toggle('perm-no-read-activity', !currentUser.perms.canReadActivity);
     document.body.classList.toggle('perm-no-manage-activity', !currentUser.perms.canManageActivity);
