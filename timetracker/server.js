@@ -49,18 +49,22 @@ app.use((req, res, next) => {
   req.sharedUser = shared || null;
   req.user = shared ? db.getUserByLogin(shared.username) : null;
 
-  // Самостоятельная привязка первого администратора: чтобы кому-то не
-  // пришлось руками редактировать data.json, — если в учёте времени ещё
-  // вообще нет ни одного admin-профиля, а зашедший сейчас общий аккаунт
-  // обладает отдельным правом «становиться админом в учёте времени»
-  // (canBecomeTtAdmin, настраивается на «Складе» в правах роли — см.
-  // storage/db.js/auth.js), он автоматически становится администратором и
-  // здесь. Дальше он уже сам привязывает остальных (охрану, сотрудников)
-  // через /admin.html.
-  if (shared && !req.user && !db.hasAnyUserWithRole('admin')) {
+  // Автопривязка/автоповышение до администратора: право «становиться
+  // админом в учёте времени» (canBecomeTtAdmin, настраивается на «Складе»
+  // в правах роли — см. storage/db.js/auth.js) — это именно ПРАВО, а не
+  // разовый бутстрап для первого зашедшего: применяем его при каждом
+  // заходе, пока текущий локальный профиль ещё не admin, — если профиля
+  // тут вообще не было, заводим его сразу как admin; если профиль уже
+  // существовал (например, раньше был обычным сотрудником), просто
+  // повышаем роль. Так право реально работает и для тех, кому его выдали
+  // уже после того, как их привязали к «Учёту времени» кем-то другим, а не
+  // только для самого первого входа в систему.
+  if (shared) {
     const perms = sharedAuth.permsFor(shared.role);
-    if (perms.canBecomeTtAdmin) {
-      req.user = db.createUser({ role: 'admin', full_name: shared.display_name || shared.username, login: shared.username });
+    if (perms.canBecomeTtAdmin && (!req.user || req.user.role !== 'admin')) {
+      req.user = req.user
+        ? db.setUserRole(req.user.id, 'admin')
+        : db.createUser({ role: 'admin', full_name: shared.display_name || shared.username, login: shared.username });
     }
   }
 
@@ -270,7 +274,7 @@ app.get('/api/guard-status', requireAuth('guard'), (req, res) => {
 // Личность сотрудника теперь определяется его сессией (после логина),
 // а не секретом в ссылке.
 
-app.post('/api/scan', requireAuth('employee'), (req, res) => {
+app.post('/api/scan', requireAuth(['employee', 'admin']), (req, res) => {
   const { payload } = req.body || {};
   if (!payload) {
     return res.status(400).json({ error: 'Некорректные данные запроса' });

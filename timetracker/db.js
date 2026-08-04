@@ -128,6 +128,18 @@ function getUserById(id) {
   return state.users.find(u => u.id === Number(id)) || null;
 }
 
+// Меняет роль уже привязанного профиля — используется для «Пост» → guard и
+// для canBecomeTtAdmin → admin (см. timetracker/server.js): право,
+// выданное на «Складе», должно применяться и к уже существующему профилю,
+// а не только на момент его создания.
+function setUserRole(id, role) {
+  const user = getUserById(id);
+  if (!user) return null;
+  user.role = role;
+  persist();
+  return user;
+}
+
 function getUserByLogin(login) {
   return state.users.find(u => u.login === login) || null;
 }
@@ -447,6 +459,7 @@ module.exports = {
   setSetting,
   createUser,
   getUserById,
+  setUserRole,
   getUserByLogin,
   hasAnyUserWithRole,
 
