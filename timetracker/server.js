@@ -49,18 +49,35 @@ app.use((req, res, next) => {
   req.sharedUser = shared || null;
   req.user = shared ? db.getUserByLogin(shared.username) : null;
 
-  // Самостоятельная привязка первого администратора: чтобы кому-то не
-  // пришлось руками редактировать data.json, — если в учёте времени ещё
-  // вообще нет ни одного admin-профиля, а зашедший сейчас общий аккаунт
-  // умеет управлять пользователями на «Складе» (т.е. это точно кто-то из
-  // руководства, а не рядовой сотрудник), он автоматически становится
-  // администратором и здесь. Дальше он уже сам привязывает остальных
-  // (охрану, сотрудников) через /admin.html.
-  if (shared && !req.user && !db.hasAnyUserWithRole('admin')) {
+  // Автопривязка/автоповышение до администратора: право «становиться
+  // админом в учёте времени» (canBecomeTtAdmin, настраивается на «Складе»
+  // в правах роли — см. storage/db.js/auth.js) — это именно ПРАВО, а не
+  // разовый бутстрап для первого зашедшего: применяем его при каждом
+  // заходе, пока текущий локальный профиль ещё не admin, — если профиля
+  // тут вообще не было, заводим его сразу как admin; если профиль уже
+  // существовал (например, раньше был обычным сотрудником), просто
+  // повышаем роль. Так право реально работает и для тех, кому его выдали
+  // уже после того, как их привязали к «Учёту времени» кем-то другим, а не
+  // только для самого первого входа в систему.
+  if (shared) {
     const perms = sharedAuth.permsFor(shared.role);
-    if (perms.canManageUsers) {
-      req.user = db.createUser({ role: 'admin', full_name: shared.display_name || shared.username, login: shared.username });
+    if (perms.canBecomeTtAdmin && (!req.user || req.user.role !== 'admin')) {
+      req.user = req.user
+        ? db.setUserRole(req.user.id, 'admin')
+        : db.createUser({ role: 'admin', full_name: shared.display_name || shared.username, login: shared.username });
     }
+  }
+
+  // Роль «Пост» на «Складе» существует ровно для одной задачи — показывать
+  // QR-код охраны здесь, в «Учёте времени» — и больше ничего не умеет (нет
+  // даже доступа к схеме склада, см. storage/server.js). Заводить профиль
+  // охранника вручную через /admin.html для каждого такого аккаунта было бы
+  // лишним шагом, поэтому привязываем его сюда автоматически, при первом же
+  // заходе, у КАЖДОГО аккаунта с этой ролью (а не только у первого, в
+  // отличие от админа выше — постов может быть несколько, по одному на
+  // каждую проходную).
+  if (shared && !req.user && shared.role === 'post') {
+    req.user = db.createUser({ role: 'guard', full_name: shared.display_name || shared.username, login: shared.username });
   }
   next();
 });
@@ -257,7 +274,7 @@ app.get('/api/guard-status', requireAuth('guard'), (req, res) => {
 // Личность сотрудника теперь определяется его сессией (после логина),
 // а не секретом в ссылке.
 
-app.post('/api/scan', requireAuth('employee'), (req, res) => {
+app.post('/api/scan', requireAuth(['employee', 'admin']), (req, res) => {
   const { payload } = req.body || {};
   if (!payload) {
     return res.status(400).json({ error: 'Некорректные данные запроса' });
@@ -324,7 +341,7 @@ function normalizeTimestamp(raw) {
 app.post('/api/logs', requireAuth('admin'), (req, res) => {
   const { employee_id, type, timestamp } = req.body || {};
   const employee = db.getUserById(employee_id);
-  if (!employee || employee.role !== 'employee') {
+  if (!employee || !db.isTimesheetRole(employee.role)) {
     return res.status(404).json({ error: 'Сотрудник не найден' });
   }
   if (type !== 'in' && type !== 'out') {
@@ -566,7 +583,7 @@ app.get('/api/timesheet-codes-grid', requireAuth('admin'), (req, res) => {
 app.post('/api/day-codes', requireAuth('admin'), (req, res) => {
   const { employee_id, date, code } = req.body || {};
   const employee = db.getUserById(employee_id);
-  if (!employee || employee.role !== 'employee') {
+  if (!employee || !db.isTimesheetRole(employee.role)) {
     return res.status(404).json({ error: 'Сотрудник не найден' });
   }
   if (!DATE_ONLY_RE.test(date || '')) {
@@ -583,7 +600,7 @@ app.post('/api/day-codes', requireAuth('admin'), (req, res) => {
 app.post('/api/day-codes/range', requireAuth('admin'), (req, res) => {
   const { employee_id, from, to, code } = req.body || {};
   const employee = db.getUserById(employee_id);
-  if (!employee || employee.role !== 'employee') {
+  if (!employee || !db.isTimesheetRole(employee.role)) {
     return res.status(404).json({ error: 'Сотрудник не найден' });
   }
   if (!DATE_ONLY_RE.test(from || '') || !DATE_ONLY_RE.test(to || '')) {
@@ -634,7 +651,7 @@ app.get('/api/schedule', requireAuth('admin'), (req, res) => {
 app.post('/api/schedule', requireAuth('admin'), (req, res) => {
   const { employee_id, date, shift } = req.body || {};
   const employee = db.getUserById(employee_id);
-  if (!employee || employee.role !== 'employee') {
+  if (!employee || !db.isTimesheetRole(employee.role)) {
     return res.status(404).json({ error: 'Сотрудник не найден' });
   }
   if (!DATE_ONLY_RE.test(date || '')) {
@@ -651,7 +668,7 @@ app.post('/api/schedule', requireAuth('admin'), (req, res) => {
 app.post('/api/schedule/range', requireAuth('admin'), (req, res) => {
   const { employee_id, from, to, shift } = req.body || {};
   const employee = db.getUserById(employee_id);
-  if (!employee || employee.role !== 'employee') {
+  if (!employee || !db.isTimesheetRole(employee.role)) {
     return res.status(404).json({ error: 'Сотрудник не найден' });
   }
   if (!DATE_ONLY_RE.test(from || '') || !DATE_ONLY_RE.test(to || '')) {

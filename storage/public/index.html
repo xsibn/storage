@@ -108,65 +108,14 @@
   header h1{
     font-size:16px; font-weight:700; margin:0; letter-spacing:.2px; white-space:nowrap;
   }
-  /* ---------- Меню разделов (Склад / Учёт времени / Задания) ---------- */
-  .app-menu{position:relative;}
-  .app-menu-toggle{
-    display:flex; align-items:center; gap:10px; background:none; border:none; cursor:pointer;
-    padding:6px 10px; margin:-6px -10px; border-radius:10px; transition:.12s; font:inherit; text-align:left;
+  h1.app-menu-toggle{
+    cursor:pointer; user-select:none; display:flex; align-items:center; border-radius:8px;
+    padding:4px 8px; margin:-4px -8px; transition:.12s;
   }
-  .app-menu-toggle:hover, .app-menu-toggle:focus-visible{background:var(--bg); outline:none;}
-  .app-menu-toggle h1{pointer-events:none;}
-  .app-menu-burger{
-    display:flex; flex-direction:column; justify-content:center; gap:4px; width:20px; height:20px; flex:none;
-  }
-  .app-menu-burger span{display:block; height:2px; border-radius:2px; background:var(--ink-soft); transition:.16s;}
-  .app-menu-burger span:nth-child(1){width:20px;}
-  .app-menu-burger span:nth-child(2){width:14px;}
-  .app-menu-burger span:nth-child(3){width:20px;}
-  .app-menu.open .app-menu-burger span:nth-child(1){transform:translateY(6px) rotate(45deg); width:20px;}
-  .app-menu.open .app-menu-burger span:nth-child(2){opacity:0;}
-  .app-menu.open .app-menu-burger span:nth-child(3){transform:translateY(-6px) rotate(-45deg); width:20px;}
-  .app-menu-toggle:hover .app-menu-burger span, .app-menu.open .app-menu-burger span{background:var(--accent);}
-  .app-menu-backdrop{position:fixed; inset:0; background:rgba(20,24,32,.35); z-index:60; display:none;}
-  .app-menu.open .app-menu-backdrop{display:block;}
-  .app-menu-panel{
-    position:absolute; top:calc(100% + 8px); left:0; min-width:240px; background:var(--panel);
-    border:1px solid var(--line); border-radius:14px; box-shadow:0 12px 32px rgba(0,0,0,.18);
-    padding:8px; z-index:61; display:none; flex-direction:column; gap:2px;
-  }
-  .app-menu.open .app-menu-panel{display:flex;}
-  .app-menu-panel-handle, .app-menu-panel-title{display:none;}
-  .app-menu-item{
-    display:flex; align-items:center; gap:12px; width:100%; border:none; background:none; cursor:pointer;
-    padding:10px 12px; border-radius:10px; text-align:left; font:inherit; color:var(--ink); transition:.1s;
-  }
-  .app-menu-item:hover{background:var(--bg);}
-  .app-menu-item:active{background:var(--line);}
-  .app-menu-item .ico{font-size:19px; flex:none; width:26px; text-align:center;}
-  .app-menu-item .txt{display:flex; flex-direction:column; gap:1px; min-width:0;}
-  .app-menu-item .txt b{font-size:14px; font-weight:600;}
-  .app-menu-item .txt small{font-size:12px; color:var(--ink-soft);}
-  .app-menu-item .tab-badge{margin-left:auto;}
-  @media (max-width:640px){
-    .app-menu-backdrop{z-index:120;}
-    .app-menu-panel{
-      position:fixed; top:auto; left:0; right:0; bottom:0; min-width:0; width:100%;
-      border-radius:18px 18px 0 0; border:1px solid var(--line); border-bottom:none;
-      box-shadow:0 -8px 28px rgba(0,0,0,.25); z-index:121; padding:8px 10px calc(14px + env(safe-area-inset-bottom,0px));
-      transform:translateY(100%); transition:transform .18s ease; display:flex;
-    }
-    .app-menu.open .app-menu-panel{transform:translateY(0);}
-    .app-menu-panel-handle{
-      display:block; width:36px; height:4px; border-radius:3px; background:var(--line); margin:6px auto 8px;
-    }
-    .app-menu-panel-title{
-      display:block; font-size:12px; font-weight:700; letter-spacing:.4px; text-transform:uppercase;
-      color:var(--ink-soft); padding:2px 12px 8px;
-    }
-    .app-menu-item{padding:13px 12px;}
-    .app-menu-item .ico{font-size:21px;}
-    .app-menu-item .txt b{font-size:15px;}
-  }
+  h1.app-menu-toggle:hover, h1.app-menu-toggle:focus-visible{background:var(--bg); color:var(--accent); outline:none;}
+  h1.app-menu-toggle .menu-caret{font-size:11px; color:var(--ink-soft); margin-left:6px; transition:transform .12s;}
+  #app-menu-dropdown.open h1.app-menu-toggle .menu-caret{transform:rotate(180deg);}
+  #app-menu-dropdown .dropdown-menu{left:0; right:auto; min-width:190px;}
   header h1 .tag{
     font-family:var(--mono); font-size:11px; color:var(--accent); background:var(--accent-soft);
     padding:2px 6px; border-radius:4px; margin-left:8px; vertical-align:middle;
@@ -1290,28 +1239,12 @@
   <div id="hint-banners"></div>
 
   <header>
-    <div class="app-menu" id="app-menu-dropdown">
-      <button type="button" class="app-menu-toggle" id="app-menu-toggle" aria-haspopup="true" aria-expanded="false" title="Разделы">
-        <span class="app-menu-burger"><span></span><span></span><span></span></span>
-        <h1>Адресное хранение <span class="tag" id="src-tag">подключение…</span></h1>
-      </button>
-      <div class="app-menu-backdrop" id="app-menu-backdrop"></div>
-      <div class="app-menu-panel" id="app-menu-menu">
-        <div class="app-menu-panel-handle"></div>
-        <div class="app-menu-panel-title">Разделы</div>
-        <button type="button" class="app-menu-item" id="app-menu-warehouse">
-          <span class="ico">📦</span>
-          <span class="txt"><b>Склад</b><small>Карта, таблица, зоны</small></span>
-        </button>
-        <button type="button" class="app-menu-item" id="app-menu-timetracker-item" style="display:none;">
-          <span class="ico">⏱</span>
-          <span class="txt"><b>Учёт времени</b><small>Смены, графики, отчёты</small></span>
-        </button>
-        <button type="button" class="app-menu-item" id="app-menu-tasks">
-          <span class="ico">🗒</span>
-          <span class="txt"><b>Задания</b><small>Поручения сотрудникам</small></span>
-          <span class="tab-badge" id="app-menu-tasks-badge" style="display:none;"></span>
-        </button>
+    <div class="dropdown" id="app-menu-dropdown">
+      <h1 class="app-menu-toggle" id="app-menu-toggle" tabindex="0" role="button" aria-haspopup="true" aria-expanded="false" title="Разделы">Адресное хранение <span class="tag" id="src-tag">подключение…</span><span class="menu-caret">▾</span></h1>
+      <div class="dropdown-menu" id="app-menu-menu">
+        <button type="button" id="app-menu-warehouse">📦 Склад</button>
+        <button type="button" id="app-menu-timetracker-item" style="display:none;">⏱ Учёт времени</button>
+        <button type="button" id="app-menu-tasks">🗒 Задания<span class="tab-badge" id="app-menu-tasks-badge" style="display:none;"></span></button>
       </div>
     </div>
     <div class="stats" id="stats"></div>
@@ -1632,6 +1565,8 @@
               <label style="display:flex; align-items:center; gap:6px; font-size:12px; font-weight:400;"><input type="checkbox" id="nr-perm-read-activity"> Видеть журнал</label>
               <label style="display:flex; align-items:center; gap:6px; font-size:12px; font-weight:400;"><input type="checkbox" id="nr-perm-tasks"> Ставить задания сотрудникам</label>
               <label style="display:flex; align-items:center; gap:6px; font-size:12px; font-weight:400;"><input type="checkbox" id="nr-perm-import"> Импортировать данные</label>
+              <label style="display:flex; align-items:center; gap:6px; font-size:12px; font-weight:400;"><input type="checkbox" id="nr-perm-tt-admin"> Становиться админом в учёте времени</label>
+              <label style="display:flex; align-items:center; gap:6px; font-size:12px; font-weight:400;"><input type="checkbox" id="nr-perm-warehouse" checked> Доступ к складу (схема, пикинг и т.д.)</label>
             </div>
             <div id="nr-error" class="full" style="display:none; color:var(--danger); font-size:12px;"></div>
             <button type="submit" class="btn primary full">+ Добавить роль</button>

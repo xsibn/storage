@@ -16,6 +16,30 @@ const db = require('./db');
 const auth = require('./auth');
 const push = require('./push');
 
+// «Учёт времени» — соседнее приложение (см. ../timetracker), запускается
+// вместе со «Складом» через общий gateway (см. ../gateway/server.js), но
+// теоретически «Склад» может быть развёрнут и отдельно от него — поэтому
+// require оборачиваем в try/catch и просто не показываем пометку об
+// аккаунте в учёте времени, если модуль недоступен, вместо падения сервера.
+const TIMETRACKER_DIR = process.env.TIMETRACKER_DIR || path.join(__dirname, '..', 'timetracker');
+let timetrackerDb = null;
+try {
+  timetrackerDb = require(path.join(TIMETRACKER_DIR, 'db'));
+} catch (err) {
+  timetrackerDb = null;
+}
+// Профиль в учёте времени привязывается по `login` = username общего
+// аккаунта (см. timetracker/db.js) — просто проверяем, существует ли там
+// такая привязка.
+function hasTimetrackerAccount(username) {
+  if (!timetrackerDb || !username) return false;
+  try {
+    return !!timetrackerDb.getUserByLogin(username);
+  } catch (err) {
+    return false;
+  }
+}
+
 const app = express();
 // За nginx (см. deploy/nginx.conf) — proxy_set_header X-Real-IP/X-Forwarded-For
 // уже проставляются там. Без этой строчки req.ip у Express всегда будет
@@ -88,6 +112,19 @@ app.use((req, res, next) => {
   if (!req.path.startsWith('/api/')) return next();
   if (req.path.startsWith('/api/auth/') || req.path === '/api/health') return next();
   return auth.requireAuth(req, res, next);
+});
+
+// Основной функционал склада (схема/раскладка, таблица записей, служебные
+// зоны, пикинг, импорт/экспорт) — отдельное право canAccessWarehouse. Без
+// него человек всё ещё может войти в «Склад» (например, увидеть свой
+// профиль, чаты, задания), но не сам склад — предполагается, что у него
+// есть доступ только к «Учёту времени» (см. роль «Пост» и, на фронтенде,
+// public/auth.js, который сразу уводит такого пользователя на /time/).
+const WAREHOUSE_API_PATHS = ['/api/records', '/api/settings', '/api/layout', '/api/zones', '/api/import', '/api/export'];
+app.use((req, res, next) => {
+  const isWarehousePath = WAREHOUSE_API_PATHS.some(p => req.path === p || req.path.startsWith(p + '/'));
+  if (!isWarehousePath) return next();
+  return auth.requirePerm('canAccessWarehouse')(req, res, next);
 });
 
 app.use(express.static(path.join(__dirname, 'public')));
@@ -802,7 +839,8 @@ app.get('/api/users', auth.requirePerm('canManageUsers'), (req, res) => {
       avatarUrl: u.avatar_path ? `/${u.avatar_path}` : null,
       lastLoginAt: u.last_login_at,
       lastSeenAt: u.last_seen_at,
-      online: auth.isOnline(u)
+      online: auth.isOnline(u),
+      hasTimetrackerAccount: hasTimetrackerAccount(u.username)
     }))
   });
 });
@@ -839,7 +877,7 @@ app.post('/api/users', auth.requirePerm('canManageUsers'), (req, res) => {
       passwordHash: auth.hashPassword(password),
       createdBy: req.user.username
     });
-    res.status(201).json({ user: auth.publicUser(created) });
+    res.status(201).json({ user: { ...auth.publicUser(created), hasTimetrackerAccount: hasTimetrackerAccount(created.username) } });
   } catch (err) {
     res.status(400).json({ error: err.message });
   }

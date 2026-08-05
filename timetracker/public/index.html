@@ -140,6 +140,11 @@ async function init() {
       </button>`;
   } else if (user.role === 'admin') {
     cards.innerHTML = `
+      <a class="badge-card tone-amber" href="/time/scan.html">
+        <div class="tab"></div><div class="glyph">📷</div>
+        <div class="body"><div class="t">Отметить приход/уход</div>
+        <div class="d">Сканировать QR-код на посту охраны</div></div>
+      </a>
       <a class="badge-card tone-amber" href="/time/admin.html">
         <div class="tab"></div><div class="glyph">👤</div>
         <div class="body"><div class="t">Сотрудники</div>

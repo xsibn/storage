@@ -151,6 +151,27 @@
   function applyUserToUI() {
     if (!currentUser) return;
     window.__currentUser = currentUser;
+
+    // Ссылка на «Учёт времени» — тот же домен, просто другой путь (/time/);
+    // считаем её раньше остального, т.к. дальше она нужна и для ссылки в
+    // меню, и для немедленного увода тех, у кого нет доступа к складу.
+    const ttUrl = window.__TIMETRACKER_PORT
+      ? `${location.protocol}//${location.hostname}:${window.__TIMETRACKER_PORT}/`
+      : '/time/';
+
+    // Без canAccessWarehouse человеку тут делать нечего (роль вроде «Пост»
+    // заведена только ради «Учёта времени») — сразу уводим его туда, не
+    // рисуя интерфейс склада. Сервисный аккаунт не проверяем отдельно: у
+    // него это право всегда включено (см. DEFAULT_ROLES в storage/db.js).
+    // Роль «Пост» ведём сразу на страницу QR-кода охраны — ей больше
+    // никакие другие страницы «Учёта времени» не нужны; профиль охранника
+    // там заводится автоматически при первом заходе (см. timetracker/server.js),
+    // отдельно привязывать аккаунт не нужно.
+    if (!currentUser.perms.canAccessWarehouse) {
+      location.replace(currentUser.role === 'post' ? ttUrl + 'guard.html' : ttUrl);
+      return;
+    }
+
     const label = currentUser.displayName || currentUser.username;
     const avatar = $('profile-avatar');
     applyAvatarTo(avatar, label, currentUser.avatarUrl);
@@ -166,14 +187,11 @@
     $('pp-manage-users').style.display = currentUser.perms.canManageUsers ? '' : 'none';
     $('pp-avatar-remove-btn').style.display = currentUser.avatarUrl ? '' : 'none';
 
-    // Ссылка на «Учёт времени» — теперь тот же домен, просто другой путь
-    // (/time/); при полном слиянии в один процесс (см. merged/gateway) это
-    // предпочтительнее старой схемы "тот же хост, другой порт", т.к. не
-    // требует объяснять браузеру дополнительный TCP-порт. Cookie сессии
-    // общая, повторный вход не нужен.
-    const ttUrl = window.__TIMETRACKER_PORT
-      ? `${location.protocol}//${location.hostname}:${window.__TIMETRACKER_PORT}/`
-      : '/time/';
+    // Ссылка на «Учёт времени» (ttUrl уже вычислен выше) — теперь тот же
+    // домен, просто другой путь (/time/); при полном слиянии в один процесс
+    // (см. merged/gateway) это предпочтительнее старой схемы "тот же хост,
+    // другой порт", т.к. не требует объяснять браузеру дополнительный
+    // TCP-порт. Cookie сессии общая, повторный вход не нужен.
     const ttLink = $('timetracker-link');
     if (ttLink) { ttLink.href = ttUrl; ttLink.style.display = ''; }
     const ttLinkMobile = $('bn-timetracker-link');
@@ -447,7 +465,7 @@
       <div class="u-info">
         <div class="u-view">
           <div class="u-name">${escHtml(label)}${isSelf ? ' <span style="color:var(--ink-soft); font-weight:400;">(вы)</span>' : ''}</div>
-          <div class="u-login">@${escHtml(u.username)}</div>
+          <div class="u-login">@${escHtml(u.username)}${!isService ? `<span class="tt-account-badge" style="margin-left:8px; font-size:10.5px; padding:2px 7px; border-radius:999px; ${u.hasTimetrackerAccount ? 'background:var(--accent-soft); color:var(--accent);' : 'background:var(--panel-soft, #eee); color:var(--ink-soft);'}" title="${u.hasTimetrackerAccount ? 'Есть аккаунт в учёте времени' : 'Нет аккаунта в учёте времени'}">${u.hasTimetrackerAccount ? '⏱ есть в учёте времени' : '⏱ нет в учёте времени'}</span>` : ''}</div>
           <div class="u-status"><span class="u-status-dot${u.online ? ' online' : ''}"></span>${escHtml(formatLastSeen(u))}</div>
         </div>
         <div class="u-edit">
@@ -667,7 +685,9 @@
       ['canManageActivity', 'Очищать журнал и отменять действия'],
       ['canReadActivity', 'Видеть журнал (чтение)'],
       ['canManageTasks', 'Ставить задания сотрудникам'],
-      ['canImportData', 'Импортировать данные (загружать новый файл)']
+      ['canImportData', 'Импортировать данные (загружать новый файл)'],
+      ['canBecomeTtAdmin', 'Становиться админом в учёте времени'],
+      ['canAccessWarehouse', 'Доступ к складу (схема, пикинг и т.д.)']
     ];
     return rows.map(([key, label]) => `
       <label style="display:flex; align-items:center; gap:6px; font-size:12px; font-weight:400; padding:4px 0;">
@@ -778,7 +798,9 @@
         canManageActivity: $('nr-perm-manage-activity').checked,
         canReadActivity: $('nr-perm-read-activity').checked,
         canManageTasks: $('nr-perm-tasks').checked,
-        canImportData: $('nr-perm-import').checked
+        canImportData: $('nr-perm-import').checked,
+        canBecomeTtAdmin: $('nr-perm-tt-admin').checked,
+        canAccessWarehouse: $('nr-perm-warehouse').checked
       };
       try {
         const res = await fetch(API_BASE + '/api/roles', {
