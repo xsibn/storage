@@ -148,18 +148,30 @@ function hasAnyUserWithRole(role) {
   return state.users.some(u => u.role === role);
 }
 
+// «Учётный» сотрудник для табеля/графика/должностей — обычный сотрудник, а
+// также администратор: он тоже отмечается на посту охраны (см.
+// requireAuth(['employee','admin']) у /api/scan в server.js), поэтому его
+// часы должны так же попадать в табель, а ему самому — можно назначить
+// должность и график, как любому сотруднику. Охранников (role='guard') сюда
+// не включаем — они не отмечаются через /api/scan и в табеле не участвуют.
+function isTimesheetRole(role) {
+  return role === 'employee' || role === 'admin';
+}
+
 function listEmployees() {
   return state.users
-    .filter(u => u.role === 'employee')
+    .filter(u => isTimesheetRole(u.role))
     .slice()
     .sort((a, b) => b.id - a.id);
 }
 
 // Админ задаёт должности сотрудника (можно несколько — совмещение) и график
 // каждой из них. Сам сотрудник это не выбирает — аккаунты и должности
-// целиком в ведении администратора.
+// целиком в ведении администратора. Себе (role='admin') должность может
+// назначить точно так же — это нужно, чтобы его часы корректно считались
+// в табеле (дневная/ночная смена определяется должностью).
 function updateEmployeePositions(id, positions) {
-  const user = state.users.find(u => u.id === Number(id) && u.role === 'employee');
+  const user = state.users.find(u => u.id === Number(id) && isTimesheetRole(u.role));
   if (!user) return null;
   user.positions = normalizePositions(positions);
   persist();
@@ -184,7 +196,7 @@ function employeeCategory(user) {
 }
 
 function setEmployeeActive(id, active) {
-  const user = state.users.find(u => u.id === Number(id) && u.role === 'employee');
+  const user = state.users.find(u => u.id === Number(id) && isTimesheetRole(u.role));
   if (user) {
     user.active = active ? 1 : 0;
     persist();
@@ -195,6 +207,10 @@ function setEmployeeActive(id, active) {
 // прошлые периоды не трогаем — они остаются историческими записями (в
 // журнале и экспорте сотрудник просто перестаёт числиться в списке
 // активных, но его прошлые смены никуда не пропадают).
+// Администратора этим методом удалить нельзя — только через смену роли
+// (см. canBecomeTtAdmin/db.setUserRole), это осознанное ограничение, а не
+// недосмотр: «Сотрудники» — про управление профилями-подчинёнными, а не
+// про самого себя.
 function deleteEmployee(id) {
   const idx = state.users.findIndex(u => u.id === Number(id) && u.role === 'employee');
   if (idx === -1) return false;
@@ -464,6 +480,7 @@ module.exports = {
   hasAnyUserWithRole,
 
   listEmployees,
+  isTimesheetRole,
   setEmployeeActive,
   deleteEmployee,
   updateEmployeePositions,
