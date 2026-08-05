@@ -3411,6 +3411,7 @@
   // виден всегда, просто уменьшается по ширине на маленьких экранах.
   const appMenuDropdown = document.getElementById('app-menu-dropdown');
   const appMenuToggle = document.getElementById('app-menu-toggle');
+  const appMenuBackdrop = document.getElementById('app-menu-backdrop');
   function setAppMenuOpen(open){
     appMenuDropdown.classList.toggle('open', open);
     appMenuToggle.setAttribute('aria-expanded', open ? 'true' : 'false');
@@ -3419,8 +3420,9 @@
     e.stopPropagation();
     setAppMenuOpen(!appMenuDropdown.classList.contains('open'));
   });
-  appMenuToggle.addEventListener('keydown', (e)=>{
-    if(e.key === 'Enter' || e.key === ' '){ e.preventDefault(); appMenuToggle.click(); }
+  appMenuBackdrop.addEventListener('click', ()=> setAppMenuOpen(false));
+  document.addEventListener('keydown', (e)=>{
+    if(e.key === 'Escape' && appMenuDropdown.classList.contains('open')) setAppMenuOpen(false);
   });
   document.addEventListener('click', (e)=>{
     if(appMenuDropdown.classList.contains('open') && !appMenuDropdown.contains(e.target)){

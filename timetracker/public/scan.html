@@ -56,7 +56,7 @@ fetch('/time/api/config').then(r=>r.json()).then(cfg=>{const el=document.getElem
     const resp = await fetch('/time/api/auth/me');
     if (!resp.ok) { location.href = '/time/login.html'; return; }
     const user = await resp.json();
-    if (user.role !== 'employee' && user.role !== 'admin') { location.href = '/time/login.html'; return; }
+    if (user.role !== 'employee') { location.href = '/time/login.html'; return; }
 
     app.innerHTML = `
       <header class="app-header" style="width:100%;max-width:380px;margin-bottom:8px;">
