@@ -115,7 +115,64 @@
   h1.app-menu-toggle:hover, h1.app-menu-toggle:focus-visible{background:var(--bg); color:var(--accent); outline:none;}
   h1.app-menu-toggle .menu-caret{font-size:11px; color:var(--ink-soft); margin-left:6px; transition:transform .12s;}
   #app-menu-dropdown.open h1.app-menu-toggle .menu-caret{transform:rotate(180deg);}
-  #app-menu-dropdown .dropdown-menu{left:0; right:auto; min-width:190px;}
+
+  /* ============ ХАБ РАЗДЕЛОВ ("Склад / Учёт времени / Задания") ============
+     Не мелкий дропдаун под заголовком, а отдельный полноэкранный экран-
+     переключатель: тёмная подложка + карточка по центру на десктопе,
+     шторка снизу (bottom sheet) на телефоне — привычный мобильный паттерн
+     вместо крошечного меню, по которому неудобно попадать пальцем. */
+  #app-menu-backdrop{
+    display:none; position:fixed; inset:0; z-index:98; background:rgba(15,19,28,.46);
+    opacity:0; transition:opacity .18s ease;
+  }
+  #app-menu-dropdown.open #app-menu-backdrop{display:block; opacity:1;}
+  #app-menu-menu.menu-cards{
+    display:none; position:fixed; z-index:99; left:50%; top:50%;
+    transform:translate(-50%,-46%) scale(.97); transform-origin:center;
+    width:min(380px, calc(100% - 32px)); min-width:0; padding:10px;
+    opacity:0; transition:opacity .16s ease, transform .16s ease;
+    max-height:min(560px, calc(100vh - 60px)); overflow-y:auto; border-radius:16px;
+    box-shadow:0 24px 60px rgba(16,24,40,.28), 0 4px 18px rgba(16,24,40,.14);
+  }
+  #app-menu-dropdown.open #app-menu-menu.menu-cards{display:block; opacity:1; transform:translate(-50%,-50%) scale(1);}
+  .hub-head{
+    display:flex; align-items:center; justify-content:space-between;
+    padding:4px 6px 10px; margin-bottom:4px; border-bottom:1px solid var(--line);
+  }
+  .hub-head-t{font-size:11.5px; font-weight:700; text-transform:uppercase; letter-spacing:.5px; color:var(--ink-soft);}
+  .hub-close{
+    width:28px; height:28px; border-radius:8px; border:none; background:var(--bg); color:var(--ink-soft);
+    font-size:14px; line-height:1; cursor:pointer; display:flex; align-items:center; justify-content:center; flex-shrink:0;
+  }
+  .hub-close:hover{background:var(--line); color:var(--ink);}
+
+  #app-menu-menu.menu-cards .menu-card{
+    display:flex; align-items:center; gap:12px; width:100%; box-sizing:border-box;
+    padding:13px 14px 13px 11px; border-radius:12px; margin-bottom:5px;
+    border:1px solid transparent; background:none; text-align:left; cursor:pointer; font-family:var(--sans);
+    transition:.1s;
+  }
+  #app-menu-menu.menu-cards .menu-card:last-child{margin-bottom:0;}
+  #app-menu-menu.menu-cards .menu-card:hover{background:var(--bg); border-color:var(--line);}
+  #app-menu-menu.menu-cards .menu-card:active{transform:scale(.98);}
+  #app-menu-menu.menu-cards .menu-card.current{background:var(--accent-soft); border-color:var(--accent);}
+  #app-menu-menu.menu-cards .menu-card .mc-tab{
+    width:3px; align-self:stretch; border-radius:3px; background:var(--accent); flex-shrink:0;
+  }
+  #app-menu-menu.menu-cards .menu-card.tone-multi .mc-tab{background:var(--multi);}
+  #app-menu-menu.menu-cards .menu-card.tone-good .mc-tab{background:var(--good);}
+  #app-menu-menu.menu-cards .menu-card .mc-glyph{
+    width:40px; height:40px; border-radius:11px; flex-shrink:0; font-size:18px;
+    display:flex; align-items:center; justify-content:center; background:var(--bg); border:1px solid var(--line);
+  }
+  #app-menu-menu.menu-cards .menu-card .mc-body{flex:1; min-width:0;}
+  #app-menu-menu.menu-cards .menu-card .mc-t{font-size:14px; font-weight:700; color:var(--ink); display:flex; align-items:center; gap:6px;}
+  #app-menu-menu.menu-cards .menu-card .mc-d{font-size:12px; color:var(--ink-soft); margin-top:2px; line-height:1.35;}
+  #app-menu-menu.menu-cards .menu-card .mc-current-badge{
+    font-size:9.5px; font-weight:700; color:var(--accent); background:var(--panel); border:1px solid var(--accent);
+    padding:2px 7px; border-radius:999px; flex-shrink:0; white-space:nowrap;
+  }
+  body.hub-open{overflow:hidden;}
   header h1 .tag{
     font-family:var(--mono); font-size:11px; color:var(--accent); background:var(--accent-soft);
     padding:2px 6px; border-radius:4px; margin-left:8px; vertical-align:middle;
@@ -744,6 +801,24 @@
 
   /* ============ RESPONSIVE (tablet / phone) ============ */
   @media (max-width: 860px){
+    /* Хаб разделов на телефоне: не центральная карточка, а шторка снизу —
+       её удобнее раскрывать и закрывать пальцем, и она не наезжает на
+       нижнюю панель навигации визуально теряясь по центру мелкого экрана. */
+    #app-menu-menu.menu-cards{
+      left:0; right:0; top:auto; bottom:0; width:100%;
+      transform:translateY(100%); border-radius:18px 18px 0 0;
+      max-height:78vh; padding:6px 12px calc(12px + env(safe-area-inset-bottom));
+      box-shadow:0 -10px 34px rgba(16,24,40,.28);
+    }
+    #app-menu-dropdown.open #app-menu-menu.menu-cards{transform:translateY(0);}
+    #app-menu-menu.menu-cards::before{
+      content:""; display:block; width:36px; height:4px; border-radius:3px;
+      background:var(--line); margin:8px auto 4px;
+    }
+    #app-menu-menu.menu-cards .menu-card{padding:16px 14px; margin-bottom:6px;}
+    #app-menu-menu.menu-cards .menu-card .mc-glyph{width:46px; height:46px; font-size:21px; border-radius:13px;}
+    #app-menu-menu.menu-cards .menu-card .mc-t{font-size:15px;}
+    #app-menu-menu.menu-cards .menu-card .mc-d{font-size:12.5px;}
     #app{padding:10px 12px 16px; gap:10px;}
     header{padding:10px 12px; gap:8px 12px; border-radius:10px;}
     .actions-bar{padding:8px 12px; border-radius:10px;}
@@ -1241,10 +1316,39 @@
   <header>
     <div class="dropdown" id="app-menu-dropdown">
       <h1 class="app-menu-toggle" id="app-menu-toggle" tabindex="0" role="button" aria-haspopup="true" aria-expanded="false" title="Разделы">Адресное хранение <span class="tag" id="src-tag">подключение…</span><span class="menu-caret">▾</span></h1>
-      <div class="dropdown-menu" id="app-menu-menu">
-        <button type="button" id="app-menu-warehouse">📦 Склад</button>
-        <button type="button" id="app-menu-timetracker-item" style="display:none;">⏱ Учёт времени</button>
-        <button type="button" id="app-menu-tasks">🗒 Задания<span class="tab-badge" id="app-menu-tasks-badge" style="display:none;"></span></button>
+      <div id="app-menu-backdrop"></div>
+      <div class="dropdown-menu menu-cards" id="app-menu-menu" role="dialog" aria-modal="true" aria-label="Разделы">
+        <div class="hub-head">
+          <span class="hub-head-t">Разделы</span>
+          <button type="button" class="hub-close" id="app-menu-close" aria-label="Закрыть">✕</button>
+        </div>
+        <button type="button" class="menu-card" id="app-menu-warehouse" data-hub-section="warehouse">
+          <span class="mc-tab"></span>
+          <span class="mc-glyph">📦</span>
+          <span class="mc-body">
+            <span class="mc-t">Склад</span>
+            <span class="mc-d">Схема, таблица, зоны, пикинг</span>
+          </span>
+          <span class="mc-current-badge" style="display:none;">Открыто</span>
+        </button>
+        <button type="button" class="menu-card tone-good" id="app-menu-timetracker-item" data-hub-section="time" style="display:none;">
+          <span class="mc-tab"></span>
+          <span class="mc-glyph">⏱</span>
+          <span class="mc-body">
+            <span class="mc-t">Учёт времени</span>
+            <span class="mc-d">Приход/уход, табель, графики</span>
+          </span>
+          <span class="mc-current-badge" style="display:none;">Открыто</span>
+        </button>
+        <button type="button" class="menu-card tone-multi" id="app-menu-tasks" data-hub-section="tasks">
+          <span class="mc-tab"></span>
+          <span class="mc-glyph">🗒</span>
+          <span class="mc-body">
+            <span class="mc-t">Задания<span class="tab-badge" id="app-menu-tasks-badge" style="display:none;"></span></span>
+            <span class="mc-d">Ваши и командные задания</span>
+          </span>
+          <span class="mc-current-badge" style="display:none;">Открыто</span>
+        </button>
       </div>
     </div>
     <div class="stats" id="stats"></div>

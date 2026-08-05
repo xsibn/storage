@@ -3242,8 +3242,10 @@
   const WAREHOUSE_VIEWS = ['map', 'table', 'zones', 'reco'];
   const FULLSCREEN_VIEWS = ['tasks', 'accounts', 'chats']; // разделы вроде "Задания"/"Аккаунты"/"Чаты" — на телефоне занимают весь экран, без вкладок склада
   let lastWarehouseView = 'map'; // склад: какую под-вкладку показать при возврате из "Задания"/"Аккаунтов"
+  let currentActiveView = 'map'; // используется хабом разделов, чтобы подсветить "Открыто" на нужной карточке
 
   function activateView(view){
+    currentActiveView = view;
     document.querySelectorAll('nav.tabs button').forEach(b=>b.classList.toggle('active', b.dataset.view === view));
     document.querySelectorAll('.view').forEach(v=>v.classList.remove('active'));
     document.getElementById('view-'+view).classList.add('active');
@@ -3411,9 +3413,28 @@
   // виден всегда, просто уменьшается по ширине на маленьких экранах.
   const appMenuDropdown = document.getElementById('app-menu-dropdown');
   const appMenuToggle = document.getElementById('app-menu-toggle');
+  const appMenuBackdrop = document.getElementById('app-menu-backdrop');
+  const appMenuClose = document.getElementById('app-menu-close');
   function setAppMenuOpen(open){
     appMenuDropdown.classList.toggle('open', open);
     appMenuToggle.setAttribute('aria-expanded', open ? 'true' : 'false');
+    // Хаб теперь полноэкранный (по центру на десктопе, шторка снизу на
+    // телефоне) — блокируем скролл фона, пока он открыт, как у любого
+    // полноэкранного диалога.
+    document.body.classList.toggle('hub-open', open);
+    if(open) updateHubCurrentSection();
+  }
+  // Подсвечиваем карточку текущего раздела бейджем "Открыто" — в
+  // полноэкранном хабе это в один клик подсказывает, где ты сейчас,
+  // ещё до выбора пункта.
+  function updateHubCurrentSection(){
+    const current = FULLSCREEN_VIEWS.includes(currentActiveView) ? currentActiveView : 'warehouse';
+    document.querySelectorAll('#app-menu-menu .menu-card').forEach(card=>{
+      const isCurrent = card.dataset.hubSection === current;
+      card.classList.toggle('current', isCurrent);
+      const badge = card.querySelector('.mc-current-badge');
+      if(badge) badge.style.display = isCurrent ? '' : 'none';
+    });
   }
   appMenuToggle.addEventListener('click', (e)=>{
     e.stopPropagation();
@@ -3421,6 +3442,11 @@
   });
   appMenuToggle.addEventListener('keydown', (e)=>{
     if(e.key === 'Enter' || e.key === ' '){ e.preventDefault(); appMenuToggle.click(); }
+  });
+  if(appMenuClose) appMenuClose.addEventListener('click', (e)=>{ e.stopPropagation(); setAppMenuOpen(false); });
+  if(appMenuBackdrop) appMenuBackdrop.addEventListener('click', ()=> setAppMenuOpen(false));
+  document.addEventListener('keydown', (e)=>{
+    if(e.key === 'Escape' && appMenuDropdown.classList.contains('open')) setAppMenuOpen(false);
   });
   document.addEventListener('click', (e)=>{
     if(appMenuDropdown.classList.contains('open') && !appMenuDropdown.contains(e.target)){
