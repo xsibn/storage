@@ -193,12 +193,12 @@
        ниже вынесены в position:fixed — самостоятельный блок над шапкой. */
     #app-menu-menu.menu-cards{
       display:flex !important; position:fixed; z-index:70; left:50%; top:14px;
-      transform:translateX(-50%); width:auto; min-width:0; opacity:1;
+      transform:translateX(-50%); width:calc(100% - 40px); max-width:1400px; min-width:0; opacity:1;
       max-height:none; overflow:visible;
       padding:6px; margin:0; border-radius:14px;
       background:var(--panel); border:1px solid var(--line);
       box-shadow:0 1px 3px rgba(16,24,40,.05), 0 1px 2px rgba(16,24,40,.06);
-      flex-wrap:nowrap; gap:4px;
+      flex-wrap:nowrap; gap:4px; box-sizing:border-box;
     }
     .hub-head{display:none;}
     #app-menu-menu.menu-cards .menu-card{
@@ -214,11 +214,14 @@
     /* «Журнал» и виджет аккаунта переезжают сюда же (см. app.js —
        placeMenuExtras переносит эти же DOM-узлы, а не дублирует их, так что
        все существующие обработчики и обновление имени/аватара работают без
-       изменений). Разделитель показывается только когда слот не пуст — на
-       мобильном JS держит его пустым, перенося узлы обратно в шапку. */
-    #menu-extra-slot{display:flex; align-items:center; gap:2px;}
+       изменений). Слот прижимается к правому краю панели (margin-left:auto),
+       а не липнет вплотную к карточкам разделов слева — панель теперь на
+       всю ширину страницы (см. правило выше), так что свободное место есть.
+       Разделитель показывается только когда слот не пуст — на мобильном JS
+       держит его пустым, перенося узлы обратно в шапку. */
+    #menu-extra-slot{display:flex; align-items:center; gap:2px; margin-left:auto;}
     #menu-extra-slot:not(:empty)::before{
-      content:''; width:1px; align-self:stretch; margin:0 6px; background:var(--line);
+      content:''; width:1px; align-self:stretch; margin:0 10px; background:var(--line);
     }
     #menu-extra-slot #activity-log-btn{
       padding:7px 12px; border-radius:9px; font-size:13px; white-space:nowrap;
