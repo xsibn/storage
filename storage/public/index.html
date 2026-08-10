@@ -916,39 +916,39 @@
     body{padding-bottom:calc(70px + env(safe-area-inset-bottom));}
     .bottom-nav{
       display:flex; position:fixed; left:50%; bottom:calc(14px + env(safe-area-inset-bottom));
-      transform:translateX(-50%); z-index:60; width:max-content; max-width:calc(100% - 24px);
+      transform:translateX(-50%); z-index:60; width:max-content; max-width:calc(100% - 16px);
       background:var(--panel);
       background:color-mix(in srgb, var(--panel) 92%, transparent);
       backdrop-filter:blur(14px); -webkit-backdrop-filter:blur(14px);
       border:1px solid var(--line); border-radius:999px;
-      padding:6px; gap:1px; box-shadow:0 8px 28px rgba(16,24,40,.18), 0 2px 8px rgba(16,24,40,.08);
+      padding:5px; gap:0px; box-shadow:0 8px 28px rgba(16,24,40,.18), 0 2px 8px rgba(16,24,40,.08);
       overflow-x:auto; -webkit-overflow-scrolling:touch; scrollbar-width:none;
     }
     .bottom-nav::-webkit-scrollbar{display:none;}
     .bn-btn{
-      display:flex; align-items:center; justify-content:center; gap:6px;
-      padding:10px; border:none; background:none; border-radius:999px;
+      display:flex; align-items:center; justify-content:center; gap:3px;
+      padding:8px; border:none; background:none; border-radius:999px;
       color:var(--ink-soft); font-family:var(--sans); position:relative; cursor:pointer;
       transition:.16s; text-decoration:none; flex-shrink:0;
     }
     .bn-btn.active{
-      color:var(--accent); background:var(--accent-soft); padding:10px 15px 10px 12px;
+      color:var(--accent); background:var(--accent-soft); padding:8px 12px 8px 9px;
     }
-    .bn-icon{font-size:19px; line-height:1; position:relative; display:inline-block;}
+    .bn-icon{font-size:17px; line-height:1; position:relative; display:inline-block;}
     /* Аватар в кнопке "Профиль" нижней панели — та же аватарка, что раньше
        висела рядом с заголовком в шапке (там она теперь скрыта на телефоне
        вместе со шторкой "Разделы"), просто уменьшенная под иконку. */
     .bn-avatar{
-      width:22px; height:22px; border-radius:50%; background:var(--accent-soft) center/cover no-repeat;
+      width:20px; height:20px; border-radius:50%; background:var(--accent-soft) center/cover no-repeat;
       display:flex; align-items:center; justify-content:center;
-      font-size:10px; font-weight:700; color:var(--accent); text-transform:uppercase;
+      font-size:9.5px; font-weight:700; color:var(--accent); text-transform:uppercase;
       flex-shrink:0;
     }
     .bn-label{
-      font-size:12px; font-weight:700; max-width:0; overflow:hidden; white-space:nowrap;
-      opacity:0; transition:max-width .16s, opacity .12s;
+      font-size:10.5px; font-weight:700; max-width:0; overflow:hidden; white-space:nowrap;
+      text-overflow:ellipsis; opacity:0; transition:max-width .16s, opacity .12s;
     }
-    .bn-btn.active .bn-label{max-width:80px; opacity:1;}
+    .bn-btn.active .bn-label{max-width:62px; opacity:1;}
     .bn-badge{
       position:absolute; top:2px; right:2px; min-width:16px; height:16px; padding:0 4px;
       border-radius:999px; background:var(--danger); color:#fff; font-size:10px; font-weight:700;
