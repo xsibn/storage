@@ -3440,10 +3440,10 @@
   const isDesktopHub = ()=> window.matchMedia('(min-width:861px)').matches;
   appMenuToggle.addEventListener('click', (e)=>{
     e.stopPropagation();
-    // На десктопе разделы уже показаны строкой в шапке (см. CSS) —
-    // модалку открывать не нужно, заголовок там просто подпись.
-    if(isDesktopHub()) return;
-    setAppMenuOpen(!appMenuDropdown.classList.contains('open'));
+    // На десктопе разделы уже показаны строкой в шапке, а на телефоне —
+    // нижней панелью навигации; в обоих случаях модалка-шторка "Разделы"
+    // больше не нужна, заголовок в шапке просто статичная подпись.
+    return;
   });
   appMenuToggle.addEventListener('keydown', (e)=>{
     if(e.key === 'Enter' || e.key === ' '){ e.preventDefault(); appMenuToggle.click(); }

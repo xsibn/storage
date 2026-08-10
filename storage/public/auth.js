@@ -181,6 +181,11 @@
     $('profile-name').textContent = label;
     $('profile-role').textContent = currentUser.roleLabel;
 
+    // Аватарка в кнопке "Профиль" нижней панели (телефон) — та же картинка/
+    // инициалы, что и в скрытом на телефоне виджете шапки выше.
+    const bnAvatar = $('bn-profile-avatar');
+    if (bnAvatar) applyAvatarTo(bnAvatar, label, currentUser.avatarUrl);
+
     applyAvatarTo($('pp-avatar'), label, currentUser.avatarUrl);
     $('pp-name').textContent = label;
     $('pp-role').textContent = currentUser.roleLabel;
