@@ -442,7 +442,7 @@
   async function deleteSelectedRows(){
     const rows = Array.from(rowSelection).sort();
     if(!rows.length) return;
-    if(!confirm(`Удалить выбранные ряды (${rows.join(', ')})? Это возможно только для рядов без товара. Действие необратимо.`)) return;
+    if(!(await confirmDialog(`Удалить выбранные ряды (${rows.join(', ')})? Это возможно только для рядов без товара. Действие необратимо.`, { title: 'Удаление рядов', okLabel: 'Удалить', danger: true }))) return;
     progressStart('Удаление рядов…');
     const failed = [];
     for(const row of rows){
@@ -562,7 +562,11 @@
   }
 
   async function swapAisles(rowA, rowB){
-    if(!confirm(`Поменять местами весь товар ряда ${rowA} и ряда ${rowB}? Это затронет все ячейки обоих рядов и сохранится сразу для всех.`)) return;
+    const ok = await confirmDialog(
+      `Поменять местами весь товар ряда ${rowA} и ряда ${rowB}? Это затронет все ячейки обоих рядов и сохранится сразу для всех.`,
+      { title: 'Обмен рядами', okLabel: 'Поменять местами', icon: '⇄' }
+    );
+    if(!ok) return;
     setSyncStatus('обмен рядами…');
     progressStart(`Обмен рядами ${rowA} ⇄ ${rowB}…`);
     try{
@@ -589,7 +593,11 @@
   let dragSourceRack = null;
 
   async function swapRacks(row, rackA, rackB){
-    if(!confirm(`Поменять местами стеллаж ${rackA} и стеллаж ${rackB} в ряду ${row}? Затронет все ярусы обоих стеллажей.`)) return;
+    const ok = await confirmDialog(
+      `Поменять местами стеллаж ${rackA} и стеллаж ${rackB} в ряду ${row}? Затронет все ярусы обоих стеллажей.`,
+      { title: 'Обмен стеллажами', okLabel: 'Поменять местами', icon: '⇄' }
+    );
+    if(!ok) return;
     setSyncStatus('обмен стеллажами…');
     progressStart(`Обмен стеллажами ${rackA} ⇄ ${rackB}…`);
     try{
@@ -822,6 +830,50 @@
   document.getElementById('modal-close').addEventListener('click', closeModal);
   document.getElementById('modal-backdrop').addEventListener('click', (e)=>{
     if(e.target.id==='modal-backdrop') closeModal();
+  });
+
+  // ---------- КАСТОМНОЕ ОКНО ПОДТВЕРЖДЕНИЯ (замена confirm()) ----------
+  // confirmDialog(text, {title, okLabel, cancelLabel, danger}) → Promise<boolean>.
+  // Отдельный оверлей поверх #modal-backdrop (z-index выше), поэтому спокойно
+  // работает и как самостоятельное окно, и поверх уже открытой модалки.
+  const confirmBackdropEl = document.getElementById('confirm-backdrop');
+  const confirmBoxEl = document.getElementById('confirm-box');
+  const confirmTitleEl = document.getElementById('confirm-title');
+  const confirmTextEl = document.getElementById('confirm-text');
+  const confirmOkBtn = document.getElementById('confirm-ok-btn');
+  const confirmCancelBtn = document.getElementById('confirm-cancel-btn');
+  let confirmResolve = null;
+  function settleConfirm(result){
+    if(!confirmResolve) return;
+    confirmBackdropEl.classList.remove('open');
+    const resolve = confirmResolve;
+    confirmResolve = null;
+    resolve(result);
+  }
+  function confirmDialog(text, opts){
+    opts = opts || {};
+    return new Promise(resolve => {
+      confirmResolve = resolve;
+      confirmTitleEl.textContent = opts.title || 'Подтверждение';
+      confirmTextEl.textContent = text;
+      confirmOkBtn.textContent = opts.okLabel || 'ОК';
+      confirmCancelBtn.textContent = opts.cancelLabel || 'Отмена';
+      confirmIconEl.textContent = opts.icon || (opts.danger ? '⚠' : '❔');
+      confirmBoxEl.classList.toggle('danger', !!opts.danger);
+      confirmBackdropEl.classList.add('open');
+      confirmOkBtn.focus();
+    });
+  }
+  const confirmIconEl = document.getElementById('confirm-icon');
+  confirmOkBtn.addEventListener('click', ()=> settleConfirm(true));
+  confirmCancelBtn.addEventListener('click', ()=> settleConfirm(false));
+  confirmBackdropEl.addEventListener('click', (e)=>{
+    if(e.target.id==='confirm-backdrop') settleConfirm(false);
+  });
+  document.addEventListener('keydown', (e)=>{
+    if(!confirmBackdropEl.classList.contains('open')) return;
+    if(e.key==='Escape') settleConfirm(false);
+    else if(e.key==='Enter') settleConfirm(true);
   });
 
   function escHtml(s){ return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
@@ -1175,7 +1227,7 @@
     const msg = isLatest
       ? 'Отменить это действие?'
       : 'Это не последнее действие в журнале — после него были и другие изменения. Если они затрагивали те же записи, отмена может дать неожиданный результат. Всё равно отменить?';
-    if(!confirm(msg)) return;
+    if(!(await confirmDialog(msg, { title: 'Отмена действия', okLabel: 'Отменить действие', icon: '↺' }))) return;
     progressStart('Отмена действия…');
     try{
       const res = await fetch(`${API_BASE}/api/activity/${id}/undo`, { method:'POST' });
@@ -1192,7 +1244,7 @@
     }
   }
   async function deleteActivityEntry(id){
-    if(!confirm('Удалить эту запись из журнала? Само действие отменено не будет.')) return;
+    if(!(await confirmDialog('Удалить эту запись из журнала? Само действие отменено не будет.', { title: 'Удаление записи журнала', okLabel: 'Удалить', icon: '🗑' }))) return;
     try{
       const res = await fetch(`${API_BASE}/api/activity/${id}`, { method:'DELETE' });
       const payload = await res.json().catch(()=>({}));
@@ -1203,7 +1255,7 @@
     }
   }
   async function clearActivityLog(){
-    if(!confirm('Полностью очистить журнал изменений? Это нельзя отменить (сами данные склада не изменятся).')) return;
+    if(!(await confirmDialog('Полностью очистить журнал изменений? Это нельзя отменить (сами данные склада не изменятся).', { title: 'Очистка журнала', okLabel: 'Очистить', danger: true }))) return;
     try{
       const res = await fetch(`${API_BASE}/api/activity`, { method:'DELETE' });
       const payload = await res.json().catch(()=>({}));
@@ -1325,7 +1377,7 @@
     const msg = isLatest
       ? 'Отменить это своё действие?'
       : 'Это не последнее из ваших действий — после него были другие изменения. Если они затрагивали те же записи, отмена может дать неожиданный результат. Всё равно отменить?';
-    if(!confirm(msg)) return;
+    if(!(await confirmDialog(msg, { title: 'Отмена действия', okLabel: 'Отменить действие', icon: '↺' }))) return;
     progressStart('Отмена действия…');
     try{
       const res = await fetch(`${API_BASE}/api/my-activity/${id}/undo`, { method:'POST' });
@@ -1373,6 +1425,10 @@
   }
   const myActivityLogBtn = document.getElementById('my-activity-log-btn');
   if(myActivityLogBtn) myActivityLogBtn.addEventListener('click', openMyActivityLog);
+  // Мобильная кнопка «Мой журнал» в нижнем навбаре — открывает тот же модал,
+  // что и её десктопный аналог выше (см. #my-activity-log-btn).
+  const bnMyActivityLogBtn = document.getElementById('bn-my-journal-btn');
+  if(bnMyActivityLogBtn) bnMyActivityLogBtn.addEventListener('click', openMyActivityLog);
 
   // ---------- CELL PICKER (visual map to choose an address) ----------
   // Used both by the pin button next to each table row and by the "add product" form.
@@ -1471,7 +1527,7 @@
   document.getElementById('bulk-delete-btn').addEventListener('click', async ()=>{
     const ids = Array.from(selectedIds);
     if(!ids.length) return;
-    if(!confirm(`Удалить ${ids.length} выбранных записей?`)) return;
+    if(!(await confirmDialog(`Удалить ${ids.length} выбранных записей?`, { title: 'Удаление записей', okLabel: 'Удалить', danger: true }))) return;
     progressStart(`Удаление ${ids.length} записей…`);
     try{
       const res = await fetch(`${API_BASE}/api/records/bulk-delete`, {
@@ -1704,7 +1760,7 @@
         const id = parseInt(tr.dataset.id,10);
         const rec = state.records.find(r=>r.id===id);
         if(!rec) return;
-        if(!confirm(`Удалить запись «${rec.article}» из ячейки ${rec.cell}?`)) return;
+        if(!(await confirmDialog(`Удалить запись «${rec.article}» из ячейки ${rec.cell}?`, { title: 'Удаление записи', okLabel: 'Удалить', danger: true }))) return;
         progressStart('Удаление записи…');
         try{
           const res = await fetch(`${API_BASE}/api/records/${id}`, { method:'DELETE' });
@@ -2012,7 +2068,7 @@
     document.getElementById('row-mgr-delete').addEventListener('click', async ()=>{
       const errEl = document.getElementById('row-mgr-error');
       errEl.classList.remove('show');
-      if(!confirm(`Удалить ряд ${originalRow} целиком? Это возможно только если в нём нет товара. Действие необратимо.`)) return;
+      if(!(await confirmDialog(`Удалить ряд ${originalRow} целиком? Это возможно только если в нём нет товара. Действие необратимо.`, { title: 'Удаление ряда', okLabel: 'Удалить', danger: true }))) return;
       progressStart('Удаление ряда…');
       try{
         const res = await fetch(`${API_BASE}/api/layout/${originalRow}`, { method:'DELETE' });
@@ -3038,9 +3094,9 @@
         const z = zones.find(x=>x.name===name);
         let force = false;
         if(z && z.records>0){
-          if(!confirm(`В зоне «${name}» ещё ${z.records} записей (${fmtNum(z.qty)} шт). Удалить зону вместе со всем содержимым?`)) return;
+          if(!(await confirmDialog(`В зоне «${name}» ещё ${z.records} записей (${fmtNum(z.qty)} шт). Удалить зону вместе со всем содержимым?`, { title: 'Удаление зоны', okLabel: 'Удалить', danger: true }))) return;
           force = true;
-        } else if(!confirm(`Удалить пустую зону «${name}»?`)){
+        } else if(!(await confirmDialog(`Удалить пустую зону «${name}»?`, { title: 'Удаление зоны', okLabel: 'Удалить', danger: true }))){
           return;
         }
         progressStart('Удаление зоны…');
@@ -3490,21 +3546,27 @@
     const menu = document.getElementById('app-menu-menu');
     const slot = document.getElementById('menu-extra-slot');
     const journalBtn = document.getElementById('activity-log-btn');
+    const myJournalBtn = document.getElementById('my-activity-log-btn');
     const profileWidget = document.getElementById('profile-widget');
-    if(!menu || !slot || !journalBtn || !profileWidget) return;
+    if(!menu || !slot || !journalBtn || !myJournalBtn || !profileWidget) return;
     const journalHome = { parent: journalBtn.parentNode, next: journalBtn.nextSibling };
+    const myJournalHome = { parent: myJournalBtn.parentNode, next: myJournalBtn.nextSibling };
     const profileHome = { parent: profileWidget.parentNode, next: profileWidget.nextSibling };
     const desktopQuery = window.matchMedia('(min-width:861px)');
     function placeMenuExtras(){
       if(desktopQuery.matches){
-        // «Журнал» встаёт в общий ряд с карточками разделов, прямо перед
-        // слотом аккаунта (а не внутрь него) — так что визуально это ещё
-        // один пункт меню, а не довесок сбоку. Слот же остаётся только
-        // для виджета аккаунта, отделённого вертикальной чертой.
+        // «Журнал» (или «Мой журнал» — у кого нет прав на общий, см. CSS,
+        // видна ровно одна из двух кнопок) встаёт в общий ряд с карточками
+        // разделов, прямо перед слотом аккаунта (а не внутрь него) — так
+        // что визуально это ещё один пункт меню, а не довесок сбоку. Слот
+        // же остаётся только для виджета аккаунта, отделённого вертикальной
+        // чертой, и всегда последним — справа.
         menu.insertBefore(journalBtn, slot);
+        menu.insertBefore(myJournalBtn, slot);
         slot.appendChild(profileWidget);
       } else {
         journalHome.parent.insertBefore(journalBtn, journalHome.next);
+        myJournalHome.parent.insertBefore(myJournalBtn, myJournalHome.next);
         profileHome.parent.insertBefore(profileWidget, profileHome.next);
       }
     }
@@ -3728,7 +3790,7 @@
     openModal(escHtml(name), body, '<button class="btn danger" id="task-recipient-remove">🗑 Убрать у этого сотрудника</button><button class="btn" id="task-recipient-close">Закрыть</button>');
     document.getElementById('task-recipient-close').addEventListener('click', closeModal);
     document.getElementById('task-recipient-remove').addEventListener('click', async () => {
-      if(!confirm(`Убрать это задание у сотрудника «${name}»? У остальных получателей оно останется.`)) return;
+      if(!(await confirmDialog(`Убрать это задание у сотрудника «${name}»? У остальных получателей оно останется.`, { title: 'Снять задание', okLabel: 'Убрать' }))) return;
       try{
         const res = await fetch(`${API_BASE}/api/tasks/${taskId}/recipients/${userId}`, { method: 'DELETE' });
         const payload = await res.json().catch(() => ({}));
@@ -3825,7 +3887,7 @@
     });
     wrap.querySelectorAll('[data-del-task]').forEach(btn => {
       btn.addEventListener('click', async () => {
-        if(!confirm('Удалить это задание у всех получателей?')) return;
+        if(!(await confirmDialog('Удалить это задание у всех получателей?', { title: 'Удаление задания', okLabel: 'Удалить', danger: true }))) return;
         try{
           const res = await fetch(`${API_BASE}/api/tasks/${btn.dataset.delTask}`, { method: 'DELETE' });
           const payload = await res.json().catch(() => ({}));
@@ -4086,7 +4148,7 @@
 
   document.getElementById('chat-delete-dm-btn').addEventListener('click', async () => {
     if(!activeChatId) return;
-    if(!confirm('Удалить эту переписку целиком? Вся история и вложения будут удалены безвозвратно, для обоих собеседников.')) return;
+    if(!(await confirmDialog('Удалить эту переписку целиком? Вся история и вложения будут удалены безвозвратно, для обоих собеседников.', { title: 'Удаление переписки', okLabel: 'Удалить', danger: true }))) return;
     try{
       const r = await fetch(`${API_BASE}/api/chats/${activeChatId}`, { method: 'DELETE' });
       if(!r.ok) throw new Error((await r.json().catch(()=>({}))).error || 'Не удалось удалить чат');
@@ -4308,7 +4370,7 @@
         : '');
       if(canDelete){
         document.getElementById('cm-delete-group').addEventListener('click', async () => {
-          if(!confirm('Удалить группу целиком? Вся переписка и вложения будут удалены безвозвратно, для всех участников.')) return;
+          if(!(await confirmDialog('Удалить группу целиком? Вся переписка и вложения будут удалены безвозвратно, для всех участников.', { title: 'Удаление группы', okLabel: 'Удалить', danger: true }))) return;
           try{
             const r = await fetch(`${API_BASE}/api/chats/${activeChatId}`, { method: 'DELETE' });
             if(!r.ok) throw new Error((await r.json().catch(()=>({}))).error || 'Не удалось удалить группу');
@@ -4323,7 +4385,7 @@
       }
       if(canAdd){
         document.getElementById('cm-leave').addEventListener('click', async () => {
-          if(!confirm('Покинуть эту группу?')) return;
+          if(!(await confirmDialog('Покинуть эту группу?', { title: 'Выход из группы', okLabel: 'Покинуть' }))) return;
           try{
             const r = await fetch(`${API_BASE}/api/chats/${activeChatId}/leave`, { method: 'POST' });
             if(!r.ok) throw new Error((await r.json().catch(()=>({}))).error || 'Не удалось выйти из группы');
@@ -4666,7 +4728,7 @@
     });
     wrap.querySelectorAll('[data-reject]').forEach(btn => {
       btn.addEventListener('click', async () => {
-        if(!confirm('Отклонить эту заявку? Отменить будет нельзя — сотруднику нужно будет подать заявку заново.')) return;
+        if(!(await confirmDialog('Отклонить эту заявку? Отменить будет нельзя — сотруднику нужно будет подать заявку заново.', { title: 'Отклонение заявки', okLabel: 'Отклонить' }))) return;
         const card = btn.closest('.reg-card');
         btn.disabled = true;
         card.querySelector('[data-approve]').disabled = true;
@@ -4852,7 +4914,7 @@
     document.querySelectorAll('[data-backup-delete]').forEach(btn => {
       btn.addEventListener('click', async () => {
         const file = btn.dataset.backupDelete;
-        if(!confirm(`Удалить бэкап «${file}»? Это необратимо.`)) return;
+        if(!(await confirmDialog(`Удалить бэкап «${file}»? Это необратимо.`, { title: 'Удаление бэкапа', okLabel: 'Удалить', danger: true }))) return;
         btn.disabled = true;
         try{
           const res = await fetch(`${API_BASE}/api/backups/${encodeURIComponent(file)}`, { method: 'DELETE' });
@@ -4868,7 +4930,7 @@
     document.querySelectorAll('[data-backup-restore]').forEach(btn => {
       btn.addEventListener('click', async () => {
         const file = btn.dataset.backupRestore;
-        if(!confirm(`Восстановить базу из «${file}»?\n\nВСЕ текущие данные будут заменены содержимым этого бэкапа. Перед заменой автоматически будет снят safety-бэкап текущей базы, но сервер после этого перезапустится.\n\nПродолжить?`)) return;
+        if(!(await confirmDialog(`Восстановить базу из «${file}»?\n\nВСЕ текущие данные будут заменены содержимым этого бэкапа. Перед заменой автоматически будет снят safety-бэкап текущей базы, но сервер после этого перезапустится.\n\nПродолжить?`, { title: 'Восстановление из бэкапа', okLabel: 'Восстановить', danger: true }))) return;
         const typed = prompt('Для подтверждения наберите: ВОССТАНОВИТЬ');
         if(typed !== 'ВОССТАНОВИТЬ'){ alert('Отменено — фраза не совпала.'); return; }
         btn.disabled = true;

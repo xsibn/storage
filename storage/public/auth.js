@@ -209,6 +209,7 @@
     document.body.classList.toggle('perm-no-manage-tasks', !currentUser.perms.canManageTasks);
     document.body.classList.toggle('perm-no-manage-users', !currentUser.perms.canManageUsers);
     document.body.classList.toggle('perm-no-import-data', !currentUser.perms.canImportData);
+    document.body.classList.toggle('perm-no-edit-layout', !currentUser.perms.canEditLayout);
     // Бэкапы — не настраиваемое право, а доступ, зашитый именно за
     // сервисным аккаунтом (см. auth.js на сервере: requireServiceRole).
     document.body.classList.toggle('is-service', currentUser.role === 'service');
@@ -882,7 +883,8 @@
       ['canManageTasks', 'Ставить задания сотрудникам'],
       ['canImportData', 'Импортировать данные (загружать новый файл)'],
       ['canBecomeTtAdmin', 'Становиться админом в учёте времени'],
-      ['canAccessWarehouse', 'Доступ к складу (схема, пикинг и т.д.)']
+      ['canAccessWarehouse', 'Доступ к складу (схема, пикинг и т.д.)'],
+      ['canEditLayout', 'Изменять схему склада (без права — только просмотр)']
     ];
     return rows.map(([key, label]) => `
       <label style="display:flex; align-items:center; gap:6px; font-size:12px; font-weight:400; padding:4px 0;">
@@ -995,7 +997,8 @@
         canManageTasks: $('nr-perm-tasks').checked,
         canImportData: $('nr-perm-import').checked,
         canBecomeTtAdmin: $('nr-perm-tt-admin').checked,
-        canAccessWarehouse: $('nr-perm-warehouse').checked
+        canAccessWarehouse: $('nr-perm-warehouse').checked,
+        canEditLayout: $('nr-perm-edit-layout').checked
       };
       try {
         const res = await fetch(API_BASE + '/api/roles', {

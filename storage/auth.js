@@ -121,7 +121,12 @@ function clearSessionCookie(res) {
 //                          middleware перед складскими /api/* маршрутами —
 //                          и public/auth.js, который в этом случае сразу
 //                          отправляет на /time/)
-const EMPTY_PERMS = { canManageUsers: false, canManageActivity: false, canReadActivity: false, canManageTasks: false, canImportData: false, canBecomeTtAdmin: false, canAccessWarehouse: false };
+//   canEditLayout        — менять саму схему склада (добавлять/удалять
+//                          ряды, переименовывать их, задавать стеллажи и
+//                          ярусы, менять порядок стеллажей); без этого
+//                          права схема (внутри canAccessWarehouse) доступна
+//                          только для просмотра
+const EMPTY_PERMS = { canManageUsers: false, canManageActivity: false, canReadActivity: false, canManageTasks: false, canImportData: false, canBecomeTtAdmin: false, canAccessWarehouse: false, canEditLayout: false };
 
 function permsFor(roleKey) {
   const role = db.getRole(roleKey);

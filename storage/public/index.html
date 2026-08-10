@@ -211,20 +211,20 @@
     }
     #app-menu-menu.menu-cards .menu-card .mc-t{font-size:13px;}
     #app-menu-menu.menu-cards .menu-card .mc-current-badge{display:none !important;}
-    /* «Журнал» переезжает прямо в общий ряд с карточками разделов (см.
-       app.js — placeMenuExtras переносит существующий DOM-узел кнопки
-       #activity-log-btn как обычный элемент этого же flex-ряда, а не в
+    /* «Журнал» (или «Мой журнал» — см. app.js/placeMenuExtras) переезжает
+       прямо в общий ряд с карточками разделов (существующий DOM-узел
+       кнопки переносится как обычный элемент этого же flex-ряда, а не в
        отдельный слот), поэтому выглядит как ещё один пункт меню, а не
        прилепленный сбоку довесок. Только виджет аккаунта остаётся в
        #menu-extra-slot и отделяется вертикальной чертой — это единственный
        элемент, который стоит визуально выделять справа. Панель по-прежнему
        компактная (width:auto, обхватывает содержимое), просто аккаунт —
        последний элемент в ряду. */
-    #app-menu-menu #activity-log-btn{
+    #app-menu-menu #activity-log-btn, #app-menu-menu #my-activity-log-btn{
       padding:7px 12px; border-radius:9px; font-size:13px; white-space:nowrap;
       background:transparent; border:none; color:var(--ink);
     }
-    #app-menu-menu #activity-log-btn:hover{background:var(--bg); color:var(--accent);}
+    #app-menu-menu #activity-log-btn:hover, #app-menu-menu #my-activity-log-btn:hover{background:var(--bg); color:var(--accent);}
     #menu-extra-slot{display:flex; align-items:center; gap:2px;}
     #menu-extra-slot:not(:empty)::before{
       content:''; width:1px; align-self:stretch; margin:0 6px; background:var(--line);
@@ -778,6 +778,38 @@
   #modal .mb{padding:18px 20px; overflow-y:auto;}
   #modal .mf{padding:14px 20px; border-top:1px solid var(--line); display:flex; justify-content:flex-end; gap:8px;}
 
+  /* ---------- Кастомное окно подтверждения (замена confirm()) ---------- */
+  #confirm-backdrop{
+    position:fixed; inset:0; z-index:80; display:none; align-items:center; justify-content:center; padding:20px;
+    background:rgba(15,18,24,.5);
+    backdrop-filter:blur(2px); -webkit-backdrop-filter:blur(2px);
+  }
+  #confirm-backdrop.open{display:flex;}
+  #confirm-box{
+    width:100%; max-width:400px; background:var(--panel); border:1px solid var(--line); border-radius:16px;
+    box-shadow:0 24px 64px rgba(0,0,0,.3), 0 4px 16px rgba(0,0,0,.12);
+    padding:24px 24px 20px; text-align:center;
+    animation:confirm-pop .16s cubic-bezier(.2,.9,.3,1.2);
+  }
+  @keyframes confirm-pop{
+    from{ opacity:0; transform:scale(.93) translateY(6px); }
+    to{ opacity:1; transform:scale(1) translateY(0); }
+  }
+  #confirm-icon{
+    width:44px; height:44px; margin:0 auto 14px; border-radius:50%; background:var(--accent-soft);
+    color:var(--accent); display:flex; align-items:center; justify-content:center; font-size:20px;
+  }
+  #confirm-box.danger #confirm-icon{background:color-mix(in srgb, var(--danger) 14%, transparent); color:var(--danger);}
+  #confirm-title{margin:0 0 8px; font-size:15.5px; font-weight:700; color:var(--ink);}
+  #confirm-text{margin:0 0 20px; font-size:13px; line-height:1.5; color:var(--ink-soft); white-space:pre-line;}
+  #confirm-actions{display:flex; gap:8px; justify-content:center;}
+  #confirm-actions .btn{flex:1 1 0; padding:10px 14px; justify-content:center;}
+  #confirm-box.danger #confirm-ok-btn{background:var(--danger); border-color:var(--danger); color:#fff;}
+  @media (max-width:480px){
+    #confirm-box{padding:20px 18px 16px;}
+  }
+
+
   #activity-log-list{display:flex; flex-direction:column; gap:0; max-height:60vh; overflow-y:auto; border:1px solid var(--line); border-radius:8px;}
   /* Строка поиска+фильтра над журналом — не переиспользует общий .search,
      чтобы не зависеть от его абсолютного позиционирования внутри модалки.
@@ -893,7 +925,7 @@
        оставляем — он нужен ровно тем ролям, кому доступа к общему журналу
        не хватает (или не хватает прав на управление им), и не должен
        превращать нижний навбар в ещё одну перегруженную панель. */
-    #sync-btn, #activity-log-btn{display:none !important;}
+    #sync-btn, #activity-log-btn, #my-activity-log-btn{display:none !important;}
 
     nav.tabs{overflow-x:auto; -webkit-overflow-scrolling:touch; padding:0 12px; scrollbar-width:none; border-radius:10px;}
     nav.tabs::-webkit-scrollbar{display:none;}
@@ -1382,7 +1414,18 @@
      полностью дублирует «свой», включая возможность отката. Роли вроде
      «завсклад» видят общий журнал, но не могут там ничего отменять — им
      кнопка «Мой журнал» по-прежнему нужна для отката именно своих действий. */
-  body:not(.perm-no-read-activity):not(.perm-no-manage-activity) #my-activity-log-btn{display:none !important;}
+  body:not(.perm-no-read-activity):not(.perm-no-manage-activity) #my-activity-log-btn,
+  body:not(.perm-no-read-activity):not(.perm-no-manage-activity) #bn-my-journal-btn{display:none !important;}
+  /* «Изменение схемы склада» — отдельное право; без него доступен только
+     просмотр (сама схема видна всем с доступом к складу). Прячем точки входа
+     в редактирование: добавление/удаление рядов, «Управление рядом»
+     (переименование, стеллажи, ярусы, порядок стеллажей). */
+  body.perm-no-edit-layout #add-row-btn,
+  body.perm-no-edit-layout #row-select-mode-btn,
+  body.perm-no-edit-layout #delete-selected-rows-btn,
+  body.perm-no-edit-layout #rack-order-btn,
+  body.perm-no-edit-layout #reco-add-row-btn,
+  body.perm-no-edit-layout #reco-manage-row-btn{display:none !important;}
   body.perm-no-manage-activity .a-undo-btn,
   body.perm-no-manage-activity .a-delete-btn,
   body.perm-no-manage-activity #activity-log-clear-all,
@@ -1827,6 +1870,7 @@
               <label style="display:flex; align-items:center; gap:6px; font-size:12px; font-weight:400;"><input type="checkbox" id="nr-perm-import"> Импортировать данные</label>
               <label style="display:flex; align-items:center; gap:6px; font-size:12px; font-weight:400;"><input type="checkbox" id="nr-perm-tt-admin"> Становиться админом в учёте времени</label>
               <label style="display:flex; align-items:center; gap:6px; font-size:12px; font-weight:400;"><input type="checkbox" id="nr-perm-warehouse" checked> Доступ к складу (схема, пикинг и т.д.)</label>
+              <label style="display:flex; align-items:center; gap:6px; font-size:12px; font-weight:400;"><input type="checkbox" id="nr-perm-edit-layout"> Изменять схему склада (без права — только просмотр)</label>
             </div>
             <div id="nr-error" class="full" style="display:none; color:var(--danger); font-size:12px;"></div>
             <button type="submit" class="btn primary full">+ Добавить роль</button>
@@ -1864,6 +1908,9 @@
     </button>
     <button type="button" class="bn-btn" id="bn-journal-btn">
       <span class="bn-icon">📋</span><span class="bn-label">Журнал</span>
+    </button>
+    <button type="button" class="bn-btn" id="bn-my-journal-btn">
+      <span class="bn-icon">🧾</span><span class="bn-label">Мой журнал</span>
     </button>
     <button type="button" class="bn-btn" id="bn-profile-btn">
       <span class="bn-icon bn-avatar" id="bn-profile-avatar"></span><span class="bn-label">Профиль</span>
@@ -1908,6 +1955,23 @@
       <div class="mh"><h3 id="modal-title">Заголовок</h3><button id="modal-close">✕</button></div>
       <div class="mb" id="modal-body"></div>
       <div class="mf" id="modal-footer"></div>
+    </div>
+  </div>
+
+  <!-- Кастомное окно подтверждения — замена нативному confirm(), тот же
+       визуальный язык, что и остальное приложение (см. #confirm-backdrop
+       CSS выше и confirmDialog() в app.js). Отдельный оверлей, а не
+       переиспользование #modal-backdrop — так подтверждение можно
+       показать поверх уже открытой модалки (например, «Бэкапы»). -->
+  <div id="confirm-backdrop">
+    <div id="confirm-box" role="alertdialog" aria-modal="true">
+      <div id="confirm-icon">❔</div>
+      <h3 id="confirm-title"></h3>
+      <p id="confirm-text"></p>
+      <div id="confirm-actions">
+        <button type="button" class="btn" id="confirm-cancel-btn">Отмена</button>
+        <button type="button" class="btn primary" id="confirm-ok-btn">ОК</button>
+      </div>
     </div>
   </div>
 

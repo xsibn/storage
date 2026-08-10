@@ -87,6 +87,7 @@ db.exec(`
     can_import_data      INTEGER NOT NULL DEFAULT 0,
     can_become_tt_admin  INTEGER NOT NULL DEFAULT 0,
     can_access_warehouse INTEGER NOT NULL DEFAULT 1,
+    can_edit_layout      INTEGER NOT NULL DEFAULT 1,
     is_system            INTEGER NOT NULL DEFAULT 0,
     created_at           TEXT NOT NULL DEFAULT (datetime('now'))
   );
@@ -229,6 +230,13 @@ if (ttAdminMigrated) {
 // ALTER TABLE ниже), чтобы у всех прежних ролей ничего не отвалилось —
 // ограничение имеет смысл только для новых ролей вроде «Пост».
 ensureColumn('roles', 'can_access_warehouse', 'INTEGER NOT NULL DEFAULT 1');
+// Право «Изменять схему склада» — раньше отдельного права не было: любой,
+// у кого был доступ к складу, мог и менять его схему (ряды/стеллажи/ярусы),
+// а не только смотреть её. Выделяем это в отдельное право; на уже
+// существующих базах колонка добавляется сразу со значением 1 (как и с
+// can_access_warehouse выше), чтобы ни у одной прежней роли ничего не
+// отвалилось — ограничение имеет смысл только для новых ролей.
+ensureColumn('roles', 'can_edit_layout', 'INTEGER NOT NULL DEFAULT 1');
 // «Мой журнал»: чтобы каждый видел и мог откатить именно свои действия,
 // записи журнала должны хранить id автора, а не только текстовую метку
 // внутри summary. На старых базах колонки ещё нет — добавляем миграцией.
@@ -270,16 +278,16 @@ if (sortOrderMigrated) {
 // "service" — системная роль, отмечена is_system: её нельзя удалить и её
 // права всегда остаются полными (гарантия, что доступ к системе не потеряют).
 const DEFAULT_ROLES = [
-  { key: 'service', label: 'Сервисный аккаунт', canManageUsers: 1, canManageActivity: 1, canReadActivity: 1, canManageTasks: 1, canImportData: 1, canBecomeTtAdmin: 1, canAccessWarehouse: 1, isSystem: 1 },
-  { key: 'boss', label: 'Начальник', canManageUsers: 1, canManageActivity: 1, canReadActivity: 1, canManageTasks: 1, canImportData: 1, canBecomeTtAdmin: 1, canAccessWarehouse: 1, isSystem: 0 },
-  { key: 'warehouse_manager', label: 'Завсклад', canManageUsers: 0, canManageActivity: 0, canReadActivity: 1, canManageTasks: 1, canImportData: 1, canBecomeTtAdmin: 0, canAccessWarehouse: 1, isSystem: 0 },
-  { key: 'employee', label: 'Сотрудник', canManageUsers: 0, canManageActivity: 0, canReadActivity: 0, canManageTasks: 0, canImportData: 0, canBecomeTtAdmin: 0, canAccessWarehouse: 1, isSystem: 0 },
+  { key: 'service', label: 'Сервисный аккаунт', canManageUsers: 1, canManageActivity: 1, canReadActivity: 1, canManageTasks: 1, canImportData: 1, canBecomeTtAdmin: 1, canAccessWarehouse: 1, canEditLayout: 1, isSystem: 1 },
+  { key: 'boss', label: 'Начальник', canManageUsers: 1, canManageActivity: 1, canReadActivity: 1, canManageTasks: 1, canImportData: 1, canBecomeTtAdmin: 1, canAccessWarehouse: 1, canEditLayout: 1, isSystem: 0 },
+  { key: 'warehouse_manager', label: 'Завсклад', canManageUsers: 0, canManageActivity: 0, canReadActivity: 1, canManageTasks: 1, canImportData: 1, canBecomeTtAdmin: 0, canAccessWarehouse: 1, canEditLayout: 1, isSystem: 0 },
+  { key: 'employee', label: 'Сотрудник', canManageUsers: 0, canManageActivity: 0, canReadActivity: 0, canManageTasks: 0, canImportData: 0, canBecomeTtAdmin: 0, canAccessWarehouse: 1, canEditLayout: 0, isSystem: 0 },
   // «Пост» — например, охрана на проходной: нужен только вход в «Учёт
   // времени» (генерация QR для отметок сотрудников), доступа к складу и
   // остальным функциям «Склада» у роли нет вообще.
-  { key: 'post', label: 'Пост', canManageUsers: 0, canManageActivity: 0, canReadActivity: 0, canManageTasks: 0, canImportData: 0, canBecomeTtAdmin: 0, canAccessWarehouse: 0, isSystem: 0 }
+  { key: 'post', label: 'Пост', canManageUsers: 0, canManageActivity: 0, canReadActivity: 0, canManageTasks: 0, canImportData: 0, canBecomeTtAdmin: 0, canAccessWarehouse: 0, canEditLayout: 0, isSystem: 0 }
 ];
-const insertRoleStmt = db.prepare(`INSERT OR IGNORE INTO roles (key, label, can_manage_users, can_manage_activity, can_read_activity, can_manage_tasks, can_import_data, can_become_tt_admin, can_access_warehouse, is_system) VALUES (@key, @label, @canManageUsers, @canManageActivity, @canReadActivity, @canManageTasks, @canImportData, @canBecomeTtAdmin, @canAccessWarehouse, @isSystem)`);
+const insertRoleStmt = db.prepare(`INSERT OR IGNORE INTO roles (key, label, can_manage_users, can_manage_activity, can_read_activity, can_manage_tasks, can_import_data, can_become_tt_admin, can_access_warehouse, can_edit_layout, is_system) VALUES (@key, @label, @canManageUsers, @canManageActivity, @canReadActivity, @canManageTasks, @canImportData, @canBecomeTtAdmin, @canAccessWarehouse, @canEditLayout, @isSystem)`);
 DEFAULT_ROLES.forEach(r => insertRoleStmt.run(r));
 
 // Сервисный аккаунт должен иметь доступ ко всем групповым чатам — не только
@@ -1123,7 +1131,8 @@ function rowToRole(r) {
       canManageTasks: !!r.can_manage_tasks,
       canImportData: !!r.can_import_data,
       canBecomeTtAdmin: !!r.can_become_tt_admin,
-      canAccessWarehouse: !!r.can_access_warehouse
+      canAccessWarehouse: !!r.can_access_warehouse,
+      canEditLayout: !!r.can_edit_layout
     },
     createdAt: r.created_at
   };
@@ -1155,9 +1164,9 @@ function createRole({ key, label, perms }) {
   if (roleExists(k)) throw new Error('Роль с таким идентификатором уже существует');
   if (!label || !String(label).trim()) throw new Error('Укажите название роли');
   const p = perms || {};
-  db.prepare(`INSERT INTO roles (key, label, can_manage_users, can_manage_activity, can_read_activity, can_manage_tasks, can_import_data, can_become_tt_admin, can_access_warehouse, is_system)
-              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0)`)
-    .run(k, String(label).trim(), p.canManageUsers ? 1 : 0, p.canManageActivity ? 1 : 0, p.canReadActivity ? 1 : 0, p.canManageTasks ? 1 : 0, p.canImportData ? 1 : 0, p.canBecomeTtAdmin ? 1 : 0, p.canAccessWarehouse ? 1 : 0);
+  db.prepare(`INSERT INTO roles (key, label, can_manage_users, can_manage_activity, can_read_activity, can_manage_tasks, can_import_data, can_become_tt_admin, can_access_warehouse, can_edit_layout, is_system)
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)`)
+    .run(k, String(label).trim(), p.canManageUsers ? 1 : 0, p.canManageActivity ? 1 : 0, p.canReadActivity ? 1 : 0, p.canManageTasks ? 1 : 0, p.canImportData ? 1 : 0, p.canBecomeTtAdmin ? 1 : 0, p.canAccessWarehouse ? 1 : 0, p.canEditLayout ? 1 : 0);
   return getRole(k);
 }
 
@@ -1176,8 +1185,8 @@ function updateRolePerms(key, perms) {
   if (!role) throw new Error('Роль не найдена');
   if (role.isSystem) throw new Error('Права сервисной роли изменить нельзя');
   const p = perms || {};
-  db.prepare(`UPDATE roles SET can_manage_users = ?, can_manage_activity = ?, can_read_activity = ?, can_manage_tasks = ?, can_import_data = ?, can_become_tt_admin = ?, can_access_warehouse = ? WHERE key = ?`)
-    .run(p.canManageUsers ? 1 : 0, p.canManageActivity ? 1 : 0, p.canReadActivity ? 1 : 0, p.canManageTasks ? 1 : 0, p.canImportData ? 1 : 0, p.canBecomeTtAdmin ? 1 : 0, p.canAccessWarehouse ? 1 : 0, key);
+  db.prepare(`UPDATE roles SET can_manage_users = ?, can_manage_activity = ?, can_read_activity = ?, can_manage_tasks = ?, can_import_data = ?, can_become_tt_admin = ?, can_access_warehouse = ?, can_edit_layout = ? WHERE key = ?`)
+    .run(p.canManageUsers ? 1 : 0, p.canManageActivity ? 1 : 0, p.canReadActivity ? 1 : 0, p.canManageTasks ? 1 : 0, p.canImportData ? 1 : 0, p.canBecomeTtAdmin ? 1 : 0, p.canAccessWarehouse ? 1 : 0, p.canEditLayout ? 1 : 0, key);
   return getRole(key);
 }
 

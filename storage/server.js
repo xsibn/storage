@@ -329,7 +329,7 @@ app.delete('/api/records/:id', (req, res) => {
 });
 
 // POST /api/layout — создать новый ряд с нуля
-app.post('/api/layout', (req, res) => {
+app.post('/api/layout', auth.requirePerm('canEditLayout'), (req, res) => {
   const { row, racks, levels } = req.body || {};
   if (!row || !/^\d{1,2}$/.test(String(row).trim())) {
     return res.status(400).json({ error: '"row" должен быть числом из 1-2 цифр' });
@@ -347,7 +347,7 @@ app.post('/api/layout', (req, res) => {
 });
 
 // DELETE /api/layout/:row — удалить ряд целиком (только если он пуст)
-app.delete('/api/layout/:row', (req, res) => {
+app.delete('/api/layout/:row', auth.requirePerm('canEditLayout'), (req, res) => {
   const row = String(req.params.row).trim().padStart(2, '0');
   try {
     const result = db.deleteRow(row);
@@ -358,7 +358,7 @@ app.delete('/api/layout/:row', (req, res) => {
 });
 
 // PUT /api/layout/:row/rename — переименовать ряд (перенести все записи под новый код)
-app.put('/api/layout/:row/rename', (req, res) => {
+app.put('/api/layout/:row/rename', auth.requirePerm('canEditLayout'), (req, res) => {
   const oldRow = String(req.params.row).trim().padStart(2, '0');
   const { newRow } = req.body || {};
   if (!newRow || !/^\d{1,2}$/.test(String(newRow).trim())) {
@@ -374,7 +374,7 @@ app.put('/api/layout/:row/rename', (req, res) => {
 });
 
 // PUT /api/layout/:row/racks — задать список стеллажей ряда (добавление/удаление ячеек)
-app.put('/api/layout/:row/racks', (req, res) => {
+app.put('/api/layout/:row/racks', auth.requirePerm('canEditLayout'), (req, res) => {
   const row = String(req.params.row).trim().padStart(2, '0');
   const { racks } = req.body || {};
   if (!Array.isArray(racks)) return res.status(400).json({ error: '"racks" должен быть массивом номеров стеллажей' });
@@ -387,7 +387,7 @@ app.put('/api/layout/:row/racks', (req, res) => {
 });
 
 // PUT /api/layout/:row/levels — задать список ярусов ряда (добавление/удаление строк по высоте)
-app.put('/api/layout/:row/levels', (req, res) => {
+app.put('/api/layout/:row/levels', auth.requirePerm('canEditLayout'), (req, res) => {
   const row = String(req.params.row).trim().padStart(2, '0');
   const { levels } = req.body || {};
   if (!Array.isArray(levels)) return res.status(400).json({ error: '"levels" должен быть массивом ярусов' });
@@ -546,7 +546,7 @@ app.post('/api/my-activity/:id/undo', auth.requireAuth, (req, res) => {
 });
 
 // PUT /api/layout/:row/rack-order — сохранить пользовательский порядок стеллажей ряда
-app.put('/api/layout/:row/rack-order', (req, res) => {
+app.put('/api/layout/:row/rack-order', auth.requirePerm('canEditLayout'), (req, res) => {
   const row = String(req.params.row).trim().padStart(2, '0');
   const { order } = req.body || {};
   if (!Array.isArray(order) || !order.length) {
