@@ -3479,6 +3479,35 @@
     activateView('accounts');
   });
 
+  // ---------- «Журнал» и виджет аккаунта в плавающем меню на десктопе ----------
+  // На ПК эти два узла физически переезжают в #menu-extra-slot (тот же
+  // плавающий блок, что и разделы «Склад/Учёт времени/…», см. CSS выше) —
+  // не копия, а перенос настоящего DOM-узла, поэтому все обработчики клика
+  // и обновление имени/аватара продолжают работать как раньше. На телефоне
+  // при пересечении брейкпоинта обратно возвращаются на свои места — в
+  // шапку и в панель действий.
+  (function(){
+    const slot = document.getElementById('menu-extra-slot');
+    const journalBtn = document.getElementById('activity-log-btn');
+    const profileWidget = document.getElementById('profile-widget');
+    if(!slot || !journalBtn || !profileWidget) return;
+    const journalHome = { parent: journalBtn.parentNode, next: journalBtn.nextSibling };
+    const profileHome = { parent: profileWidget.parentNode, next: profileWidget.nextSibling };
+    const desktopQuery = window.matchMedia('(min-width:861px)');
+    function placeMenuExtras(){
+      if(desktopQuery.matches){
+        slot.appendChild(journalBtn);
+        slot.appendChild(profileWidget);
+      } else {
+        journalHome.parent.insertBefore(journalBtn, journalHome.next);
+        profileHome.parent.insertBefore(profileWidget, profileHome.next);
+      }
+    }
+    placeMenuExtras();
+    if(desktopQuery.addEventListener) desktopQuery.addEventListener('change', placeMenuExtras);
+    else if(desktopQuery.addListener) desktopQuery.addListener(placeMenuExtras); // старые Safari
+  })();
+
   // ---------- DB ACTIONS DROPDOWN (import + export grouped together) ----------
   const dbDropdown = document.getElementById('db-actions-dropdown');
   document.getElementById('db-actions-toggle').addEventListener('click', (e)=>{

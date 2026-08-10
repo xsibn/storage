@@ -118,19 +118,6 @@
     </div>
   </div>
 
-  <div class="panel-box">
-    <h2>🌓 Границы дневной / ночной смены</h2>
-    <div class="panel-sub">По фактическому времени прихода определяется, дневная это смена или ночная — всё отработанное до ухода считается этим типом. Влияет и на превью, и на экспорт.</div>
-    <div class="period-row">
-      <span class="field-label">день с</span>
-      <input type="time" id="dayShiftStart" />
-      <span class="field-label">ночь с</span>
-      <input type="time" id="nightShiftStart" />
-      <button class="btn" type="button" onclick="saveShiftSettings()">Сохранить</button>
-      <span class="msg" id="shiftSettingsMsg"></span>
-    </div>
-  </div>
-
   <div class="stat-strip" id="statStrip"></div>
 
   <div class="preview-head">
@@ -197,40 +184,6 @@ function downloadXlsx() {
   window.open(`/api/export.xlsx?${params.toString()}`, '_blank');
 }
 
-async function loadShiftSettings() {
-  const resp = await fetch('/time/api/settings/shifts');
-  if (!resp.ok) return;
-  const data = await resp.json();
-  document.getElementById('dayShiftStart').value = data.day_shift_start;
-  document.getElementById('nightShiftStart').value = data.night_shift_start;
-}
-
-async function saveShiftSettings() {
-  const day_shift_start = document.getElementById('dayShiftStart').value;
-  const night_shift_start = document.getElementById('nightShiftStart').value;
-  const msg = document.getElementById('shiftSettingsMsg');
-  if (!day_shift_start || !night_shift_start) {
-    msg.textContent = 'Укажите оба времени';
-    msg.className = 'msg error';
-    return;
-  }
-  const resp = await fetch('/time/api/settings/shifts', {
-    method: 'PATCH',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ day_shift_start, night_shift_start }),
-  });
-  const data = await resp.json().catch(() => ({}));
-  if (!resp.ok) {
-    msg.textContent = data.error || 'Не удалось сохранить';
-    msg.className = 'msg error';
-    return;
-  }
-  msg.textContent = 'Сохранено';
-  msg.className = 'msg ok';
-  setTimeout(() => { msg.textContent = ''; }, 2000);
-  loadPreview(); // границы сменились — день/ночь в превью нужно пересчитать
-}
-
 function formatHours(h) {
   return (Math.round(h * 100) / 100).toString().replace('.', ',');
 }
@@ -264,7 +217,7 @@ async function loadPreview() {
   } else {
     previewEl.innerHTML = `
       <div class="table-card"><table>
-        <thead><tr><th>ФИО</th><th class="mono">Дата</th><th class="mono">Приход</th><th class="mono">Уход</th><th class="mono">Часов</th><th>Тип</th></tr></thead>
+        <thead><tr><th>ФИО</th><th class="mono">Дата</th><th class="mono">Приход</th><th class="mono">Уход</th><th class="mono">Часов</th><th class="mono">Из них ночных</th></tr></thead>
         <tbody>
           ${data.rows.map(r => `
             <tr>
@@ -273,7 +226,7 @@ async function loadPreview() {
               <td class="mono">${r.time_in}</td>
               <td class="mono">${r.time_out}</td>
               <td class="mono">${formatHours(r.hours)}</td>
-              <td>${r.is_night ? '<span class="night-flag">🌙 ночная</span>' : 'дневная'}</td>
+              <td class="mono">${r.night_hours > 0 ? `<span class="night-flag">🌙 ${formatHours(r.night_hours)}</span>` : '—'}</td>
             </tr>
           `).join('')}
         </tbody>
@@ -305,7 +258,6 @@ async function loadPreview() {
 (async () => {
   document.getElementById('periodMonth').value = currentMonthValue();
   if (await checkAuth()) {
-    loadShiftSettings();
     loadPreview();
   }
 })();

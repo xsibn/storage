@@ -103,7 +103,7 @@ function normalizePositions(positions) {
 // `login` — это username общей учётной записи (см. ../storage/db.js). Её
 // существование должно быть проверено до вызова createUser (см. server.js) —
 // здесь только привязка локального профиля к уже существующему логину.
-function createUser({ role, full_name, login, positions = [] }) {
+function createUser({ role, full_name, login, positions = [], service = false }) {
   if (state.users.some(u => u.login === login)) {
     const err = new Error('Этот логин уже привязан к профилю в учёте времени');
     err.code = 'DUPLICATE_LOGIN';
@@ -118,8 +118,24 @@ function createUser({ role, full_name, login, positions = [] }) {
     active: 1,
     last_window: 0,
     created_at: nowIso(),
+    // service: технический аккаунт (например, автобутстрап администратора
+    // при первом входе с правом canBecomeTtAdmin) — не настоящий сотрудник.
+    // Такие профили не должны попадать в «Сотрудники», журнал, график,
+    // табель и экспорт — см. isVisibleEmployee ниже.
+    service: !!service,
   };
   state.users.push(user);
+  persist();
+  return user;
+}
+
+// Помечает существующий профиль как служебный/обычный. Используется, чтобы
+// «долечить» профили, заведённые до появления флага `service` (например,
+// автобутстраповского админа, созданного старой версией кода).
+function setUserService(id, service) {
+  const user = getUserById(id);
+  if (!user) return null;
+  user.service = !!service;
   persist();
   return user;
 }
@@ -170,9 +186,16 @@ function isTimesheetRole(role) {
   return role === 'employee' || role === 'admin';
 }
 
+// Служебные аккаунты (см. `service` в createUser) нигде не должны
+// отображаться — ни в «Сотрудниках», ни в журнале, ни в графике/табеле,
+// ни в экспорте. Единая точка проверки, чтобы не забыть где-то фильтр.
+function isVisibleEmployee(u) {
+  return !!u && isTimesheetRole(u.role) && !u.service;
+}
+
 function listEmployees() {
   return state.users
-    .filter(u => isTimesheetRole(u.role))
+    .filter(isVisibleEmployee)
     .slice()
     .sort((a, b) => b.id - a.id);
 }
@@ -263,6 +286,7 @@ function addLog(employeeId, type) {
 function listLogs(limit = 200) {
   return state.time_logs
     .slice()
+    .filter(l => isVisibleEmployee(getUserById(l.employee_id)))
     .sort((a, b) => b.id - a.id)
     .slice(0, limit)
     .map(l => {
@@ -284,6 +308,7 @@ function listAllLogsForExport(from = null, to = null) {
   return state.time_logs
     .slice()
     .filter(l => {
+      if (!isVisibleEmployee(getUserById(l.employee_id))) return false;
       const day = l.timestamp.slice(0, 10);
       if (from && day < from) return false;
       if (to && day > to) return false;
@@ -494,6 +519,8 @@ module.exports = {
 
   listEmployees,
   isTimesheetRole,
+  isVisibleEmployee,
+  setUserService,
   setEmployeeActive,
   deleteEmployee,
   updateEmployeePositions,

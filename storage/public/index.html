@@ -211,6 +211,26 @@
     }
     #app-menu-menu.menu-cards .menu-card .mc-t{font-size:13px;}
     #app-menu-menu.menu-cards .menu-card .mc-current-badge{display:none !important;}
+    /* «Журнал» и виджет аккаунта переезжают сюда же (см. app.js —
+       placeMenuExtras переносит эти же DOM-узлы, а не дублирует их, так что
+       все существующие обработчики и обновление имени/аватара работают без
+       изменений). Разделитель показывается только когда слот не пуст — на
+       мобильном JS держит его пустым, перенося узлы обратно в шапку. */
+    #menu-extra-slot{display:flex; align-items:center; gap:2px;}
+    #menu-extra-slot:not(:empty)::before{
+      content:''; width:1px; align-self:stretch; margin:0 6px; background:var(--line);
+    }
+    #menu-extra-slot #activity-log-btn{
+      padding:7px 12px; border-radius:9px; font-size:13px; white-space:nowrap;
+      background:transparent; border:none; color:var(--ink);
+    }
+    #menu-extra-slot #activity-log-btn:hover{background:var(--bg); color:var(--accent);}
+    #menu-extra-slot #profile-widget{margin-left:0;}
+    #menu-extra-slot #profile-widget .profile-pill{padding:4px 10px 4px 4px; gap:6px; border-color:transparent; background:transparent;}
+    #menu-extra-slot #profile-widget .profile-pill:hover{background:var(--bg); border-color:var(--line);}
+    #menu-extra-slot #profile-widget .profile-avatar{width:24px; height:24px; font-size:11px;}
+    #menu-extra-slot #profile-widget .profile-pill .who .name{font-size:12px; max-width:110px;}
+    #menu-extra-slot #profile-widget .profile-pill .who .role{font-size:9.5px;}
     /* Место под плавающий блок над шапкой, чтобы он её не перекрывал —
        высота блока (~54px) плюс небольшой отступ. */
     header{margin-top:58px;}
@@ -1401,6 +1421,7 @@
           </span>
           <span class="mc-current-badge" style="display:none;">Открыто</span>
         </button>
+        <div class="menu-extra-slot" id="menu-extra-slot"></div>
       </div>
     </div>
     <div class="stats" id="stats"></div>

@@ -64,7 +64,15 @@ app.use((req, res, next) => {
     if (perms.canBecomeTtAdmin && (!req.user || req.user.role !== 'admin')) {
       req.user = req.user
         ? db.setUserRole(req.user.id, 'admin')
-        : db.createUser({ role: 'admin', full_name: shared.display_name || shared.username, login: shared.username });
+        : db.createUser({ role: 'admin', full_name: shared.display_name || shared.username, login: shared.username, service: true });
+    }
+    // Этот профиль — техническая автопривязка (см. комментарий выше), а не
+    // настоящий сотрудник: он не должен попадать в «Сотрудники», журнал,
+    // график/табель и экспорт. Флаг `service` мог отсутствовать у профилей,
+    // заведённых до его появления, — доводим их до нужного состояния при
+    // каждом заходе.
+    if (req.user && req.user.role === 'admin' && perms.canBecomeTtAdmin && !req.user.service) {
+      req.user = db.setUserService(req.user.id, true);
     }
   }
 
@@ -448,9 +456,15 @@ const SCHEDULE_CATEGORIES = [
 
 const DATE_ONLY_RE = /^\d{4}-\d{2}-\d{2}$/;
 const CODE_RE = /^[A-ZА-Я0-9]{1,4}$/i;
-const HHMM_RE = /^([0-1]?\d|2[0-3]):([0-5]\d)$/;
-const DEFAULT_DAY_SHIFT_START = '07:00';
-const DEFAULT_NIGHT_SHIFT_START = '20:00';
+
+// Ночное время — фиксированный промежуток 22:00–06:00 (не настраивается
+// администратором): так требует ТК РФ, и так же теперь считает эта система.
+// В ночные часы идёт РОВНО та часть смены, что физически попадает в это
+// окно (по факту прихода/ухода), а не вся смена целиком, даже если она
+// начинается или заканчивается в дневное время. Например, смена 20:00–09:00
+// даёт 8 ночных часов (22:00–06:00), а не все 13 отработанных часов.
+const NIGHT_START_HOUR = 22;
+const NIGHT_END_HOUR = 6;
 
 // Реальный часовой пояс, в котором физически находятся сотрудники/охрана.
 // Отметки прихода/ухода хранятся в БД в чистом UTC (см. normalizeTimestamp /
@@ -497,56 +511,52 @@ function shiftDateStr(dateStr, deltaDays) {
   return d.toISOString().slice(0, 10);
 }
 
-function getShiftSettings() {
-  const day = db.getSetting('day_shift_start');
-  const night = db.getSetting('night_shift_start');
-  return {
-    day_shift_start: HHMM_RE.test(day || '') ? day : DEFAULT_DAY_SHIFT_START,
-    night_shift_start: HHMM_RE.test(night || '') ? night : DEFAULT_NIGHT_SHIFT_START,
-  };
+// Находит UTC-момент времени, соответствующий заданной "настенной" дате и
+// времени (dateKey 'YYYY-MM-DD', hour, minute) в часовом поясе timeZone.
+// Используется, чтобы построить точные границы ночного окна (22:00/06:00
+// APP_TIMEZONE) как реальные моменты времени для сравнения с UTC-отметками
+// прихода/ухода. Стандартный приём "предположи — проверь — поправь":
+// сперва считаем момент так, будто указанное время уже в UTC, смотрим, какое
+// настенное время это даёт в нужном поясе, и сдвигаемся на разницу — для
+// часовых поясов с фиксированным смещением (как Europe/Moscow) этого хватает
+// с запасом даже на границах перевода стрелок в других поясах.
+function zonedTimeToUtc(dateKey, hour, minute, timeZone = APP_TIMEZONE) {
+  const guess = new Date(`${dateKey}T${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}:00Z`);
+  const parts = localPartsFromTimestamp(guess.toISOString().slice(0, 19).replace('T', ' '), timeZone);
+  const guessDay = new Date(parts.dateKey + 'T00:00:00Z');
+  const targetDay = new Date(dateKey + 'T00:00:00Z');
+  const dayDiffMinutes = Math.round((guessDay - targetDay) / 60000);
+  const localMinutes = parts.hour * 60 + parts.minute + dayDiffMinutes;
+  const targetMinutes = hour * 60 + minute;
+  const diffMinutes = localMinutes - targetMinutes;
+  return new Date(guess.getTime() - diffMinutes * 60000);
 }
 
-function hhmmToMinutes(str) {
-  const m = HHMM_RE.exec(str);
-  return Number(m[1]) * 60 + Number(m[2]);
-}
+// Сколько часов смены [inTimestamp, outTimestamp) попадает в фиксированное
+// ночное окно 22:00–06:00 (APP_TIMEZONE) — считается как пересечение смены
+// с ночным окном каждых суток, задетых сменой, а не классификацией всей
+// смены целиком. Смена 20:00–09:00 даст 8ч (22:00–06:00), а не все 13ч.
+function nightOverlapHours(inTimestamp, outTimestamp) {
+  if (!inTimestamp || !outTimestamp) return 0;
+  const inDate = new Date(inTimestamp.replace(' ', 'T') + 'Z');
+  const outDate = new Date(outTimestamp.replace(' ', 'T') + 'Z');
+  if (!(outDate > inDate)) return 0;
 
-// Определяет, попадает ли отметка "приход" в ночную смену, по времени
-// прихода и настроенным администратором границам дневной/ночной смены.
-// Дневная зона — [day_shift_start, night_shift_start), ночная — всё
-// остальное время суток (включая переход через полночь). Час/минута
-// берутся из timestamp в APP_TIMEZONE — том же часовом поясе, в котором
-// админ вводит границы смен и в котором видит время на экране (браузер
-// показывает его в локальном часовом поясе устройства).
-function isNightCheckIn(timestamp, settings) {
-  const { hour, minute } = localPartsFromTimestamp(timestamp);
-  const minutes = hour * 60 + minute;
-  const dayStart = hhmmToMinutes(settings.day_shift_start);
-  const nightStart = hhmmToMinutes(settings.night_shift_start);
-  if (dayStart <= nightStart) {
-    return minutes >= nightStart || minutes < dayStart;
+  const startDateKey = shiftDateStr(localPartsFromTimestamp(inTimestamp).dateKey, -1);
+  const endDateKey = localPartsFromTimestamp(outTimestamp).dateKey;
+
+  let totalMs = 0;
+  let cursor = startDateKey;
+  while (cursor <= endDateKey) {
+    const nightStart = zonedTimeToUtc(cursor, NIGHT_START_HOUR, 0);
+    const nightEnd = zonedTimeToUtc(shiftDateStr(cursor, 1), NIGHT_END_HOUR, 0);
+    const overlapStart = inDate > nightStart ? inDate : nightStart;
+    const overlapEnd = outDate < nightEnd ? outDate : nightEnd;
+    if (overlapEnd > overlapStart) totalMs += overlapEnd - overlapStart;
+    cursor = shiftDateStr(cursor, 1);
   }
-  // Необычная настройка (граница ночи раньше границы дня) — считаем ночной
-  // зоной промежуток между ними.
-  return minutes >= nightStart && minutes < dayStart;
+  return totalMs / 3600000;
 }
-
-// Границы дневной/ночной смены — используются при экспорте, чтобы отнести
-// фактически отработанное время (по отметке прихода) к дневным или ночным
-// часам в табеле, независимо от заданного сотруднику графика.
-app.get('/api/settings/shifts', requireAuth('admin'), (req, res) => {
-  res.json(getShiftSettings());
-});
-
-app.patch('/api/settings/shifts', requireAuth('admin'), (req, res) => {
-  const { day_shift_start, night_shift_start } = req.body || {};
-  if (!HHMM_RE.test(day_shift_start || '') || !HHMM_RE.test(night_shift_start || '')) {
-    return res.status(400).json({ error: 'Укажите время в формате ЧЧ:ММ' });
-  }
-  db.setSetting('day_shift_start', day_shift_start);
-  db.setSetting('night_shift_start', night_shift_start);
-  res.json(getShiftSettings());
-});
 
 app.get('/api/timesheet-codes', requireAuth('admin'), (req, res) => {
   res.json(TIMESHEET_CODES);
@@ -724,11 +734,10 @@ function loadLogsForRange(from, to) {
 }
 
 // Компактная сводка для предпросмотра на странице экспорта — считается по
-// тем же функциям (pairShiftsByEmployee, isNightCheckIn), что и сам xlsx,
+// тем же функциям (pairShiftsByEmployee, nightOverlapHours), что и сам xlsx,
 // чтобы превью 1-в-1 совпадало с итоговым файлом.
 function computeExportSummary(from, to) {
   const logs = loadLogsForRange(from, to);
-  const shiftSettings = getShiftSettings();
   const shifts = pairShiftsByEmployee(logs);
 
   const rows = shifts
@@ -744,7 +753,7 @@ function computeExportSummary(from, to) {
         time_in: localTimeHHMM(s.in.timestamp),
         time_out: localTimeHHMM(s.out.timestamp),
         hours: Math.round(((outDate - inDate) / 3600000) * 100) / 100,
-        is_night: isNightCheckIn(s.in.timestamp, shiftSettings),
+        night_hours: Math.round(nightOverlapHours(s.in.timestamp, s.out.timestamp) * 100) / 100,
       };
     })
     .sort((a, b) => a.full_name.localeCompare(b.full_name, 'ru') || a.date.localeCompare(b.date));
@@ -759,7 +768,7 @@ function computeExportSummary(from, to) {
     const t = byEmployee.get(r.employee_id);
     t.days += 1;
     t.hours += r.hours;
-    if (r.is_night) t.night_hours += r.hours;
+    t.night_hours += r.night_hours;
   }
   const totals = [...byEmployee.values()]
     .map(t => ({ ...t, hours: Math.round(t.hours * 100) / 100, night_hours: Math.round(t.night_hours * 100) / 100 }))
@@ -797,15 +806,14 @@ app.get('/api/export.xlsx', requireAuth('admin'), async (req, res) => {
   function daysInMonth(year, month0) {
     return new Date(Date.UTC(year, month0 + 1, 0)).getUTCDate();
   }
-  // Границы дневной/ночной смены, заданные администратором (см. /api/settings/shifts).
-  // Определяют, какая часть отработанного времени идёт в табеле как "ночная" —
-  // по фактическому времени отметки "приход", а не по графику должности.
-  const shiftSettings = getShiftSettings();
+  // Ночные часы — фиксированное окно 22:00–06:00 (см. nightOverlapHours),
+  // считаются как реальное пересечение каждой смены с этим окном, а не
+  // классификацией смены целиком по времени прихода.
 
   // Часы по сменам: employeeId -> 'YYYY-MM-DD' -> суммарные часы (только завершённые смены)
   const hoursByEmployeeDate = new Map();
-  // employeeId -> Set('YYYY-MM-DD') — дни, чья смена по факту прихода признана ночной.
-  const nightDatesByEmployee = new Map();
+  // employeeId -> 'YYYY-MM-DD' -> ночные часы этой смены (в пределах фиксированного окна 22:00–06:00)
+  const nightHoursByEmployeeDate = new Map();
   for (const s of summaryShifts) {
     if (!s.out) continue; // смена ещё не завершена — не включаем в табель
     const inDate = new Date(s.in.timestamp.replace(' ', 'T') + 'Z');
@@ -816,9 +824,11 @@ app.get('/api/export.xlsx', requireAuth('admin'), async (req, res) => {
     const perDate = hoursByEmployeeDate.get(s.employee_id);
     perDate.set(dateKey, (perDate.get(dateKey) || 0) + hours);
 
-    if (isNightCheckIn(s.in.timestamp, shiftSettings)) {
-      if (!nightDatesByEmployee.has(s.employee_id)) nightDatesByEmployee.set(s.employee_id, new Set());
-      nightDatesByEmployee.get(s.employee_id).add(dateKey);
+    const nightHours = nightOverlapHours(s.in.timestamp, s.out.timestamp);
+    if (nightHours > 0) {
+      if (!nightHoursByEmployeeDate.has(s.employee_id)) nightHoursByEmployeeDate.set(s.employee_id, new Map());
+      const nightPerDate = nightHoursByEmployeeDate.get(s.employee_id);
+      nightPerDate.set(dateKey, (nightPerDate.get(dateKey) || 0) + nightHours);
     }
   }
 
@@ -1006,16 +1016,22 @@ app.get('/api/export.xlsx', requireAuth('admin'), async (req, res) => {
     let rowNum = 4;
     employees.forEach((emp, idx) => {
       const perDate = hoursByEmployeeDate.get(emp.id);
-      const nightDates = nightDatesByEmployee.get(emp.id);
+      const nightPerDate = nightHoursByEmployeeDate.get(emp.id);
       const positions = emp.positions && emp.positions.length ? emp.positions : [null];
 
-      // По каждому дню считаем распределение часов по должностям и переработку.
-      const allocByDay = new Map(); // day -> { alloc: [...], overtime }
+      // По каждому дню считаем распределение часов по должностям и переработку,
+      // а также долю ночных часов этого дня (в пределах фиксированного окна
+      // 22:00–06:00) — она затем применяется к часам каждой должности
+      // пропорционально, так же как распределяется отработанное время.
+      const allocByDay = new Map(); // day -> { alloc: [...], overtime, nightRatio }
       for (let day = 1; day <= numDays; day++) {
         const dateKey = `${year}-${String(month1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
         const worked = perDate ? perDate.get(dateKey) : undefined;
         if (worked === undefined) continue;
-        allocByDay.set(day, allocateHoursAcrossPositions(worked, positions));
+        const { alloc, overtime } = allocateHoursAcrossPositions(worked, positions);
+        const nightHours = nightPerDate ? (nightPerDate.get(dateKey) || 0) : 0;
+        const nightRatio = worked > 0 ? Math.min(1, nightHours / worked) : 0;
+        allocByDay.set(day, { alloc, overtime, nightRatio });
       }
 
       positions.forEach((pos, posIdx) => {
@@ -1053,7 +1069,7 @@ app.get('/api/export.xlsx', requireAuth('admin'), async (req, res) => {
             dayHours[day] = hours;
             monthDaysWorked++;
             monthHours += hours;
-            if (nightDates && nightDates.has(dateKey)) monthNight += hours;
+            if (dayAlloc && dayAlloc.nightRatio) monthNight += hours * dayAlloc.nightRatio;
           } else if (scheduleCode === 'В') {
             // Плановый выходной по графику — как ручной 'В', но проставлен
             // заранее и меняется сам, если график поменяют.
@@ -1116,7 +1132,7 @@ app.get('/api/export.xlsx', requireAuth('admin'), async (req, res) => {
         setMerged(COL_DAYS, monthDaysWorked || null);
         setMerged(COL_HOURS, monthHours || null);
         setMerged(COL_OVERTIME, posIdx === 0 ? (monthOvertime || null) : null);
-        setMerged(COL_NIGHT, monthNight || null);
+        setMerged(COL_NIGHT, monthNight ? Math.round(monthNight * 100) / 100 : null);
         const reasonEntries = Array.from(reasonCounts.entries());
         setMerged(COL_WEEKEND_H, null);
         setMerged(COL_ABSENCE, absenceDays || null);
