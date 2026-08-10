@@ -193,12 +193,12 @@
        ниже вынесены в position:fixed — самостоятельный блок над шапкой. */
     #app-menu-menu.menu-cards{
       display:flex !important; position:fixed; z-index:70; left:50%; top:14px;
-      transform:translateX(-50%); width:calc(100% - 40px); max-width:1400px; min-width:0; opacity:1;
+      transform:translateX(-50%); width:auto; min-width:0; opacity:1;
       max-height:none; overflow:visible;
       padding:6px; margin:0; border-radius:14px;
       background:var(--panel); border:1px solid var(--line);
       box-shadow:0 1px 3px rgba(16,24,40,.05), 0 1px 2px rgba(16,24,40,.06);
-      flex-wrap:nowrap; gap:4px; box-sizing:border-box;
+      flex-wrap:nowrap; gap:4px;
     }
     .hub-head{display:none;}
     #app-menu-menu.menu-cards .menu-card{
@@ -211,23 +211,24 @@
     }
     #app-menu-menu.menu-cards .menu-card .mc-t{font-size:13px;}
     #app-menu-menu.menu-cards .menu-card .mc-current-badge{display:none !important;}
-    /* «Журнал» и виджет аккаунта переезжают сюда же (см. app.js —
-       placeMenuExtras переносит эти же DOM-узлы, а не дублирует их, так что
-       все существующие обработчики и обновление имени/аватара работают без
-       изменений). Слот прижимается к правому краю панели (margin-left:auto),
-       а не липнет вплотную к карточкам разделов слева — панель теперь на
-       всю ширину страницы (см. правило выше), так что свободное место есть.
-       Разделитель показывается только когда слот не пуст — на мобильном JS
-       держит его пустым, перенося узлы обратно в шапку. */
-    #menu-extra-slot{display:flex; align-items:center; gap:2px; margin-left:auto;}
-    #menu-extra-slot:not(:empty)::before{
-      content:''; width:1px; align-self:stretch; margin:0 10px; background:var(--line);
-    }
-    #menu-extra-slot #activity-log-btn{
+    /* «Журнал» переезжает прямо в общий ряд с карточками разделов (см.
+       app.js — placeMenuExtras переносит существующий DOM-узел кнопки
+       #activity-log-btn как обычный элемент этого же flex-ряда, а не в
+       отдельный слот), поэтому выглядит как ещё один пункт меню, а не
+       прилепленный сбоку довесок. Только виджет аккаунта остаётся в
+       #menu-extra-slot и отделяется вертикальной чертой — это единственный
+       элемент, который стоит визуально выделять справа. Панель по-прежнему
+       компактная (width:auto, обхватывает содержимое), просто аккаунт —
+       последний элемент в ряду. */
+    #app-menu-menu #activity-log-btn{
       padding:7px 12px; border-radius:9px; font-size:13px; white-space:nowrap;
       background:transparent; border:none; color:var(--ink);
     }
-    #menu-extra-slot #activity-log-btn:hover{background:var(--bg); color:var(--accent);}
+    #app-menu-menu #activity-log-btn:hover{background:var(--bg); color:var(--accent);}
+    #menu-extra-slot{display:flex; align-items:center; gap:2px;}
+    #menu-extra-slot:not(:empty)::before{
+      content:''; width:1px; align-self:stretch; margin:0 6px; background:var(--line);
+    }
     #menu-extra-slot #profile-widget{margin-left:0;}
     #menu-extra-slot #profile-widget .profile-pill{padding:4px 10px 4px 4px; gap:6px; border-color:transparent; background:transparent;}
     #menu-extra-slot #profile-widget .profile-pill:hover{background:var(--bg); border-color:var(--line);}
@@ -1282,15 +1283,74 @@
   }
   .new-user-form .full{grid-column:1 / -1;}
 
-  /* ---------- Мобильные экраны: раздел "Аккаунты" был слишком тесным ---------- */
-  @media (max-width: 480px){
+  /* ---------- Мобильные экраны: раздел "Аккаунты" — карточный layout ----------
+     На узких экранах строка .user-row (стрелки порядка / аватар / инфо /
+     выбор роли / иконки-действия — всё в один flex-ряд) не помещается и
+     разваливается на разнобойные переносы. На мобильном превращаем каждую
+     строку в отдельную карточку с понятной сеткой: аватар и стрелки
+     порядка сверху слева рядом с именем, роль — на всю ширину отдельной
+     строкой, иконки-действия — ровной панелью внизу карточки. */
+  @media (max-width: 560px){
     .new-user-form{ grid-template-columns:1fr; }
-    .user-row{ flex-wrap:wrap; row-gap:8px; }
-    .user-row .u-info{ flex:1 1 auto; min-width:0; }
-    .user-row .u-info .u-name{ white-space:normal; overflow:visible; text-overflow:clip; }
-    .user-row select{ flex:1; min-width:0; }
-    .user-row .icon-btn{ padding:6px 9px; }
-    .user-row .u-actions{ flex:1 1 100%; justify-content:flex-end; }
+
+    #accounts-directory-list, #users-list{ padding:0; }
+    .users-role-group{ padding:0 2px; }
+
+    .user-row{
+      display:grid;
+      grid-template-columns:auto auto 1fr;
+      grid-template-areas:
+        "order avatar info"
+        "role  role  role"
+        "actions actions actions";
+      column-gap:10px; row-gap:12px; align-items:start;
+      padding:14px; margin:0 0 10px; border:1px solid var(--line); border-radius:14px;
+      background:var(--panel); box-shadow:0 1px 2px rgba(16,24,40,.05);
+    }
+    .user-row:last-child{ margin-bottom:0; }
+
+    .user-row .u-order-actions{ grid-area:order; flex-direction:column; align-self:center; }
+    .user-row .u-order-actions .icon-btn{ padding:4px 7px; font-size:12px; }
+
+    .user-row .u-avatar{ grid-area:avatar; width:40px; height:40px; font-size:14px; align-self:center; }
+
+    .user-row .u-info{ grid-area:info; min-width:0; }
+    .user-row .u-info .u-name{ white-space:normal; overflow:visible; text-overflow:clip; font-size:14px; }
+    .user-row .u-info .u-login{
+      display:flex; align-items:center; gap:6px; flex-wrap:wrap; margin-top:2px;
+    }
+    .user-row .u-info .u-tt-actions{ margin-top:8px !important; }
+    .user-row .u-info .u-tt-actions .btn{
+      flex:1 1 calc(50% - 6px); text-align:center; font-size:12.5px !important; padding:9px 8px !important;
+    }
+
+    .user-row select.u-role-select, .user-row .role-badge{
+      grid-area:role; width:100%; box-sizing:border-box; text-align:center;
+      justify-self:stretch;
+    }
+    .user-row select.u-role-select{ font-size:13.5px; padding:10px; }
+    .user-row .role-badge{ padding:8px 9px !important; font-size:12.5px !important; }
+
+    .user-row .u-actions{
+      grid-area:actions; flex-wrap:wrap;
+      border-top:1px solid var(--line); padding-top:12px; margin-top:2px;
+    }
+    .user-row .u-actions .icon-btn{
+      flex:1 1 auto; min-width:40px; padding:9px 10px; font-size:14px; text-align:center;
+    }
+
+    /* Инлайн-редактирование логина/имени занимает всю карточку */
+    .user-row.editing{ grid-template-areas:"info info info" "role role role" "actions actions actions"; grid-template-columns:1fr; }
+    .user-row.editing .u-order-actions, .user-row.editing .u-avatar{ display:none; }
+
+    /* Упрощённый список "Сотрудники" (без прав управления) — тот же вид карточки */
+    .dir-row{
+      display:flex; flex-wrap:wrap; gap:10px;
+      padding:14px; margin:0 0 10px; border:1px solid var(--line); border-radius:14px;
+      background:var(--panel); box-shadow:0 1px 2px rgba(16,24,40,.05);
+    }
+    .dir-row:last-child{ margin-bottom:0; }
+    .dir-row .u-info .u-name{ white-space:normal; }
   }
   /* Скрытие функций журнала по правам роли (классы вешает auth.js на <body>) */
   body.perm-no-read-activity #activity-log-btn,

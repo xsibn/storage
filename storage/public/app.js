@@ -3487,16 +3487,21 @@
   // при пересечении брейкпоинта обратно возвращаются на свои места — в
   // шапку и в панель действий.
   (function(){
+    const menu = document.getElementById('app-menu-menu');
     const slot = document.getElementById('menu-extra-slot');
     const journalBtn = document.getElementById('activity-log-btn');
     const profileWidget = document.getElementById('profile-widget');
-    if(!slot || !journalBtn || !profileWidget) return;
+    if(!menu || !slot || !journalBtn || !profileWidget) return;
     const journalHome = { parent: journalBtn.parentNode, next: journalBtn.nextSibling };
     const profileHome = { parent: profileWidget.parentNode, next: profileWidget.nextSibling };
     const desktopQuery = window.matchMedia('(min-width:861px)');
     function placeMenuExtras(){
       if(desktopQuery.matches){
-        slot.appendChild(journalBtn);
+        // «Журнал» встаёт в общий ряд с карточками разделов, прямо перед
+        // слотом аккаунта (а не внутрь него) — так что визуально это ещё
+        // один пункт меню, а не довесок сбоку. Слот же остаётся только
+        // для виджета аккаунта, отделённого вертикальной чертой.
+        menu.insertBefore(journalBtn, slot);
         slot.appendChild(profileWidget);
       } else {
         journalHome.parent.insertBefore(journalBtn, journalHome.next);
