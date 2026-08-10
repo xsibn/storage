@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Админ-панель — учёт времени</title>
+<link rel="manifest" href="/time/manifest.json" />
+<meta name="theme-color" content="#0c0f16" />
+<link rel="icon" href="/time/icons/icon-192.png" type="image/png" />
+<link rel="apple-touch-icon" href="/time/icons/apple-touch-icon.png" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<meta name="apple-mobile-web-app-title" content="Учёт времени" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" />
+<link rel="stylesheet" href="/time/css/theme.css" />
+<style>
+  body { margin: 0; padding: 0 0 60px; }
+  .wrap { max-width: 480px; margin: 0 auto; padding: 24px 16px 0; }
+  h1 { font-size: 22px; margin: 0 0 4px; }
+  .sub { color: var(--muted); margin-bottom: 22px; font-size: 14px; }
+</style>
+</head>
+<body>
+<header class="app-header">
+  <a class="brand" href="/time/index.html">
+    <img class="mark" src="/time/icons/icon-192.png" alt="" />
+    <div><div class="name">Учёт времени</div><div class="who">админ-панель</div></div>
+  </a>
+  <nav class="app-nav">
+    <a href="/" id="portal-back-link" title="Вернуться на портал «Склад»">← Склад</a>
+    <button class="logout-btn" onclick="logout()">Выйти</button>
+  </nav>
+</header>
+<div class="wrap">
+  <h1>Админ-панель</h1>
+  <div class="sub">Все инструменты управления учётом времени — в одном месте.</div>
+
+  <div class="badge-grid">
+    <a class="badge-card tone-amber" href="/time/admin.html">
+      <div class="tab"></div><div class="glyph">👤</div>
+      <div class="body"><div class="t">Сотрудники</div>
+      <div class="d">Список зарегистрированных сотрудников</div></div>
+    </a>
+    <a class="badge-card tone-amber" href="/time/schedule.html">
+      <div class="tab"></div><div class="glyph">📅</div>
+      <div class="body"><div class="t">Графики</div>
+      <div class="d">Плановый график смен на месяц по категориям</div></div>
+    </a>
+    <a class="badge-card tone-amber" href="/time/timesheet.html">
+      <div class="tab"></div><div class="glyph">🗓</div>
+      <div class="body"><div class="t">Табель-коды</div>
+      <div class="d">Отпуска, больничные и другие отметки для всех сотрудников</div></div>
+    </a>
+    <a class="badge-card tone-amber" href="/time/logs.html">
+      <div class="tab"></div><div class="glyph">📋</div>
+      <div class="body"><div class="t">Журнал</div>
+      <div class="d">Приход, уход и отработанное время по сменам</div></div>
+    </a>
+    <a class="badge-card tone-green" href="/time/export.html">
+      <div class="tab"></div><div class="glyph">📊</div>
+      <div class="body"><div class="t">Экспорт в Excel</div>
+      <div class="d">Выбрать период и скачать таблицу</div></div>
+    </a>
+  </div>
+</div>
+
+<script>
+fetch('/time/api/config').then(r=>r.json()).then(cfg=>{const el=document.getElementById('portal-back-link'); if(el) el.href = cfg.portalUrl || '/';}).catch(()=>{});
+
+async function checkAuth() {
+  const resp = await fetch('/time/api/auth/me');
+  if (!resp.ok) { location.href = '/time/login.html'; return false; }
+  const user = await resp.json();
+  if (user.role !== 'admin') { location.href = '/time/login.html'; return false; }
+  return true;
+}
+checkAuth();
+
+async function logout() {
+  await fetch('/time/api/auth/logout', { method: 'POST' });
+  location.href = '/time/login.html';
+}
+</script>
+</body>
+</html>
