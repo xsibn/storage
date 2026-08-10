@@ -40,6 +40,33 @@ function hasTimetrackerAccount(username) {
   }
 }
 
+// Раньше привязка к «Учёту времени» была отдельным ручным шагом: сначала
+// завести аккаунт здесь, в «Аккаунтах», потом отдельно зайти в «Учёт
+// времени» → «Сотрудники» и привязать тот же логин. Теперь это один шаг —
+// при создании аккаунта здесь сразу заводим и профиль там (кроме роли
+// 'post': для неё профиль-охранник и так создаётся автоматически при первом
+// заходе в «Учёт времени», см. timetracker/server.js, — создавать его здесь
+// заранее значило бы конфликтовать с той лазейкой). Роль в учёте времени
+// выбираем по правам роли на «Складе»: у кого есть canBecomeTtAdmin — сразу
+// admin, иначе обычный employee (должности потом можно назначить прямо из
+// «Аккаунтов»). Ошибки тут не должны ронять создание самого аккаунта.
+function provisionTimetrackerAccount(user) {
+  if (!timetrackerDb || !user || user.role === 'post' || user.role === 'service') return;
+  try {
+    if (timetrackerDb.getUserByLogin(user.username)) return;
+    const perms = auth.permsFor(user.role);
+    timetrackerDb.createUser({
+      role: perms.canBecomeTtAdmin ? 'admin' : 'employee',
+      full_name: user.display_name || user.username,
+      login: user.username,
+      positions: []
+    });
+  } catch (err) {
+    // Не мешаем созданию основного аккаунта, если привязка не удалась —
+    // администратор всегда сможет привязать её позже вручную.
+  }
+}
+
 const app = express();
 // За nginx (см. deploy/nginx.conf) — proxy_set_header X-Real-IP/X-Forwarded-For
 // уже проставляются там. Без этой строчки req.ip у Express всегда будет
@@ -877,6 +904,7 @@ app.post('/api/users', auth.requirePerm('canManageUsers'), (req, res) => {
       passwordHash: auth.hashPassword(password),
       createdBy: req.user.username
     });
+    provisionTimetrackerAccount(created);
     res.status(201).json({ user: { ...auth.publicUser(created), hasTimetrackerAccount: hasTimetrackerAccount(created.username) } });
   } catch (err) {
     res.status(400).json({ error: err.message });
@@ -907,11 +935,21 @@ app.patch('/api/users/:id', auth.requireAuth, (req, res) => {
     if (role !== undefined) updated = db.updateUserRole(id, role);
     if (disabled !== undefined) updated = db.setUserDisabled(id, !!disabled);
     if (username !== undefined || displayName !== undefined) {
+      const before = db.getUserById(id);
       updated = db.updateUserIdentity(id, { username, displayName });
+      // Логин в «Учёте времени» — это тот же username; при переименовании
+      // аккаунта здесь переименовываем и привязанный профиль там, иначе
+      // связь по логину потеряется и профиль осиротеет.
+      if (timetrackerDb && before && username !== undefined && username !== before.username) {
+        try {
+          const ttUser = timetrackerDb.getUserByLogin(before.username);
+          if (ttUser) timetrackerDb.setUserLogin(ttUser.id, username);
+        } catch (err) { /* не мешаем основному переименованию */ }
+      }
     }
     if (!updated) updated = db.getUserById(id);
     if (!updated) return res.status(404).json({ error: 'not found' });
-    res.json({ user: auth.publicUser(updated) });
+    res.json({ user: { ...auth.publicUser(updated), hasTimetrackerAccount: hasTimetrackerAccount(updated.username) } });
   } catch (err) {
     res.status(400).json({ error: err.message });
   }
@@ -939,10 +977,175 @@ app.delete('/api/users/:id', auth.requirePerm('canManageUsers'), (req, res) => {
   if (!Number.isInteger(id)) return res.status(400).json({ error: 'bad id' });
   if (id === req.user.id) return res.status(400).json({ error: 'Нельзя удалить собственный аккаунт' });
   try {
+    const target = db.getUserById(id);
     db.deleteUser(id);
+    // Профиль в «Учёте времени» (если это обычный сотрудник) тоже больше не
+    // нужен — прошлые отметки и коды табеля при этом не теряются, см.
+    // timetracker/db.js/deleteEmployee. Админов/охранников там не трогаем —
+    // ими управляют через смену роли, а не удаление (осознанное ограничение
+    // того же deleteEmployee).
+    if (timetrackerDb && target) {
+      try {
+        const ttUser = timetrackerDb.getUserByLogin(target.username);
+        if (ttUser && ttUser.role === 'employee') timetrackerDb.deleteEmployee(ttUser.id);
+      } catch (err) { /* не мешаем основному удалению */ }
+    }
     res.json({ ok: true });
   } catch (err) {
     res.status(400).json({ error: err.message });
+  }
+});
+
+// ---------- Учёт времени: должности и коды табеля прямо из «Аккаунтов» ----------
+// Раньше это был отдельный раздел в другом приложении («Учёт времени» →
+// «Сотрудники», см. timetracker/public/admin.html) — тот же функционал
+// (должности, включение/отключение пропуска, коды табеля) теперь доступен
+// прямо здесь, рядом с самим аккаунтом, вместо второго похода в другое
+// меню. Ходим не по HTTP, а прямо в timetrackerDb — оба сервера всё равно
+// живут в одном процессе под gateway (см. ../gateway/server.js).
+const DATE_ONLY_RE = /^\d{4}-\d{2}-\d{2}$/;
+const CODE_RE = /^[A-ZА-Я0-9]{1,4}$/i;
+const HHMM_RE = /^([0-1]?\d|2[0-3]):([0-5]\d)$/;
+const TIMESHEET_CODES = [
+  { code: 'ОТ', label: 'Отпуск' },
+  { code: 'ДО', label: 'Отпуск без сохранения з/п' },
+  { code: 'Б', label: 'Больничный' },
+  { code: 'К', label: 'Командировка' },
+  { code: 'ПР', label: 'Прогул' },
+  { code: 'НН', label: 'Неявка по невыясненным причинам' },
+  { code: 'Р', label: 'Отпуск по уходу за ребёнком' },
+  { code: 'ПК', label: 'Повышение квалификации' },
+  { code: 'В', label: 'Выходной (вручную)' }
+];
+
+function requireTimetracker(req, res) {
+  if (!timetrackerDb) { res.status(503).json({ error: '«Учёт времени» недоступен на этом сервере' }); return null; }
+  return timetrackerDb;
+}
+
+function findLinkedUser(req, res, id) {
+  const target = db.getUserById(id);
+  if (!target) { res.status(404).json({ error: 'Аккаунт не найден' }); return null; }
+  const tt = requireTimetracker(req, res);
+  if (!tt) return null;
+  const ttUser = tt.getUserByLogin(target.username);
+  if (!ttUser) { res.status(404).json({ error: 'У этого аккаунта нет профиля в учёте времени' }); return null; }
+  return { target, ttUser, tt };
+}
+
+function validatePositions(positions) {
+  if (positions === undefined) return null;
+  if (!Array.isArray(positions)) return 'Список должностей указан неверно';
+  for (const p of positions) {
+    if (!p || !String(p.name || '').trim()) return 'У каждой должности должно быть название';
+    if (p.work_start && !HHMM_RE.test(p.work_start)) return 'Начало работы укажите в формате ЧЧ:ММ';
+    if (p.work_end && !HHMM_RE.test(p.work_end)) return 'Конец работы укажите в формате ЧЧ:ММ';
+    if (p.daily_hours !== undefined && p.daily_hours !== null && p.daily_hours !== '' && Number.isNaN(Number(p.daily_hours))) {
+      return 'Часы в день должны быть числом';
+    }
+  }
+  return null;
+}
+
+// GET /api/users/:id/timetracker — профиль в учёте времени (или 404, если
+// аккаунт ещё не привязан — например, создан до этой возможности, или это
+// роль 'post', у которой привязка ленивая).
+app.get('/api/users/:id/timetracker', auth.requirePerm('canManageUsers'), (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  if (!Number.isInteger(id)) return res.status(400).json({ error: 'bad id' });
+  const found = findLinkedUser(req, res, id);
+  if (!found) return;
+  const { ttUser, tt } = found;
+  res.json({ ...ttUser, category: tt.employeeCategory(ttUser) });
+});
+
+// POST /api/users/:id/timetracker — привязать уже существующий аккаунт
+// (для тех, что были созданы до автопривязки при создании).
+app.post('/api/users/:id/timetracker', auth.requirePerm('canManageUsers'), (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  if (!Number.isInteger(id)) return res.status(400).json({ error: 'bad id' });
+  const target = db.getUserById(id);
+  if (!target) return res.status(404).json({ error: 'Аккаунт не найден' });
+  const tt = requireTimetracker(req, res);
+  if (!tt) return;
+  if (tt.getUserByLogin(target.username)) return res.status(409).json({ error: 'Этот аккаунт уже привязан к учёту времени' });
+  try {
+    const perms = auth.permsFor(target.role);
+    const ttUser = tt.createUser({
+      role: perms.canBecomeTtAdmin ? 'admin' : 'employee',
+      full_name: target.display_name || target.username,
+      login: target.username,
+      positions: []
+    });
+    res.status(201).json(ttUser);
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+app.get('/api/users/:id/timetracker/codes-catalog', auth.requirePerm('canManageUsers'), (req, res) => {
+  res.json(TIMESHEET_CODES);
+});
+
+// PATCH /api/users/:id/timetracker/positions — задать должности (можно
+// несколько, при совмещении). Первая в списке — основная.
+app.patch('/api/users/:id/timetracker/positions', auth.requirePerm('canManageUsers'), (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  if (!Number.isInteger(id)) return res.status(400).json({ error: 'bad id' });
+  const found = findLinkedUser(req, res, id);
+  if (!found) return;
+  const { ttUser, tt } = found;
+  const error = validatePositions(req.body && req.body.positions);
+  if (error) return res.status(400).json({ error });
+  const updated = tt.updateEmployeePositions(ttUser.id, (req.body && req.body.positions) || []);
+  res.json(updated);
+});
+
+// PATCH /api/users/:id/timetracker/active — включить/отключить пропуск.
+app.patch('/api/users/:id/timetracker/active', auth.requirePerm('canManageUsers'), (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  if (!Number.isInteger(id)) return res.status(400).json({ error: 'bad id' });
+  const found = findLinkedUser(req, res, id);
+  if (!found) return;
+  const { ttUser, tt } = found;
+  tt.setEmployeeActive(ttUser.id, !!(req.body && req.body.active));
+  res.json(tt.getUserById(ttUser.id));
+});
+
+// GET /api/users/:id/timetracker/codes?month=YYYY-MM — коды табеля за месяц.
+app.get('/api/users/:id/timetracker/codes', auth.requirePerm('canManageUsers'), (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  if (!Number.isInteger(id)) return res.status(400).json({ error: 'bad id' });
+  const found = findLinkedUser(req, res, id);
+  if (!found) return;
+  const { ttUser, tt } = found;
+  const m = /^(\d{4})-(\d{2})$/.exec((req.query && req.query.month) || '');
+  if (!m) return res.status(400).json({ error: 'Укажите месяц в формате YYYY-MM' });
+  res.json(tt.listDayCodesForEmployee(ttUser.id, Number(m[1]), Number(m[2])));
+});
+
+// PATCH /api/users/:id/timetracker/codes — установить код на один день
+// ({date, code}) либо на период ({from, to, code}).
+app.patch('/api/users/:id/timetracker/codes', auth.requirePerm('canManageUsers'), (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  if (!Number.isInteger(id)) return res.status(400).json({ error: 'bad id' });
+  const found = findLinkedUser(req, res, id);
+  if (!found) return;
+  const { ttUser, tt } = found;
+  const { date, from, to, code } = req.body || {};
+  if (code && !CODE_RE.test(code)) return res.status(400).json({ error: 'Код — до 4 букв/цифр' });
+  try {
+    if (from || to) {
+      if (!DATE_ONLY_RE.test(from || '') || !DATE_ONLY_RE.test(to || '')) return res.status(400).json({ error: 'Укажите даты периода' });
+      if (!code) return res.status(400).json({ error: 'Укажите код — до 4 букв/цифр' });
+      tt.setDayCodeRange(ttUser.id, from, to, code);
+      return res.json({ ok: true });
+    }
+    if (!DATE_ONLY_RE.test(date || '')) return res.status(400).json({ error: 'Некорректная дата' });
+    const rec = tt.setDayCode(ttUser.id, date, code || '');
+    res.json(rec || { employee_id: ttUser.id, date, code: '' });
+  } catch (err) {
+    res.status(400).json({ error: err.message || 'Не удалось сохранить код' });
   }
 });
 

@@ -1,0 +1,45 @@
+{
+  "users": [],
+  "time_logs": [],
+  "day_codes": [
+    {
+      "id": 1,
+      "employee_id": 1,
+      "date": "2026-08-11",
+      "code": "ОТ"
+    },
+    {
+      "id": 2,
+      "employee_id": 1,
+      "date": "2026-08-12",
+      "code": "ОТ"
+    },
+    {
+      "id": 3,
+      "employee_id": 1,
+      "date": "2026-08-13",
+      "code": "ОТ"
+    },
+    {
+      "id": 4,
+      "employee_id": 1,
+      "date": "2026-08-14",
+      "code": "ОТ"
+    },
+    {
+      "id": 5,
+      "employee_id": 1,
+      "date": "2026-08-15",
+      "code": "ОТ"
+    }
+  ],
+  "schedule_shifts": [],
+  "settings": {
+    "guard_secret": "9b3bdc2ddfecfba2b6dfae87a0fc0f3e412cdd1cfbb204121a02c5514a81514f",
+    "last_log_cleanup": "2026-08-10T21:10:56.196Z"
+  },
+  "next_user_id": 2,
+  "next_log_id": 1,
+  "next_daycode_id": 6,
+  "next_shift_id": 1
+}

@@ -465,6 +465,13 @@
         <div class="u-view">
           <div class="u-name">${escHtml(label)}${isSelf ? ' <span style="color:var(--ink-soft); font-weight:400;">(вы)</span>' : ''}</div>
           <div class="u-login">@${escHtml(u.username)}${!isService ? `<span class="tt-account-badge" style="margin-left:8px; font-size:10.5px; padding:2px 7px; border-radius:999px; ${u.hasTimetrackerAccount ? 'background:var(--accent-soft); color:var(--accent);' : 'background:var(--panel-soft, #eee); color:var(--ink-soft);'}" title="${u.hasTimetrackerAccount ? 'Есть аккаунт в учёте времени' : 'Нет аккаунта в учёте времени'}">${u.hasTimetrackerAccount ? '⏱ есть в учёте времени' : '⏱ нет в учёте времени'}</span>` : ''}</div>
+          ${!isService ? `<div class="u-tt-actions" style="margin-top:6px; display:flex; gap:6px; flex-wrap:wrap;">
+            ${u.hasTimetrackerAccount ? `
+              <button type="button" class="btn" data-tt-action="positions" style="font-size:11px; padding:4px 8px;">✏️ Должности</button>
+              <button type="button" class="btn" data-tt-action="codes" style="font-size:11px; padding:4px 8px;">📅 Коды табеля</button>
+              <button type="button" class="btn" data-tt-action="toggle-active" style="font-size:11px; padding:4px 8px;">⏻ Вкл/откл пропуск</button>
+            ` : u.role !== 'post' ? `<button type="button" class="btn" data-tt-action="link" style="font-size:11px; padding:4px 8px;">🔗 Привязать к учёту времени</button>` : ''}
+          </div>` : ''}
           <div class="u-status"><span class="u-status-dot${u.online ? ' online' : ''}"></span>${escHtml(formatLastSeen(u))}</div>
         </div>
         <div class="u-edit">
@@ -632,7 +639,191 @@
             }
           });
         });
+        row.querySelectorAll('[data-tt-action]').forEach(btn => {
+          btn.addEventListener('click', async () => {
+            const action = btn.dataset.ttAction;
+            const label = row.querySelector('.u-name').textContent.trim();
+            try {
+              if (action === 'link') {
+                const res = await fetch(`${API_BASE}/api/users/${id}/timetracker`, { method: 'POST' });
+                const payload = await res.json().catch(() => ({}));
+                if (!res.ok) throw new Error(payload.error || 'Не удалось привязать аккаунт');
+                renderUsersList();
+              } else if (action === 'toggle-active') {
+                const res0 = await fetch(`${API_BASE}/api/users/${id}/timetracker`);
+                const tt0 = await res0.json().catch(() => ({}));
+                if (!res0.ok) throw new Error(tt0.error || 'Не удалось загрузить профиль учёта времени');
+                const res = await fetch(`${API_BASE}/api/users/${id}/timetracker/active`, {
+                  method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ active: !tt0.active })
+                });
+                const payload = await res.json().catch(() => ({}));
+                if (!res.ok) throw new Error(payload.error || 'Не удалось изменить пропуск');
+                alert(payload.active ? `Пропуск для «${label}» включён.` : `Пропуск для «${label}» отключён.`);
+              } else if (action === 'positions') {
+                await openPositionsModal(id, label);
+              } else if (action === 'codes') {
+                await openCodesModal(id, label);
+              }
+            } catch (err) {
+              alert(err.message);
+            }
+          });
+        });
       });
+  }
+
+  // ---------- «Учёт времени» из «Аккаунтов»: должности и коды табеля ----------
+  function positionCardHtml(p, idx) {
+    p = p || {};
+    return `
+    <div class="tt-pos-card" data-idx="${idx}" style="border:1px solid var(--line); border-radius:8px; padding:8px; margin-top:6px;">
+      <div style="display:flex; gap:6px; align-items:center;">
+        <input type="text" class="tt-pos-name" placeholder="Название должности" value="${escHtml(p.name || '')}" style="flex:1; padding:6px 8px; border:1px solid var(--line); border-radius:6px; font-size:12.5px; background:var(--panel); color:var(--ink);">
+        <button type="button" class="icon-btn danger" data-action="remove-pos" title="Убрать должность">🗑</button>
+      </div>
+      <div style="display:flex; gap:6px; margin-top:6px;">
+        <input type="text" class="tt-pos-start" placeholder="Начало ЧЧ:ММ" value="${escHtml(p.work_start || '')}" style="flex:1; padding:6px 8px; border:1px solid var(--line); border-radius:6px; font-size:12.5px; background:var(--panel); color:var(--ink);">
+        <input type="text" class="tt-pos-end" placeholder="Конец ЧЧ:ММ" value="${escHtml(p.work_end || '')}" style="flex:1; padding:6px 8px; border:1px solid var(--line); border-radius:6px; font-size:12.5px; background:var(--panel); color:var(--ink);">
+        <input type="number" class="tt-pos-hours" placeholder="Ч/день" value="${p.daily_hours != null ? escHtml(String(p.daily_hours)) : ''}" style="width:80px; padding:6px 8px; border:1px solid var(--line); border-radius:6px; font-size:12.5px; background:var(--panel); color:var(--ink);">
+      </div>
+    </div>`;
+  }
+
+  function wirePositionsBlock(blockEl) {
+    blockEl.querySelectorAll('[data-action="remove-pos"]').forEach(btn => {
+      btn.addEventListener('click', () => btn.closest('.tt-pos-card').remove());
+    });
+  }
+
+  function readPositionsFromBlock(blockEl) {
+    return Array.from(blockEl.querySelectorAll('.tt-pos-card')).map(card => ({
+      name: card.querySelector('.tt-pos-name').value.trim(),
+      work_start: card.querySelector('.tt-pos-start').value.trim() || null,
+      work_end: card.querySelector('.tt-pos-end').value.trim() || null,
+      daily_hours: card.querySelector('.tt-pos-hours').value.trim() || null
+    })).filter(p => p.name);
+  }
+
+  async function openPositionsModal(userId, label) {
+    const res = await fetch(`${API_BASE}/api/users/${userId}/timetracker`);
+    const tt = await res.json().catch(() => ({}));
+    if (!res.ok) { alert(tt.error || 'Не удалось загрузить профиль учёта времени'); return; }
+    const positions = Array.isArray(tt.positions) ? tt.positions : [];
+    openAuthModal(`Должности — ${escHtml(label)}`, `
+      <div class="tt-positions-block" id="tt-positions-block">
+        ${positions.map((p, i) => positionCardHtml(p, i)).join('')}
+      </div>
+      <button type="button" class="btn" id="tt-add-position" style="margin-top:8px; font-size:11.5px;">+ Добавить должность</button>
+      <div class="hint" style="font-size:11px; color:var(--ink-soft); margin-top:8px;">Первая должность — основная: по ней считаются реально отработанные часы. Остальные — совмещение.</div>
+      <div id="tt-pos-error" style="display:none; color:var(--danger); font-size:12.5px; margin-top:6px;"></div>
+    `, `<button class="btn" id="tt-pos-cancel">Отмена</button><button class="btn primary" id="tt-pos-save">Сохранить</button>`);
+    const block = $('tt-positions-block');
+    wirePositionsBlock(block);
+    $('tt-add-position').addEventListener('click', () => {
+      block.insertAdjacentHTML('beforeend', positionCardHtml({}, block.children.length));
+      wirePositionsBlock(block);
+    });
+    $('tt-pos-cancel').addEventListener('click', closeAuthModal);
+    $('tt-pos-save').addEventListener('click', async () => {
+      const errEl = $('tt-pos-error');
+      errEl.style.display = 'none';
+      try {
+        const res2 = await fetch(`${API_BASE}/api/users/${userId}/timetracker/positions`, {
+          method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ positions: readPositionsFromBlock(block) })
+        });
+        const payload = await res2.json().catch(() => ({}));
+        if (!res2.ok) throw new Error(payload.error || 'Не удалось сохранить должности');
+        closeAuthModal();
+      } catch (err) {
+        errEl.textContent = err.message;
+        errEl.style.display = 'block';
+      }
+    });
+  }
+
+  async function openCodesModal(userId, label) {
+    const now = new Date();
+    const defaultMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+    const [catalogRes] = await Promise.all([fetch(`${API_BASE}/api/users/${userId}/timetracker/codes-catalog`)]);
+    const catalog = await catalogRes.json().catch(() => []);
+    openAuthModal(`Коды табеля — ${escHtml(label)}`, `
+      <div class="hint" style="font-size:11px; color:var(--ink-soft); margin-bottom:8px;">
+        «Я» и обычные «В» считаются автоматически по отметкам прихода/ухода — код нужен только для отпуска, больничного и т.п.
+      </div>
+      <label>Месяц</label>
+      <input type="month" id="tt-codes-month" value="${defaultMonth}" style="width:100%; padding:7px 9px; border:1px solid var(--line); border-radius:7px; font-size:13px; background:var(--panel); color:var(--ink); margin-bottom:8px;">
+      <div id="tt-codes-list" style="max-height:180px; overflow:auto; border:1px solid var(--line); border-radius:8px; padding:6px; margin-bottom:10px; font-size:12.5px;"></div>
+      <div style="display:flex; gap:6px; flex-wrap:wrap; align-items:end;">
+        <div><label>Период с</label><input type="date" id="tt-range-from" style="padding:6px 8px; border:1px solid var(--line); border-radius:6px; background:var(--panel); color:var(--ink);"></div>
+        <div><label>по</label><input type="date" id="tt-range-to" style="padding:6px 8px; border:1px solid var(--line); border-radius:6px; background:var(--panel); color:var(--ink);"></div>
+        <div><label>Код</label>
+          <select id="tt-range-code" style="padding:6px 8px; border:1px solid var(--line); border-radius:6px; background:var(--panel); color:var(--ink);">
+            ${catalog.map(c => `<option value="${escHtml(c.code)}">${escHtml(c.code)} — ${escHtml(c.label)}</option>`).join('')}
+          </select>
+        </div>
+        <button type="button" class="btn primary" id="tt-range-apply" style="font-size:11.5px;">Применить к периоду</button>
+      </div>
+      <div id="tt-codes-error" style="display:none; color:var(--danger); font-size:12.5px; margin-top:8px;"></div>
+    `, `<button class="btn" id="tt-codes-close">Закрыть</button>`);
+
+    async function loadMonth() {
+      const month = $('tt-codes-month').value;
+      const listEl = $('tt-codes-list');
+      if (!month) return;
+      listEl.textContent = 'Загрузка…';
+      try {
+        const res = await fetch(`${API_BASE}/api/users/${userId}/timetracker/codes?month=${encodeURIComponent(month)}`);
+        const rows = await res.json().catch(() => []);
+        if (!res.ok) throw new Error((rows && rows.error) || 'Не удалось загрузить коды');
+        const withCodes = (rows || []).filter(r => r.code);
+        listEl.innerHTML = withCodes.length ? withCodes.map(r => `
+          <div style="display:flex; align-items:center; gap:8px; padding:3px 0;">
+            <span style="width:90px;">${escHtml(r.date)}</span>
+            <span style="font-weight:600;">${escHtml(r.code)}</span>
+            <button type="button" class="btn" data-clear-date="${escHtml(r.date)}" style="margin-left:auto; font-size:10.5px; padding:2px 7px;">Убрать</button>
+          </div>`).join('') : '<div style="color:var(--ink-soft);">На этот месяц кодов нет.</div>';
+        listEl.querySelectorAll('[data-clear-date]').forEach(btn => {
+          btn.addEventListener('click', async () => {
+            try {
+              const res2 = await fetch(`${API_BASE}/api/users/${userId}/timetracker/codes`, {
+                method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ date: btn.dataset.clearDate, code: '' })
+              });
+              if (!res2.ok) throw new Error((await res2.json().catch(() => ({}))).error || 'Не удалось убрать код');
+              loadMonth();
+            } catch (err) { alert(err.message); }
+          });
+        });
+      } catch (err) {
+        listEl.innerHTML = `<div style="color:var(--danger);">${escHtml(err.message)}</div>`;
+      }
+    }
+
+    $('tt-codes-month').addEventListener('change', loadMonth);
+    $('tt-codes-close').addEventListener('click', closeAuthModal);
+    $('tt-range-apply').addEventListener('click', async () => {
+      const errEl = $('tt-codes-error');
+      errEl.style.display = 'none';
+      const from = $('tt-range-from').value;
+      const to = $('tt-range-to').value;
+      const code = $('tt-range-code').value;
+      if (!from || !to) { errEl.textContent = 'Укажите период'; errEl.style.display = 'block'; return; }
+      try {
+        const res = await fetch(`${API_BASE}/api/users/${userId}/timetracker/codes`, {
+          method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ from, to, code })
+        });
+        const payload = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(payload.error || 'Не удалось применить период');
+        loadMonth();
+      } catch (err) {
+        errEl.textContent = err.message;
+        errEl.style.display = 'block';
+      }
+    });
+    loadMonth();
   }
 
   let usersSearchWired = false;

@@ -144,6 +144,18 @@ function getUserByLogin(login) {
   return state.users.find(u => u.login === login) || null;
 }
 
+// Переименование общей учётной записи в «Складе» (раздел «Аккаунты») должно
+// отражаться и здесь, иначе привязка по login развалится и профиль в учёте
+// времени станет «осиротевшим» (см. storage/server.js — PATCH /api/users/:id
+// вызывает это при смене username, если для аккаунта есть профиль здесь).
+function setUserLogin(id, login) {
+  const user = getUserById(id);
+  if (!user) return null;
+  user.login = login;
+  persist();
+  return user;
+}
+
 function hasAnyUserWithRole(role) {
   return state.users.some(u => u.role === role);
 }
@@ -474,6 +486,7 @@ module.exports = {
   getSetting,
   setSetting,
   createUser,
+  setUserLogin,
   getUserById,
   setUserRole,
   getUserByLogin,
