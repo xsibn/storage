@@ -176,25 +176,34 @@
 
   /* ============ ДЕСКТОП: хаб разделов как постоянная шапка ============
      На ПК есть место и мышь — не нужен модальный оверлей: показываем
-     "Склад / Учёт времени / Задания" сразу строкой в шапке, без клика.
+     "Склад / Учёт времени / Задания" отдельным плавающим блоком над шапкой,
+     по центру экрана — а не строкой внутри самой шапки, как раньше.
      Мобильная логика (шторка снизу по клику) ниже, в @media (max-width:860px),
      не трогается. */
   @media (min-width:861px){
-    #app-menu-dropdown{display:flex; align-items:center; gap:10px;}
+    #app-menu-dropdown{display:contents;}
     #app-menu-backdrop{display:none !important;}
     h1.app-menu-toggle{cursor:default;}
     h1.app-menu-toggle:hover, h1.app-menu-toggle:focus-visible{background:none; color:var(--ink);}
     h1.app-menu-toggle .menu-caret{display:none;}
+    /* #app-menu-dropdown{display:contents} убирает сам враппер из потока, не
+       трогая DOM (JS всё ещё ищет клики "вне #app-menu-dropdown" — это
+       по-прежнему работает, contains() смотрит на дерево, а не раскладку).
+       h1-заголовок остаётся на своём месте в шапке, а карточки разделов
+       ниже вынесены в position:fixed — самостоятельный блок над шапкой. */
     #app-menu-menu.menu-cards{
-      display:flex !important; position:static; z-index:auto; left:auto; top:auto;
-      transform:none; width:auto; min-width:0; padding:0; margin:0; opacity:1;
-      max-height:none; overflow:visible; border-radius:0; box-shadow:none;
-      background:transparent; flex-wrap:wrap; gap:4px;
+      display:flex !important; position:fixed; z-index:70; left:50%; top:14px;
+      transform:translateX(-50%); width:auto; min-width:0; opacity:1;
+      max-height:none; overflow:visible;
+      padding:6px; margin:0; border-radius:14px;
+      background:var(--panel); border:1px solid var(--line);
+      box-shadow:0 1px 3px rgba(16,24,40,.05), 0 1px 2px rgba(16,24,40,.06);
+      flex-wrap:nowrap; gap:4px;
     }
     .hub-head{display:none;}
     #app-menu-menu.menu-cards .menu-card{
       width:auto; flex-direction:row; padding:7px 12px 7px 8px; margin-bottom:0;
-      border-radius:9px; gap:8px;
+      border-radius:9px; gap:8px; white-space:nowrap;
     }
     #app-menu-menu.menu-cards .menu-card .mc-d{display:none;}
     #app-menu-menu.menu-cards .menu-card .mc-glyph{
@@ -202,7 +211,11 @@
     }
     #app-menu-menu.menu-cards .menu-card .mc-t{font-size:13px;}
     #app-menu-menu.menu-cards .menu-card .mc-current-badge{display:none !important;}
+    /* Место под плавающий блок над шапкой, чтобы он её не перекрывал —
+       высота блока (~54px) плюс небольшой отступ. */
+    header{margin-top:58px;}
   }
+
   header h1 .tag{
     font-family:var(--mono); font-size:11px; color:var(--accent); background:var(--accent-soft);
     padding:2px 6px; border-radius:4px; margin-left:8px; vertical-align:middle;
