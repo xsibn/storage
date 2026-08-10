@@ -762,9 +762,14 @@
   }
   .pin-btn:hover{border-color:var(--accent); background:var(--accent-soft);}
 
-  /* Centered modal (cell picker / add product) */
+  /* Centered modal (cell picker / add product). z-index:210 — специально
+     ВЫШЕ #profile-page (z-index:200): окно уведомлений (см.
+     push-notifications.js → openSharedModal) открывается именно через эту
+     общую модалку, а кнопка «Уведомления» лежит внутри полноэкранной
+     страницы профиля — если модалка ниже неё по z-index, она рисуется под
+     профилем и не видна, пока страницу профиля не закрыть. */
   #modal-backdrop{
-    position:fixed; inset:0; background:rgba(20,24,32,.45); display:none; z-index:60;
+    position:fixed; inset:0; background:rgba(20,24,32,.45); display:none; z-index:210;
     align-items:center; justify-content:center; padding:20px;
   }
   #modal-backdrop.open{display:flex;}
@@ -780,7 +785,7 @@
 
   /* ---------- Кастомное окно подтверждения (замена confirm()) ---------- */
   #confirm-backdrop{
-    position:fixed; inset:0; z-index:80; display:none; align-items:center; justify-content:center; padding:20px;
+    position:fixed; inset:0; z-index:220; display:none; align-items:center; justify-content:center; padding:20px;
     background:rgba(15,18,24,.5);
     backdrop-filter:blur(2px); -webkit-backdrop-filter:blur(2px);
   }
