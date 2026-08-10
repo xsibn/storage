@@ -3246,6 +3246,7 @@
 
   function activateView(view){
     currentActiveView = view;
+    updateHubCurrentSection(); // держим подсветку раздела в шапке актуальной (важно для десктопа, где шапка видна всегда)
     document.querySelectorAll('nav.tabs button').forEach(b=>b.classList.toggle('active', b.dataset.view === view));
     document.querySelectorAll('.view').forEach(v=>v.classList.remove('active'));
     document.getElementById('view-'+view).classList.add('active');
@@ -3436,8 +3437,12 @@
       if(badge) badge.style.display = isCurrent ? '' : 'none';
     });
   }
+  const isDesktopHub = ()=> window.matchMedia('(min-width:861px)').matches;
   appMenuToggle.addEventListener('click', (e)=>{
     e.stopPropagation();
+    // На десктопе разделы уже показаны строкой в шапке (см. CSS) —
+    // модалку открывать не нужно, заголовок там просто подпись.
+    if(isDesktopHub()) return;
     setAppMenuOpen(!appMenuDropdown.classList.contains('open'));
   });
   appMenuToggle.addEventListener('keydown', (e)=>{
@@ -3468,6 +3473,10 @@
     setAppMenuOpen(false);
     const href = e.currentTarget.dataset.href;
     if(href) location.href = href;
+  });
+  document.getElementById('app-menu-accounts').addEventListener('click', ()=>{
+    setAppMenuOpen(false);
+    activateView('accounts');
   });
 
   // ---------- DB ACTIONS DROPDOWN (import + export grouped together) ----------
@@ -4562,7 +4571,7 @@
       const res = await fetch(API_BASE + '/api/registration-requests/count');
       if(!res.ok) return;
       const { count } = await res.json();
-      [document.getElementById('accounts-badge'), document.getElementById('bn-accounts-badge')].forEach(badge => {
+      [document.getElementById('bn-accounts-badge'), document.getElementById('app-menu-accounts-badge')].forEach(badge => {
         if(!badge) return;
         if(count > 0){ badge.textContent = count; badge.style.display = ''; }
         else badge.style.display = 'none';

@@ -214,10 +214,9 @@
     // Для тех, у кого нет прав на управление аккаунтами, раздел показывает
     // только список коллег и их ролей — переименовываем пункт меню, чтобы
     // это было понятно сразу, не открывая его.
-    const accountsLabel = currentUser.perms.canManageUsers ? '👥 Аккаунты' : '👥 Сотрудники';
     const bnAccountsLabel = currentUser.perms.canManageUsers ? 'Аккаунты' : 'Сотрудники';
-    if ($('nav-accounts-label')) $('nav-accounts-label').textContent = accountsLabel;
     if ($('bn-accounts-label')) $('bn-accounts-label').textContent = bnAccountsLabel;
+    if ($('hub-accounts-label')) $('hub-accounts-label').textContent = bnAccountsLabel;
   }
 
   function openProfilePage() {

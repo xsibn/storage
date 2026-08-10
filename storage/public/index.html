@@ -173,6 +173,36 @@
     padding:2px 7px; border-radius:999px; flex-shrink:0; white-space:nowrap;
   }
   body.hub-open{overflow:hidden;}
+
+  /* ============ ДЕСКТОП: хаб разделов как постоянная шапка ============
+     На ПК есть место и мышь — не нужен модальный оверлей: показываем
+     "Склад / Учёт времени / Задания" сразу строкой в шапке, без клика.
+     Мобильная логика (шторка снизу по клику) ниже, в @media (max-width:860px),
+     не трогается. */
+  @media (min-width:861px){
+    #app-menu-dropdown{display:flex; align-items:center; gap:10px;}
+    #app-menu-backdrop{display:none !important;}
+    h1.app-menu-toggle{cursor:default;}
+    h1.app-menu-toggle:hover, h1.app-menu-toggle:focus-visible{background:none; color:var(--ink);}
+    h1.app-menu-toggle .menu-caret{display:none;}
+    #app-menu-menu.menu-cards{
+      display:flex !important; position:static; z-index:auto; left:auto; top:auto;
+      transform:none; width:auto; min-width:0; padding:0; margin:0; opacity:1;
+      max-height:none; overflow:visible; border-radius:0; box-shadow:none;
+      background:transparent; flex-wrap:wrap; gap:4px;
+    }
+    .hub-head{display:none;}
+    #app-menu-menu.menu-cards .menu-card{
+      width:auto; flex-direction:row; padding:7px 12px 7px 8px; margin-bottom:0;
+      border-radius:9px; gap:8px;
+    }
+    #app-menu-menu.menu-cards .menu-card .mc-d{display:none;}
+    #app-menu-menu.menu-cards .menu-card .mc-glyph{
+      width:26px; height:26px; font-size:13px; border-radius:7px;
+    }
+    #app-menu-menu.menu-cards .menu-card .mc-t{font-size:13px;}
+    #app-menu-menu.menu-cards .menu-card .mc-current-badge{display:none !important;}
+  }
   header h1 .tag{
     font-family:var(--mono); font-size:11px; color:var(--accent); background:var(--accent-soft);
     padding:2px 6px; border-radius:4px; margin-left:8px; vertical-align:middle;
@@ -1349,6 +1379,15 @@
           </span>
           <span class="mc-current-badge" style="display:none;">Открыто</span>
         </button>
+        <button type="button" class="menu-card" id="app-menu-accounts" data-hub-section="accounts">
+          <span class="mc-tab"></span>
+          <span class="mc-glyph">👥</span>
+          <span class="mc-body">
+            <span class="mc-t"><span id="hub-accounts-label">Аккаунты</span><span class="tab-badge" id="app-menu-accounts-badge" style="display:none;"></span></span>
+            <span class="mc-d">Сотрудники, роли, заявки на регистрацию</span>
+          </span>
+          <span class="mc-current-badge" style="display:none;">Открыто</span>
+        </button>
       </div>
     </div>
     <div class="stats" id="stats"></div>
@@ -1396,7 +1435,6 @@
     <button data-view="reco">Рекомендация пикинга</button>
     <div class="tabs-secondary-group">
       <button data-view="chats">💬 Чаты<span class="tab-badge" id="chats-badge" style="display:none;"></span></button>
-      <button data-view="accounts"><span id="nav-accounts-label">👥 Аккаунты</span><span class="tab-badge" id="accounts-badge" style="display:none;"></span></button>
     </div>
   </nav>
 
