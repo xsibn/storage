@@ -254,6 +254,22 @@ function deleteEmployee(id) {
   return true;
 }
 
+// Отвязывает служебный автобутстрапленный профиль администратора (см.
+// createUser({service:true}) выше), когда право canBecomeTtAdmin у него на
+// «Складе» отозвали — зеркально автосозданию: раз профиль появился только
+// благодаря этому праву, при потере права он должен полностью исчезнуть, а
+// не просто "перестать быть админом" (у него всё равно нет настоящих данных
+// сотрудника — табеля, графика и т.п., см. isVisibleEmployee). Настоящих
+// администраторов (service=false, т.е. привязанных вручную из «Сотрудники»)
+// эта функция не трогает.
+function removeServiceAdmin(id) {
+  const idx = state.users.findIndex(u => u.id === Number(id) && u.role === 'admin' && u.service);
+  if (idx === -1) return false;
+  state.users.splice(idx, 1);
+  persist();
+  return true;
+}
+
 // Атомарно (в рамках однопроцессного Node) проверяет, что окно новее
 // последнего использованного, и сразу фиксирует его — защита от повторного
 // использования одного и того же QR.
@@ -523,6 +539,7 @@ module.exports = {
   setUserService,
   setEmployeeActive,
   deleteEmployee,
+  removeServiceAdmin,
   updateEmployeePositions,
   primaryPosition,
   employeeCategory,

@@ -74,6 +74,17 @@ app.use((req, res, next) => {
     if (req.user && req.user.role === 'admin' && perms.canBecomeTtAdmin && !req.user.service) {
       req.user = db.setUserService(req.user.id, true);
     }
+    // Обратный случай: право canBecomeTtAdmin отозвали на «Складе» (роль
+    // сменили, например, на «Сотрудник», или сняли право у прежней роли) —
+    // служебный автобутстрапленный профиль администратора должен исчезнуть
+    // вместе с правом, а не остаться админом навсегда. Настоящих (не
+    // service) администраторов, привязанных вручную через «Сотрудники», это
+    // не касается — право «Складa» не единственный способ стать здесь
+    // админом.
+    if (req.user && req.user.role === 'admin' && req.user.service && !perms.canBecomeTtAdmin) {
+      db.removeServiceAdmin(req.user.id);
+      req.user = null;
+    }
   }
 
   // Роль «Пост» на «Складе» существует ровно для одной задачи — показывать
