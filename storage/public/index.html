@@ -113,6 +113,11 @@
     padding:4px 8px; margin:-4px -8px; transition:.12s;
   }
   h1.app-menu-toggle:hover, h1.app-menu-toggle:focus-visible{background:var(--bg); color:var(--accent); outline:none;}
+  /* «Чаты» в шапке — отдельная кнопка-раздел (не вкладка склада), поэтому
+     подсвечивается так же, как активная вкладка ниже, когда открыт этот
+     раздел. */
+  #chats-nav-btn{position:relative;}
+  #chats-nav-btn.active{background:var(--accent); border-color:var(--accent); color:#fff;}
   h1.app-menu-toggle .menu-caret{font-size:11px; color:var(--ink-soft); margin-left:6px; transition:transform .12s;}
   #app-menu-dropdown.open h1.app-menu-toggle .menu-caret{transform:rotate(180deg);}
 
@@ -911,6 +916,9 @@
        не хватает (или не хватает прав на управление им), и не должен
        превращать нижний навбар в ещё одну перегруженную панель. */
     #sync-btn, #activity-log-btn, #my-activity-log-btn{display:none !important;}
+    /* На телефоне за «Чаты» отвечает нижняя навигация (см. #bottom-nav) —
+       кнопка в шапке там не нужна. */
+    #chats-nav-btn{display:none !important;}
 
     nav.tabs{overflow-x:auto; -webkit-overflow-scrolling:touch; padding:0 12px; scrollbar-width:none; border-radius:10px;}
     nav.tabs::-webkit-scrollbar{display:none;}
@@ -1504,6 +1512,11 @@
         <div class="menu-extra-slot" id="menu-extra-slot"></div>
       </div>
     </div>
+    <!-- «Чаты» — отдельный от схемы склада раздел (свой полноэкранный вид),
+         поэтому на ПК это отдельная кнопка в шапке, а не ещё одна вкладка
+         в ряду вкладок склада. На телефоне не нужна — там за это отвечает
+         нижняя навигация (см. #bottom-nav). -->
+    <button type="button" class="btn" id="chats-nav-btn" title="Чаты">💬 Чаты<span class="tab-badge" id="chats-badge" style="display:none;"></span></button>
     <div class="stats" id="stats"></div>
     <div class="profile-widget" id="profile-widget">
       <button class="profile-pill" id="profile-pill" type="button">
@@ -1547,9 +1560,6 @@
     <button data-view="table">Таблица данных</button>
     <button data-view="zones">Служебные зоны</button>
     <button data-view="reco">Рекомендация пикинга</button>
-    <div class="tabs-secondary-group">
-      <button data-view="chats">💬 Чаты<span class="tab-badge" id="chats-badge" style="display:none;"></span></button>
-    </div>
   </nav>
 
   <main>

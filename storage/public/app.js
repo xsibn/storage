@@ -3327,12 +3327,16 @@
     });
     const hubBackBtn = document.getElementById('hub-back-btn');
     if(hubBackBtn) hubBackBtn.classList.toggle('visible', HUB_BACK_VIEWS.includes(view));
+    const chatsNavBtn = document.getElementById('chats-nav-btn');
+    if(chatsNavBtn) chatsNavBtn.classList.toggle('active', view === 'chats');
   }
   window.__activateView = activateView; // используется auth.js, чтобы открыть "Аккаунты" из карточки профиля
 
   document.querySelectorAll('nav.tabs button').forEach(btn=>{
     btn.addEventListener('click', ()=> activateView(btn.dataset.view));
   });
+  const chatsNavBtn = document.getElementById('chats-nav-btn');
+  if(chatsNavBtn) chatsNavBtn.addEventListener('click', ()=> activateView('chats'));
 
   // ---------- Плитка «Журнал» на стартовом хабе — открывает тот же модал,
   // что и обычная кнопка «Журнал»/«Мой журнал» (видна ровно одна из двух
