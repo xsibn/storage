@@ -3299,7 +3299,7 @@
   const FULLSCREEN_VIEWS = ['tasks', 'accounts', 'chats', 'hub']; // разделы вроде "Задания"/"Аккаунты"/"Чаты"/"Хаб" — на телефоне занимают весь экран, без вкладок склада
   // Разделы, которые открываются собственным URL (/warehouse, /tasks) и на
   // которых поэтому показываем маленькую кнопку "← Меню" в шапке.
-  const HUB_BACK_VIEWS = ['map', 'table', 'zones', 'reco', 'tasks'];
+  const HUB_BACK_VIEWS = ['map', 'table', 'zones', 'reco', 'tasks', 'accounts'];
   let lastWarehouseView = 'map'; // склад: какую под-вкладку показать при возврате из "Задания"/"Аккаунтов"
   let currentActiveView = 'hub'; // используется хабом разделов, чтобы подсветить "Открыто" на нужной карточке
 
@@ -3325,12 +3325,23 @@
       b.classList.toggle('active', b.dataset.bn === 'warehouse' ? WAREHOUSE_VIEWS.includes(view) : b.dataset.bn === view);
     });
     const hubBackBtn = document.getElementById('hub-back-btn');
-    if(hubBackBtn) hubBackBtn.style.display = HUB_BACK_VIEWS.includes(view) ? '' : 'none';
+    if(hubBackBtn) hubBackBtn.classList.toggle('visible', HUB_BACK_VIEWS.includes(view));
   }
   window.__activateView = activateView; // используется auth.js, чтобы открыть "Аккаунты" из карточки профиля
 
   document.querySelectorAll('nav.tabs button').forEach(btn=>{
     btn.addEventListener('click', ()=> activateView(btn.dataset.view));
+  });
+
+  // ---------- Плитка «Журнал» на стартовом хабе — открывает тот же модал,
+  // что и обычная кнопка «Журнал»/«Мой журнал» (видна ровно одна из двух
+  // в зависимости от прав, см. CSS perm-no-read-activity). ----------
+  const hubTileJournal = document.getElementById('hub-tile-journal');
+  if(hubTileJournal) hubTileJournal.addEventListener('click', ()=>{
+    const full = document.getElementById('activity-log-btn');
+    const mine = document.getElementById('my-activity-log-btn');
+    if(full && full.offsetParent !== null) full.click();
+    else if(mine) mine.click();
   });
 
   // ---------- НИЖНЯЯ ПАНЕЛЬ (телефон): Склад / Задания / Аккаунты / Профиль, как разделы в ТГ ----------
@@ -3519,67 +3530,7 @@
       setAppMenuOpen(false);
     }
   });
-  document.getElementById('app-menu-warehouse').addEventListener('click', ()=>{
-    setAppMenuOpen(false);
-    activateView(lastWarehouseView);
-  });
-  document.getElementById('app-menu-tasks').addEventListener('click', ()=>{
-    setAppMenuOpen(false);
-    activateView('tasks');
-  });
-  // "Учёт времени" ведёт на отдельное приложение (не раздел этого сайта) —
-  // пункт появляется только после входа, когда известна ссылка (см. auth.js,
-  // который выставляет её так же, как раньше кнопке "timetracker-link").
-  document.getElementById('app-menu-timetracker-item').addEventListener('click', (e)=>{
-    setAppMenuOpen(false);
-    const href = e.currentTarget.dataset.href;
-    if(href) location.href = href;
-  });
-  document.getElementById('app-menu-accounts').addEventListener('click', ()=>{
-    setAppMenuOpen(false);
-    activateView('accounts');
-  });
-
-  // ---------- «Журнал» и виджет аккаунта в плавающем меню на десктопе ----------
-  // На ПК эти два узла физически переезжают в #menu-extra-slot (тот же
-  // плавающий блок, что и разделы «Склад/Учёт времени/…», см. CSS выше) —
-  // не копия, а перенос настоящего DOM-узла, поэтому все обработчики клика
-  // и обновление имени/аватара продолжают работать как раньше. На телефоне
-  // при пересечении брейкпоинта обратно возвращаются на свои места — в
-  // шапку и в панель действий.
-  (function(){
-    const menu = document.getElementById('app-menu-menu');
-    const slot = document.getElementById('menu-extra-slot');
-    const journalBtn = document.getElementById('activity-log-btn');
-    const myJournalBtn = document.getElementById('my-activity-log-btn');
-    const profileWidget = document.getElementById('profile-widget');
-    if(!menu || !slot || !journalBtn || !myJournalBtn || !profileWidget) return;
-    const journalHome = { parent: journalBtn.parentNode, next: journalBtn.nextSibling };
-    const myJournalHome = { parent: myJournalBtn.parentNode, next: myJournalBtn.nextSibling };
-    const profileHome = { parent: profileWidget.parentNode, next: profileWidget.nextSibling };
-    const desktopQuery = window.matchMedia('(min-width:861px)');
-    function placeMenuExtras(){
-      if(desktopQuery.matches){
-        // «Журнал» (или «Мой журнал» — у кого нет прав на общий, см. CSS,
-        // видна ровно одна из двух кнопок) встаёт в общий ряд с карточками
-        // разделов, прямо перед слотом аккаунта (а не внутрь него) — так
-        // что визуально это ещё один пункт меню, а не довесок сбоку. Слот
-        // же остаётся только для виджета аккаунта, отделённого вертикальной
-        // чертой, и всегда последним — справа.
-        menu.insertBefore(journalBtn, slot);
-        menu.insertBefore(myJournalBtn, slot);
-        slot.appendChild(profileWidget);
-      } else {
-        journalHome.parent.insertBefore(journalBtn, journalHome.next);
-        myJournalHome.parent.insertBefore(myJournalBtn, myJournalHome.next);
-        profileHome.parent.insertBefore(profileWidget, profileHome.next);
-      }
-    }
-    placeMenuExtras();
-    if(desktopQuery.addEventListener) desktopQuery.addEventListener('change', placeMenuExtras);
-    else if(desktopQuery.addListener) desktopQuery.addListener(placeMenuExtras); // старые Safari
-  })();
-
+  
   // ---------- DB ACTIONS DROPDOWN (import + export grouped together) ----------
   const dbDropdown = document.getElementById('db-actions-dropdown');
   document.getElementById('db-actions-toggle').addEventListener('click', (e)=>{
@@ -4672,7 +4623,7 @@
       const res = await fetch(API_BASE + '/api/registration-requests/count');
       if(!res.ok) return;
       const { count } = await res.json();
-      [document.getElementById('bn-accounts-badge'), document.getElementById('app-menu-accounts-badge')].forEach(badge => {
+      [document.getElementById('bn-accounts-badge'), document.getElementById('hub-tile-accounts-badge')].forEach(badge => {
         if(!badge) return;
         if(count > 0){ badge.textContent = count; badge.style.display = ''; }
         else badge.style.display = 'none';
@@ -5049,6 +5000,7 @@
     // при загрузке решаем, какой раздел показать, по фактическому URL.
     const hubPath = location.pathname.replace(/\/+$/, '') || '/';
     if(hubPath === '/tasks') activateView('tasks');
+    else if(hubPath === '/accounts') activateView('accounts');
     else if(hubPath === '/warehouse') activateView(lastWarehouseView);
     else activateView('hub');
     await syncFromServer(true);

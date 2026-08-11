@@ -178,7 +178,7 @@
     display:flex; flex-direction:column; align-items:flex-start; gap:10px;
     padding:20px; border-radius:16px; border:1px solid var(--line); background:var(--panel);
     text-decoration:none; color:inherit; cursor:pointer; font-family:var(--sans); text-align:left;
-    transition:.12s; position:relative;
+    transition:.12s; position:relative; margin:0; width:100%; box-sizing:border-box;
   }
   .hub-tile:hover{ border-color:var(--accent); transform:translateY(-2px); box-shadow:0 8px 20px rgba(16,24,40,.10); }
   .hub-tile:active{ transform:translateY(0) scale(.98); }
@@ -189,76 +189,24 @@
   .hub-tile .ht-t{ font-size:15px; font-weight:700; color:var(--ink); display:flex; align-items:center; gap:6px; }
   .hub-tile .ht-d{ font-size:12.5px; color:var(--ink-soft); line-height:1.4; }
   #hub-back-btn{ display:none; text-decoration:none; }
+  #hub-back-btn.visible{ display:inline-flex; align-items:center; }
   #app-menu-menu.menu-cards .menu-card .mc-current-badge{
     font-size:9.5px; font-weight:700; color:var(--accent); background:var(--panel); border:1px solid var(--accent);
     padding:2px 7px; border-radius:999px; flex-shrink:0; white-space:nowrap;
   }
   body.hub-open{overflow:hidden;}
 
-  /* ============ ДЕСКТОП: хаб разделов как постоянная шапка ============
-     На ПК есть место и мышь — не нужен модальный оверлей: показываем
-     "Склад / Учёт времени / Задания" отдельным плавающим блоком над шапкой,
-     по центру экрана — а не строкой внутри самой шапки, как раньше.
-     Мобильная логика (шторка снизу по клику) ниже, в @media (max-width:860px),
-     не трогается. */
+  /* ============ ДЕСКТОП: заголовок статичный, меню разделов пустое ============
+     Все пункты (Склад / Учёт времени / Задания / Аккаунты / Журнал) теперь
+     живут на стартовой странице-хабе (/), поэтому плавающий блок-меню в
+     шапке больше не нужен — просто прячем его, как и на телефоне. */
   @media (min-width:861px){
     #app-menu-dropdown{display:contents;}
     #app-menu-backdrop{display:none !important;}
     h1.app-menu-toggle{cursor:default;}
     h1.app-menu-toggle:hover, h1.app-menu-toggle:focus-visible{background:none; color:var(--ink);}
     h1.app-menu-toggle .menu-caret{display:none;}
-    /* #app-menu-dropdown{display:contents} убирает сам враппер из потока, не
-       трогая DOM (JS всё ещё ищет клики "вне #app-menu-dropdown" — это
-       по-прежнему работает, contains() смотрит на дерево, а не раскладку).
-       h1-заголовок остаётся на своём месте в шапке, а карточки разделов
-       ниже вынесены в position:fixed — самостоятельный блок над шапкой. */
-    #app-menu-menu.menu-cards{
-      display:flex !important; position:fixed; z-index:70; left:50%; top:14px;
-      transform:translateX(-50%); width:auto; min-width:0; opacity:1;
-      max-height:none; overflow:visible;
-      padding:6px; margin:0; border-radius:14px;
-      background:var(--panel); border:1px solid var(--line);
-      box-shadow:0 1px 3px rgba(16,24,40,.05), 0 1px 2px rgba(16,24,40,.06);
-      flex-wrap:nowrap; gap:4px;
-    }
     .hub-head{display:none;}
-    #app-menu-menu.menu-cards .menu-card{
-      width:auto; flex-direction:row; padding:7px 12px 7px 8px; margin-bottom:0;
-      border-radius:9px; gap:8px; white-space:nowrap;
-    }
-    #app-menu-menu.menu-cards .menu-card .mc-d{display:none;}
-    #app-menu-menu.menu-cards .menu-card .mc-glyph{
-      width:26px; height:26px; font-size:13px; border-radius:7px;
-    }
-    #app-menu-menu.menu-cards .menu-card .mc-t{font-size:13px;}
-    #app-menu-menu.menu-cards .menu-card .mc-current-badge{display:none !important;}
-    /* «Журнал» (или «Мой журнал» — см. app.js/placeMenuExtras) переезжает
-       прямо в общий ряд с карточками разделов (существующий DOM-узел
-       кнопки переносится как обычный элемент этого же flex-ряда, а не в
-       отдельный слот), поэтому выглядит как ещё один пункт меню, а не
-       прилепленный сбоку довесок. Только виджет аккаунта остаётся в
-       #menu-extra-slot и отделяется вертикальной чертой — это единственный
-       элемент, который стоит визуально выделять справа. Панель по-прежнему
-       компактная (width:auto, обхватывает содержимое), просто аккаунт —
-       последний элемент в ряду. */
-    #app-menu-menu #activity-log-btn, #app-menu-menu #my-activity-log-btn{
-      padding:7px 12px; border-radius:9px; font-size:13px; white-space:nowrap;
-      background:transparent; border:none; color:var(--ink);
-    }
-    #app-menu-menu #activity-log-btn:hover, #app-menu-menu #my-activity-log-btn:hover{background:var(--bg); color:var(--accent);}
-    #menu-extra-slot{display:flex; align-items:center; gap:2px;}
-    #menu-extra-slot:not(:empty)::before{
-      content:''; width:1px; align-self:stretch; margin:0 6px; background:var(--line);
-    }
-    #menu-extra-slot #profile-widget{margin-left:0;}
-    #menu-extra-slot #profile-widget .profile-pill{padding:4px 10px 4px 4px; gap:6px; border-color:transparent; background:transparent;}
-    #menu-extra-slot #profile-widget .profile-pill:hover{background:var(--bg); border-color:var(--line);}
-    #menu-extra-slot #profile-widget .profile-avatar{width:24px; height:24px; font-size:11px;}
-    #menu-extra-slot #profile-widget .profile-pill .who .name{font-size:12px; max-width:110px;}
-    #menu-extra-slot #profile-widget .profile-pill .who .role{font-size:9.5px;}
-    /* Место под плавающий блок над шапкой, чтобы он её не перекрывал —
-       высота блока (~54px) плюс небольшой отступ. */
-    header{margin-top:58px;}
   }
 
   header h1 .tag{
@@ -1539,42 +1487,6 @@
           <span class="hub-head-t">Разделы</span>
           <button type="button" class="hub-close" id="app-menu-close" aria-label="Закрыть">✕</button>
         </div>
-        <button type="button" class="menu-card" id="app-menu-warehouse" data-hub-section="warehouse">
-          <span class="mc-tab"></span>
-          <span class="mc-glyph">📦</span>
-          <span class="mc-body">
-            <span class="mc-t">Склад</span>
-            <span class="mc-d">Схема, таблица, зоны, пикинг</span>
-          </span>
-          <span class="mc-current-badge" style="display:none;">Открыто</span>
-        </button>
-        <button type="button" class="menu-card tone-good" id="app-menu-timetracker-item" data-hub-section="time" style="display:none;">
-          <span class="mc-tab"></span>
-          <span class="mc-glyph">⏱</span>
-          <span class="mc-body">
-            <span class="mc-t">Учёт времени</span>
-            <span class="mc-d">Приход/уход, табель, графики</span>
-          </span>
-          <span class="mc-current-badge" style="display:none;">Открыто</span>
-        </button>
-        <button type="button" class="menu-card tone-multi" id="app-menu-tasks" data-hub-section="tasks">
-          <span class="mc-tab"></span>
-          <span class="mc-glyph">🗒</span>
-          <span class="mc-body">
-            <span class="mc-t">Задания<span class="tab-badge" id="app-menu-tasks-badge" style="display:none;"></span></span>
-            <span class="mc-d">Ваши и командные задания</span>
-          </span>
-          <span class="mc-current-badge" style="display:none;">Открыто</span>
-        </button>
-        <button type="button" class="menu-card" id="app-menu-accounts" data-hub-section="accounts">
-          <span class="mc-tab"></span>
-          <span class="mc-glyph">👥</span>
-          <span class="mc-body">
-            <span class="mc-t"><span id="hub-accounts-label">Аккаунты</span><span class="tab-badge" id="app-menu-accounts-badge" style="display:none;"></span></span>
-            <span class="mc-d">Сотрудники, роли, заявки на регистрацию</span>
-          </span>
-          <span class="mc-current-badge" style="display:none;">Открыто</span>
-        </button>
         <div class="menu-extra-slot" id="menu-extra-slot"></div>
       </div>
     </div>
@@ -1650,6 +1562,16 @@
           <span class="ht-t">Задания<span class="tab-badge" id="hub-tile-tasks-badge" style="display:none;"></span></span>
           <span class="ht-d">Ваши и командные задания</span>
         </a>
+        <a href="/accounts" id="hub-tile-accounts" class="hub-tile">
+          <span class="ht-glyph">👥</span>
+          <span class="ht-t"><span id="hub-accounts-label">Аккаунты</span><span class="tab-badge" id="hub-tile-accounts-badge" style="display:none;"></span></span>
+          <span class="ht-d">Сотрудники, роли, заявки на регистрацию</span>
+        </a>
+        <button type="button" id="hub-tile-journal" class="hub-tile">
+          <span class="ht-glyph">📋</span>
+          <span class="ht-t">Журнал</span>
+          <span class="ht-d">Журнал изменений и ваши последние действия</span>
+        </button>
       </div>
     </section>
 
