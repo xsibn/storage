@@ -484,9 +484,7 @@
           <div class="u-login">@${escHtml(u.username)}${!isService ? `<span class="tt-account-badge" style="margin-left:8px; font-size:10.5px; padding:2px 7px; border-radius:999px; ${u.hasTimetrackerAccount ? 'background:var(--accent-soft); color:var(--accent);' : 'background:var(--panel-soft, #eee); color:var(--ink-soft);'}" title="${u.hasTimetrackerAccount ? 'Есть аккаунт в учёте времени' : 'Нет аккаунта в учёте времени'}">${u.hasTimetrackerAccount ? '⏱ есть в учёте времени' : '⏱ нет в учёте времени'}</span>` : ''}</div>
           ${!isService ? `<div class="u-tt-actions" style="margin-top:6px; display:flex; gap:6px; flex-wrap:wrap;">
             ${u.hasTimetrackerAccount ? `
-              <button type="button" class="btn" data-tt-action="positions" style="font-size:11px; padding:4px 8px;">✏️ Должности</button>
-              <button type="button" class="btn" data-tt-action="codes" style="font-size:11px; padding:4px 8px;">📅 Коды табеля</button>
-              <button type="button" class="btn" data-tt-action="toggle-active" style="font-size:11px; padding:4px 8px;">⏻ Вкл/откл пропуск</button>
+              <button type="button" class="btn" data-tt-action="positions" style="font-size:11px; padding:4px 8px;">✏️ Должности для учёта времени</button>
             ` : u.role !== 'post' ? `<button type="button" class="btn" data-tt-action="link" style="font-size:11px; padding:4px 8px;">🔗 Привязать к учёту времени</button>` : ''}
           </div>` : ''}
           <div class="u-status"><span class="u-status-dot${u.online ? ' online' : ''}"></span>${escHtml(formatLastSeen(u))}</div>
@@ -666,21 +664,8 @@
                 const payload = await res.json().catch(() => ({}));
                 if (!res.ok) throw new Error(payload.error || 'Не удалось привязать аккаунт');
                 renderUsersList();
-              } else if (action === 'toggle-active') {
-                const res0 = await fetch(`${API_BASE}/api/users/${id}/timetracker`);
-                const tt0 = await res0.json().catch(() => ({}));
-                if (!res0.ok) throw new Error(tt0.error || 'Не удалось загрузить профиль учёта времени');
-                const res = await fetch(`${API_BASE}/api/users/${id}/timetracker/active`, {
-                  method: 'PATCH', headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({ active: !tt0.active })
-                });
-                const payload = await res.json().catch(() => ({}));
-                if (!res.ok) throw new Error(payload.error || 'Не удалось изменить пропуск');
-                alert(payload.active ? `Пропуск для «${label}» включён.` : `Пропуск для «${label}» отключён.`);
               } else if (action === 'positions') {
                 await openPositionsModal(id, label);
-              } else if (action === 'codes') {
-                await openCodesModal(id, label);
               }
             } catch (err) {
               alert(err.message);
@@ -727,7 +712,7 @@
     const tt = await res.json().catch(() => ({}));
     if (!res.ok) { alert(tt.error || 'Не удалось загрузить профиль учёта времени'); return; }
     const positions = Array.isArray(tt.positions) ? tt.positions : [];
-    openAuthModal(`Должности — ${escHtml(label)}`, `
+    openAuthModal(`Должности для учёта времени — ${escHtml(label)}`, `
       <div class="tt-positions-block" id="tt-positions-block">
         ${positions.map((p, i) => positionCardHtml(p, i)).join('')}
       </div>
