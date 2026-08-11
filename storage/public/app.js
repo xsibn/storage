@@ -3338,13 +3338,14 @@
 
   // ---------- Плитка «Журнал» на стартовом хабе — открывает тот же модал,
   // что и обычная кнопка «Журнал»/«Мой журнал» (видна ровно одна из двух
-  // в зависимости от прав, см. CSS perm-no-read-activity). ----------
+  // в зависимости от прав, см. CSS perm-no-read-activity). Права проверяем
+  // по классу на body, а не по видимости кнопок — на хабе панель действий
+  // склада (где живёт кнопка «Журнал») скрыта целиком, так что через
+  // offsetParent она всегда выглядела бы недоступной. ----------
   const hubTileJournal = document.getElementById('hub-tile-journal');
   if(hubTileJournal) hubTileJournal.addEventListener('click', ()=>{
-    const full = document.getElementById('activity-log-btn');
-    const mine = document.getElementById('my-activity-log-btn');
-    if(full && full.offsetParent !== null) full.click();
-    else if(mine) mine.click();
+    if(!document.body.classList.contains('perm-no-read-activity')) openActivityLog();
+    else openMyActivityLog();
   });
 
   // ---------- НИЖНЯЯ ПАНЕЛЬ (телефон): Склад / Задания / Аккаунты / Профиль, как разделы в ТГ ----------
