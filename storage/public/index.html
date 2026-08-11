@@ -953,6 +953,10 @@
     /* Видна только на хабе (стартовая страница-меню) — внутри разделов
        не нужна, там своя навигация. */
     body:not(.bn-hub-mode) .bottom-nav{display:none !important;}
+    /* Карточка аккаунта под плитками хаба дублирует кнопку "Профиль" в
+       нижней панели — на телефоне убираем, чтобы не было двух одинаковых
+       входов в профиль подряд. */
+    .hub-account{display:none;}
     .bottom-nav{
       display:flex; position:fixed; left:50%; bottom:calc(14px + env(safe-area-inset-bottom));
       transform:translateX(-50%); z-index:60; width:max-content; max-width:calc(100% - 16px);
