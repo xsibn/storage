@@ -178,8 +178,8 @@
       <h1>Сотрудники</h1>
       <div class="sub">
         Аккаунты сотрудников создаёт администратор. Здесь можно добавить сотрудника, задать
-        ему одну или несколько должностей (например, при совмещении), изменить их и
-        включить/отключить пропуск.
+        ему одну или несколько должностей для учёта времени (например, при совмещении) и
+        изменить их.
       </div>
     </div>
     <button class="btn-add" onclick="openAddModal()">+ Добавить сотрудника</button>
@@ -339,9 +339,7 @@ function renderEmployeeRows() {
       <td>${formatPositions(e.positions)}</td>
       <td><span class="badge ${e.active ? 'active' : 'inactive'}">${e.active ? 'Активен' : 'Отключён'}</span></td>
       <td>
-        <button class="btn-small" onclick="openPosModal(${e.id})">✏️ Должности</button>
-        <button class="btn-small" onclick="openCodesModal(${e.id})">📅 Коды табеля</button>
-        <button class="btn-small" onclick="toggleActive(${e.id}, ${e.active ? 0 : 1})">${e.active ? 'Отключить' : 'Включить'}</button>
+        <button class="btn-small" onclick="openPosModal(${e.id})">✏️ Должности для учёта времени</button>
         <button class="btn-small btn-danger" onclick="deleteEmployee(${e.id}, '${escapeHtml(e.full_name).replace(/'/g, "\\'")}')">🗑 Удалить</button>
       </td>
     </tr>
