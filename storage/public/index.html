@@ -190,6 +190,16 @@
   .hub-tile .ht-d{ font-size:12.5px; color:var(--ink-soft); line-height:1.4; }
   #hub-back-btn{ display:none; text-decoration:none; }
   #hub-back-btn.visible{ display:inline-flex; align-items:center; }
+  /* На стартовой странице-хабе (/) заголовок склада, панель действий и
+     вкладки склада не нужны — это чужой контекст, хаб самодостаточен. */
+  body.bn-hub-mode header, body.bn-hub-mode .actions-bar, body.bn-hub-mode nav.tabs{ display:none !important; }
+  body.bn-hub-mode #app{ padding-top:24px; }
+  /* «Задания» и «Аккаунты» — тоже чужой контекст: заголовок «Адресное
+     хранение» со статистикой ячеек и панель действий склада (синк,
+     журнал, база данных) там не нужны. Саму шапку не прячем целиком —
+     в ней остаются кнопка «← Меню» и виджет профиля. */
+  body.bn-tasks-mode #app-menu-dropdown, body.bn-tasks-mode .stats, body.bn-tasks-mode .actions-bar,
+  body.bn-accounts-mode #app-menu-dropdown, body.bn-accounts-mode .stats, body.bn-accounts-mode .actions-bar{ display:none !important; }
   #app-menu-menu.menu-cards .menu-card .mc-current-badge{
     font-size:9.5px; font-weight:700; color:var(--accent); background:var(--panel); border:1px solid var(--accent);
     padding:2px 7px; border-radius:999px; flex-shrink:0; white-space:nowrap;
