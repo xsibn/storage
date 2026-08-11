@@ -2,7 +2,7 @@
 <html lang="ru">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
 <title>Адресное хранение склада</title>
 <script src="/html5-qrcode.min.js" defer></script>
 
@@ -86,9 +86,11 @@
   }
   [data-theme="dark"] input::placeholder, [data-theme="dark"] textarea::placeholder { color: #888888; }
   *{box-sizing:border-box;}
+  html{ touch-action:pan-x pan-y; }
   body{
     margin:0; font-family:var(--sans); background:var(--bg); color:var(--ink);
     font-size:14px; -webkit-font-smoothing:antialiased;
+    touch-action:pan-x pan-y; /* страховка от щипкового зума в браузерах, игнорирующих user-scalable=no из viewport */
   }
   #app{
     display:flex; flex-direction:column; min-height:100vh; gap:14px;
@@ -212,6 +214,12 @@
   /* На стартовой странице-хабе (/) заголовок склада, панель действий и
      вкладки склада не нужны — это чужой контекст, хаб самодостаточен. */
   body.bn-hub-mode header, body.bn-hub-mode .actions-bar, body.bn-hub-mode nav.tabs{ display:none !important; }
+  /* На "Задания" / "Аккаунты" / "Чаты" вкладки схемы склада (Схема склада /
+     Таблица данных / Служебные зоны / Рекомендация пикинга) — чужой
+     контекст, они относятся только к складу, поэтому прячем их и на
+     десктопе, не только на телефоне (см. мобильный @media ниже, где это
+     уже было). */
+  body.bn-tasks-mode nav.tabs, body.bn-accounts-mode nav.tabs, body.bn-chats-mode nav.tabs{ display:none !important; }
   body.bn-hub-mode #app{ padding-top:24px; }
   /* «Задания» и «Аккаунты» — тоже чужой контекст: заголовок «Адресное
      хранение» со статистикой ячеек и панель действий склада (синк,
@@ -1584,7 +1592,6 @@
     <div class="actions-bar-buttons">
       <button class="btn" id="sync-btn" title="Синхронизировать прямо сейчас">⟳ Синхронизировать</button>
       <button class="btn" id="undo-btn" title="Отменить последнее действие">↺ Отменить</button>
-      <button class="btn" id="activity-log-btn" title="Журнал изменений (хранится 14 дней)">📋 Журнал</button>
       <button class="btn" id="my-activity-log-btn" title="Мои действия за последние 14 дней — можно откатить своё">🧾 Мой журнал</button>
       <button class="btn" id="help-btn" title="Справка по этому разделу">❓ Справка</button>
       <div class="dropdown" id="db-actions-dropdown">

@@ -1369,7 +1369,8 @@
       if(listEl) listEl.innerHTML = `<div id="activity-log-empty">Не удалось загрузить журнал: ${err.message}</div>`;
     }
   }
-  document.getElementById('activity-log-btn').addEventListener('click', openActivityLog);
+  const activityLogBtn = document.getElementById('activity-log-btn');
+  if(activityLogBtn) activityLogBtn.addEventListener('click', openActivityLog);
   const bnJournalBtn = document.getElementById('bn-journal-btn');
   if(bnJournalBtn) bnJournalBtn.addEventListener('click', openActivityLog);
 
