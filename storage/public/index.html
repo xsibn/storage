@@ -964,33 +964,33 @@
       background:color-mix(in srgb, var(--panel) 92%, transparent);
       backdrop-filter:blur(14px); -webkit-backdrop-filter:blur(14px);
       border:1px solid var(--line); border-radius:999px;
-      padding:7px; gap:6px; box-shadow:0 8px 28px rgba(16,24,40,.18), 0 2px 8px rgba(16,24,40,.08);
+      padding:5px; gap:6px; box-shadow:0 8px 28px rgba(16,24,40,.18), 0 2px 8px rgba(16,24,40,.08);
       overflow-x:auto; -webkit-overflow-scrolling:touch; scrollbar-width:none;
     }
     .bottom-nav::-webkit-scrollbar{display:none;}
     .bn-btn{
-      display:flex; align-items:center; justify-content:center; gap:8px;
-      padding:12px 20px; border:none; background:none; border-radius:999px;
+      display:flex; align-items:center; justify-content:center; gap:6px;
+      padding:8px 14px; border:none; background:none; border-radius:999px;
       color:var(--ink-soft); font-family:var(--sans); position:relative; cursor:pointer;
       transition:.16s; text-decoration:none; flex-shrink:0;
     }
     .bn-btn.active{
       color:var(--accent); background:var(--accent-soft);
     }
-    .bn-icon{font-size:22px; line-height:1; position:relative; display:inline-block;}
+    .bn-icon{font-size:18px; line-height:1; position:relative; display:inline-block;}
     /* Аватар в кнопке "Профиль" нижней панели — та же аватарка, что раньше
        висела рядом с заголовком в шапке (там она теперь скрыта на телефоне
        вместе со шторкой "Разделы"), просто уменьшенная под иконку. */
     .bn-avatar{
-      width:26px; height:26px; border-radius:50%; background:var(--accent-soft) center/cover no-repeat;
+      width:20px; height:20px; border-radius:50%; background:var(--accent-soft) center/cover no-repeat;
       display:flex; align-items:center; justify-content:center;
-      font-size:12px; font-weight:700; color:var(--accent); text-transform:uppercase;
+      font-size:10px; font-weight:700; color:var(--accent); text-transform:uppercase;
       flex-shrink:0;
     }
     /* Подписи теперь видны у всех кнопок (их всего две), а не только у
        активной — так сразу понятно, за что отвечает каждая. */
     .bn-label{
-      font-size:14px; font-weight:700; white-space:nowrap;
+      font-size:12.5px; font-weight:700; white-space:nowrap;
     }
     .bn-badge{
       position:absolute; top:2px; right:10px; min-width:16px; height:16px; padding:0 4px;
