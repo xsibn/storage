@@ -168,6 +168,27 @@
   #app-menu-menu.menu-cards .menu-card .mc-body{flex:1; min-width:0;}
   #app-menu-menu.menu-cards .menu-card .mc-t{font-size:14px; font-weight:700; color:var(--ink); display:flex; align-items:center; gap:6px;}
   #app-menu-menu.menu-cards .menu-card .mc-d{font-size:12px; color:var(--ink-soft); margin-top:2px; line-height:1.35;}
+  /* ---------- СТАРТОВАЯ СТРАНИЦА-ХАБ (/) ---------- */
+  #view-hub{ max-width:720px; margin:0 auto; }
+  #view-hub .hub-welcome{ text-align:center; margin:24px 0 22px; }
+  #view-hub .hub-welcome h2{ margin:0 0 6px; font-size:20px; }
+  #view-hub .hub-welcome p{ margin:0; color:var(--ink-soft); font-size:13px; }
+  .hub-tiles{ display:grid; grid-template-columns:repeat(auto-fit, minmax(200px,1fr)); gap:14px; }
+  .hub-tile{
+    display:flex; flex-direction:column; align-items:flex-start; gap:10px;
+    padding:20px; border-radius:16px; border:1px solid var(--line); background:var(--panel);
+    text-decoration:none; color:inherit; cursor:pointer; font-family:var(--sans); text-align:left;
+    transition:.12s; position:relative;
+  }
+  .hub-tile:hover{ border-color:var(--accent); transform:translateY(-2px); box-shadow:0 8px 20px rgba(16,24,40,.10); }
+  .hub-tile:active{ transform:translateY(0) scale(.98); }
+  .hub-tile .ht-glyph{
+    width:46px; height:46px; border-radius:13px; font-size:22px;
+    display:flex; align-items:center; justify-content:center; background:var(--bg); border:1px solid var(--line);
+  }
+  .hub-tile .ht-t{ font-size:15px; font-weight:700; color:var(--ink); display:flex; align-items:center; gap:6px; }
+  .hub-tile .ht-d{ font-size:12.5px; color:var(--ink-soft); line-height:1.4; }
+  #hub-back-btn{ display:none; text-decoration:none; }
   #app-menu-menu.menu-cards .menu-card .mc-current-badge{
     font-size:9.5px; font-weight:700; color:var(--accent); background:var(--panel); border:1px solid var(--accent);
     padding:2px 7px; border-radius:999px; flex-shrink:0; white-space:nowrap;
@@ -941,8 +962,8 @@
        вкладки, пока открыт один из этих разделов (полноценное переключение
        разделов, как в ТГ). */
     nav.tabs button[data-view="tasks"], nav.tabs button[data-view="accounts"], nav.tabs button[data-view="chats"]{display:none;}
-    body.bn-tasks-mode nav.tabs, body.bn-accounts-mode nav.tabs, body.bn-chats-mode nav.tabs{display:none;}
-    body.bn-tasks-mode main, body.bn-accounts-mode main, body.bn-chats-mode main{padding-top:0;}
+    body.bn-tasks-mode nav.tabs, body.bn-accounts-mode nav.tabs, body.bn-chats-mode nav.tabs, body.bn-hub-mode nav.tabs{display:none;}
+    body.bn-tasks-mode main, body.bn-accounts-mode main, body.bn-chats-mode main, body.bn-hub-mode main{padding-top:0;}
 
     /* Floating pill вместо сплошной панели во всю ширину — компактнее и
        легче визуально (не подпирает край экрана, отступы со всех сторон,
@@ -1509,6 +1530,7 @@
   <div id="hint-banners"></div>
 
   <header>
+    <a href="/" id="hub-back-btn" class="btn" title="Вернуться в меню разделов">← Меню</a>
     <div class="dropdown" id="app-menu-dropdown">
       <h1 class="app-menu-toggle" id="app-menu-toggle" tabindex="0" role="button" aria-haspopup="true" aria-expanded="false" title="Разделы">Адресное хранение <span class="tag" id="src-tag">подключение…</span><span class="menu-caret">▾</span></h1>
       <div id="app-menu-backdrop"></div>
@@ -1606,8 +1628,33 @@
 
   <main>
 
+    <!-- HUB VIEW (стартовая страница-меню: склад / учёт времени / задания) -->
+    <section class="view active" id="view-hub">
+      <div class="hub-welcome">
+        <h2>Куда перейти?</h2>
+        <p>Выберите раздел — у каждого своя страница и кнопка «← Меню» для возврата сюда.</p>
+      </div>
+      <div class="hub-tiles">
+        <a href="/warehouse" id="hub-tile-warehouse" class="hub-tile">
+          <span class="ht-glyph">📦</span>
+          <span class="ht-t">Склад</span>
+          <span class="ht-d">Схема, таблица, зоны, пикинг</span>
+        </a>
+        <a href="/time/" id="hub-tile-time" class="hub-tile" style="display:none;">
+          <span class="ht-glyph">⏱</span>
+          <span class="ht-t">Учёт времени</span>
+          <span class="ht-d">Приход/уход, табель, графики</span>
+        </a>
+        <a href="/tasks" id="hub-tile-tasks" class="hub-tile">
+          <span class="ht-glyph">🗒</span>
+          <span class="ht-t">Задания<span class="tab-badge" id="hub-tile-tasks-badge" style="display:none;"></span></span>
+          <span class="ht-d">Ваши и командные задания</span>
+        </a>
+      </div>
+    </section>
+
     <!-- MAP VIEW -->
-    <section class="view active" id="view-map">
+    <section class="view" id="view-map">
       <div class="panel">
         <h2>Ряд / проход</h2>
         <p style="font-size:12px; color:var(--ink-soft); margin:8px 0 10px;">Перетащите один ряд на другой, чтобы поменять их местами целиком — весь товар обоих рядов обменяется.</p>

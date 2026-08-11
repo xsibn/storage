@@ -3296,9 +3296,12 @@
 
   // ---------- TABS ----------
   const WAREHOUSE_VIEWS = ['map', 'table', 'zones', 'reco'];
-  const FULLSCREEN_VIEWS = ['tasks', 'accounts', 'chats']; // разделы вроде "Задания"/"Аккаунты"/"Чаты" — на телефоне занимают весь экран, без вкладок склада
+  const FULLSCREEN_VIEWS = ['tasks', 'accounts', 'chats', 'hub']; // разделы вроде "Задания"/"Аккаунты"/"Чаты"/"Хаб" — на телефоне занимают весь экран, без вкладок склада
+  // Разделы, которые открываются собственным URL (/warehouse, /tasks) и на
+  // которых поэтому показываем маленькую кнопку "← Меню" в шапке.
+  const HUB_BACK_VIEWS = ['map', 'table', 'zones', 'reco', 'tasks'];
   let lastWarehouseView = 'map'; // склад: какую под-вкладку показать при возврате из "Задания"/"Аккаунтов"
-  let currentActiveView = 'map'; // используется хабом разделов, чтобы подсветить "Открыто" на нужной карточке
+  let currentActiveView = 'hub'; // используется хабом разделов, чтобы подсветить "Открыто" на нужной карточке
 
   function activateView(view){
     currentActiveView = view;
@@ -3321,6 +3324,8 @@
     document.querySelectorAll('.bn-btn[data-bn]').forEach(b=>{
       b.classList.toggle('active', b.dataset.bn === 'warehouse' ? WAREHOUSE_VIEWS.includes(view) : b.dataset.bn === view);
     });
+    const hubBackBtn = document.getElementById('hub-back-btn');
+    if(hubBackBtn) hubBackBtn.style.display = HUB_BACK_VIEWS.includes(view) ? '' : 'none';
   }
   window.__activateView = activateView; // используется auth.js, чтобы открыть "Аккаунты" из карточки профиля
 
@@ -3807,7 +3812,7 @@
       const res = await fetch(API_BASE + '/api/tasks/unread-count');
       if(!res.ok) return;
       const { count } = await res.json();
-      [document.getElementById('tasks-badge'), document.getElementById('bn-tasks-badge'), document.getElementById('app-menu-tasks-badge')].forEach(badge => {
+      [document.getElementById('tasks-badge'), document.getElementById('bn-tasks-badge'), document.getElementById('app-menu-tasks-badge'), document.getElementById('hub-tile-tasks-badge')].forEach(badge => {
         if(!badge) return;
         if(count > 0){ badge.textContent = count; badge.style.display = ''; }
         else badge.style.display = 'none';
@@ -5040,6 +5045,12 @@
     // auth.js resolves this once the person is logged in (immediately, if a
     // valid session cookie already exists) — data must not load before that.
     if (window.__whenAuthed) await window.__whenAuthed;
+    // Хаб-меню теперь три отдельные страницы (/, /warehouse, /tasks) —
+    // при загрузке решаем, какой раздел показать, по фактическому URL.
+    const hubPath = location.pathname.replace(/\/+$/, '') || '/';
+    if(hubPath === '/tasks') activateView('tasks');
+    else if(hubPath === '/warehouse') activateView(lastWarehouseView);
+    else activateView('hub');
     await syncFromServer(true);
     refreshTasksBadge();
     refreshAccountsBadge();
