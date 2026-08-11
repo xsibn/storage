@@ -319,6 +319,9 @@
     $('auth-modal-backdrop').classList.remove('show');
     $('auth-modal-body').innerHTML = '';
     $('auth-modal-footer').innerHTML = '';
+    // Если в модалке правились права роли — обновим карточки ролей на всякий
+    // случай (например, если пользователь вернётся и откроет её снова).
+    if ($('users-tab-roles') && $('users-tab-roles').classList.contains('active')) renderRolesList();
   }
   $('auth-modal-close').addEventListener('click', closeAuthModal);
   $('auth-modal-backdrop').addEventListener('click', (e) => {
@@ -895,6 +898,54 @@
       </label>`).join('');
   }
 
+  // ---------- модалка редактирования прав отдельной роли ----------
+  // Права сохраняются сразу по клику на чекбокс (без отдельной кнопки
+  // "Сохранить") — оптимистично включаем/выключаем, откатываем при ошибке.
+  function openEditPermsModal(role) {
+    openAuthModal(`Права роли «${escHtml(role.label)}»`, `
+      <div class="role-perms-grid">
+        ${permCheckboxes(role)}
+      </div>
+      ${role.isSystem ? `<div class="role-card-note">Права сервисной роли всегда полные и не редактируются.</div>` : ''}
+      <div id="ep-error" style="display:none; color:var(--danger); font-size:12.5px; margin-top:8px;"></div>
+      <div id="ep-saving" style="display:none; color:var(--ink-soft); font-size:12.5px; margin-top:8px;">Сохранение…</div>
+    `, `<button class="btn" id="ep-cancel">Закрыть</button>`);
+    $('ep-cancel').addEventListener('click', closeAuthModal);
+    if (!role.isSystem) {
+      const errEl = $('ep-error');
+      const savingEl = $('ep-saving');
+      $('auth-modal-body').querySelectorAll('[data-perm]').forEach(cb => {
+        cb.addEventListener('change', async () => {
+          const prevChecked = !cb.checked; // значение до этого клика, для отката
+          errEl.style.display = 'none';
+          savingEl.style.display = 'block';
+          const perms = {};
+          $('auth-modal-body').querySelectorAll('[data-perm]').forEach(el => { perms[el.dataset.perm] = el.checked; });
+          try {
+            const res = await fetch(`${API_BASE}/api/roles/${encodeURIComponent(role.key)}`, {
+              method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ perms })
+            });
+            const payload = await res.json().catch(() => ({}));
+            if (!res.ok) throw new Error(payload.error || 'Не удалось сохранить права');
+            if (currentUser && currentUser.role === role.key) {
+              currentUser.perms = payload.role.perms;
+              applyUserToUI();
+            }
+            cachedRoles = [];
+            fillNewUserRoleSelect();
+          } catch (err) {
+            cb.checked = prevChecked; // откатываем чекбокс, если сервер отказал
+            errEl.textContent = err.message;
+            errEl.style.display = 'block';
+          } finally {
+            savingEl.style.display = 'none';
+          }
+        });
+      });
+    }
+  }
+
   async function renderRolesList() {
     const listEl = $('roles-list');
     if (!listEl) return;
@@ -910,14 +961,9 @@
               ${r.isSystem ? `<span class="role-badge">системная</span>` : `<button type="button" class="icon-btn danger" data-action="delete-role" title="Удалить роль">🗑</button>`}
             </div>
           </div>
-          <div class="role-perms-label">Права</div>
-          <div class="role-perms-grid">
-            ${permCheckboxes(r)}
+          <div class="role-card-footer">
+            <button type="button" class="btn" data-action="edit-perms">Права</button>
           </div>
-          ${!r.isSystem
-            ? `<div class="role-card-footer"><button type="button" class="btn primary" data-action="save-perms">Сохранить права</button></div>`
-            : `<div class="role-card-note">Права сервисной роли всегда полные и не редактируются.</div>`
-          }
         </div>
       `).join('');
 
@@ -939,28 +985,22 @@
                   currentUser.roleLabel = payload.role.label;
                   applyUserToUI();
                 }
-              } else if (action === 'save-perms') {
-                const perms = {};
-                row.querySelectorAll('[data-perm]').forEach(cb => { perms[cb.dataset.perm] = cb.checked; });
-                const res = await fetch(`${API_BASE}/api/roles/${encodeURIComponent(key)}`, {
-                  method: 'PATCH', headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({ perms })
-                });
-                const payload = await res.json().catch(() => ({}));
-                if (!res.ok) throw new Error(payload.error || 'Не удалось сохранить права');
-                if (currentUser && currentUser.role === key) {
-                  currentUser.perms = payload.role.perms;
-                  applyUserToUI();
-                }
+                cachedRoles = [];
+                renderRolesList();
+                fillNewUserRoleSelect();
+              } else if (action === 'edit-perms') {
+                const roles = await loadRoles();
+                const role = roles.find(r => r.key === key);
+                if (role) openEditPermsModal(role);
               } else if (action === 'delete-role') {
                 if (!confirm(`Удалить роль «${labelInput.value}»? Это возможно только если она никому не назначена.`)) return;
                 const res = await fetch(`${API_BASE}/api/roles/${encodeURIComponent(key)}`, { method: 'DELETE' });
                 const payload = await res.json().catch(() => ({}));
                 if (!res.ok) throw new Error(payload.error || 'Не удалось удалить роль');
+                cachedRoles = [];
+                renderRolesList();
+                fillNewUserRoleSelect();
               }
-              cachedRoles = [];
-              renderRolesList();
-              fillNewUserRoleSelect();
             } catch (err) {
               alert(err.message);
             }
