@@ -898,6 +898,64 @@
       </label>`).join('');
   }
 
+  // ---------- модалка создания новой роли ----------
+  function openNewRoleModal() {
+    openAuthModal('Новая роль', `
+      <div class="auth-field">
+        <label>Идентификатор (латиницей, напр. kladovshik)</label>
+        <input type="text" id="nr-key">
+      </div>
+      <div class="auth-field">
+        <label>Название роли</label>
+        <input type="text" id="nr-label">
+      </div>
+      <div class="role-perms-label">Права</div>
+      <div class="role-perms-grid">
+        <label><input type="checkbox" id="nr-perm-users"> Управлять аккаунтами и ролями</label>
+        <label><input type="checkbox" id="nr-perm-manage-activity"> Очищать/отменять в журнале</label>
+        <label><input type="checkbox" id="nr-perm-read-activity"> Видеть журнал</label>
+        <label><input type="checkbox" id="nr-perm-tasks"> Ставить задания сотрудникам</label>
+        <label><input type="checkbox" id="nr-perm-import"> Импортировать данные</label>
+        <label><input type="checkbox" id="nr-perm-tt-admin"> Становиться админом в учёте времени</label>
+        <label><input type="checkbox" id="nr-perm-warehouse" checked> Доступ к складу (схема, пикинг и т.д.)</label>
+        <label><input type="checkbox" id="nr-perm-edit-layout"> Изменять схему склада (без права — только просмотр)</label>
+      </div>
+      <div id="nr-error" style="display:none; color:var(--danger); font-size:12.5px; margin-top:8px;"></div>
+    `, `<button class="btn" id="nr-cancel">Отмена</button><button class="btn primary" id="nr-submit">+ Добавить роль</button>`);
+    $('nr-cancel').addEventListener('click', closeAuthModal);
+    $('nr-submit').addEventListener('click', async () => {
+      const errEl = $('nr-error');
+      errEl.style.display = 'none';
+      const label = $('nr-label').value.trim();
+      if (!label) { errEl.textContent = 'Укажите название роли'; errEl.style.display = 'block'; return; }
+      const perms = {
+        canManageUsers: $('nr-perm-users').checked,
+        canManageActivity: $('nr-perm-manage-activity').checked,
+        canReadActivity: $('nr-perm-read-activity').checked,
+        canManageTasks: $('nr-perm-tasks').checked,
+        canImportData: $('nr-perm-import').checked,
+        canBecomeTtAdmin: $('nr-perm-tt-admin').checked,
+        canAccessWarehouse: $('nr-perm-warehouse').checked,
+        canEditLayout: $('nr-perm-edit-layout').checked
+      };
+      try {
+        const res = await fetch(API_BASE + '/api/roles', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ key: $('nr-key').value.trim(), label, perms })
+        });
+        const payload = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(payload.error || 'Не удалось создать роль');
+        cachedRoles = [];
+        closeAuthModal();
+        renderRolesList();
+        fillNewUserRoleSelect();
+      } catch (err) {
+        errEl.textContent = err.message;
+        errEl.style.display = 'block';
+      }
+    });
+  }
+
   // ---------- модалка редактирования прав отдельной роли ----------
   // Права сохраняются сразу по клику на чекбокс (без отдельной кнопки
   // "Сохранить") — оптимистично включаем/выключаем, откатываем при ошибке.
@@ -1033,36 +1091,7 @@
 
     $('users-tab-users').addEventListener('click', () => switchUsersTab('users'));
     $('users-tab-roles').addEventListener('click', () => switchUsersTab('roles'));
-    $('new-role-form').addEventListener('submit', async (e) => {
-      e.preventDefault();
-      const errEl = $('nr-error');
-      errEl.style.display = 'none';
-      const perms = {
-        canManageUsers: $('nr-perm-users').checked,
-        canManageActivity: $('nr-perm-manage-activity').checked,
-        canReadActivity: $('nr-perm-read-activity').checked,
-        canManageTasks: $('nr-perm-tasks').checked,
-        canImportData: $('nr-perm-import').checked,
-        canBecomeTtAdmin: $('nr-perm-tt-admin').checked,
-        canAccessWarehouse: $('nr-perm-warehouse').checked,
-        canEditLayout: $('nr-perm-edit-layout').checked
-      };
-      try {
-        const res = await fetch(API_BASE + '/api/roles', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ key: $('nr-key').value.trim(), label: $('nr-label').value.trim(), perms })
-        });
-        const payload = await res.json().catch(() => ({}));
-        if (!res.ok) throw new Error(payload.error || 'Не удалось создать роль');
-        $('new-role-form').reset();
-        cachedRoles = [];
-        renderRolesList();
-        fillNewUserRoleSelect();
-      } catch (err) {
-        errEl.textContent = err.message;
-        errEl.style.display = 'block';
-      }
-    });
+    $('open-new-role-modal').addEventListener('click', openNewRoleModal);
     $('new-user-form').addEventListener('submit', async (e) => {
       e.preventDefault();
       const errEl = $('nu-error');

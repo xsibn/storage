@@ -1450,9 +1450,10 @@
   }
   .role-perms-grid label:hover{background:var(--bg);}
   .role-card-footer{
-    display:flex; align-items:center; justify-content:flex-end; gap:8px; margin-top:12px;
-    padding-top:12px; border-top:1px solid var(--line);
+    display:flex; align-items:center; justify-content:center; gap:8px; margin-top:14px;
+    padding-top:14px; border-top:1px solid var(--line);
   }
+  .role-card-footer .btn{min-width:160px; padding:9px 20px;}
   .role-card-note{font-size:11.5px; color:var(--ink-soft); margin-top:12px; padding-top:12px; border-top:1px solid var(--line);}
 
   #journal-readonly-note{
@@ -1883,22 +1884,9 @@
           <div id="users-list"></div>
         </div>
         <div id="users-panel-roles" style="display:none;">
-          <form class="new-user-form" id="new-role-form">
-            <input type="text" id="nr-key" placeholder="Идентификатор (латиницей, напр. kladovshik)">
-            <input type="text" id="nr-label" placeholder="Название роли" required>
-            <div class="full" style="display:flex; gap:16px; flex-wrap:wrap; padding:4px 0;">
-              <label style="display:flex; align-items:center; gap:6px; font-size:12px; font-weight:400;"><input type="checkbox" id="nr-perm-users"> Управлять аккаунтами и ролями</label>
-              <label style="display:flex; align-items:center; gap:6px; font-size:12px; font-weight:400;"><input type="checkbox" id="nr-perm-manage-activity"> Очищать/отменять в журнале</label>
-              <label style="display:flex; align-items:center; gap:6px; font-size:12px; font-weight:400;"><input type="checkbox" id="nr-perm-read-activity"> Видеть журнал</label>
-              <label style="display:flex; align-items:center; gap:6px; font-size:12px; font-weight:400;"><input type="checkbox" id="nr-perm-tasks"> Ставить задания сотрудникам</label>
-              <label style="display:flex; align-items:center; gap:6px; font-size:12px; font-weight:400;"><input type="checkbox" id="nr-perm-import"> Импортировать данные</label>
-              <label style="display:flex; align-items:center; gap:6px; font-size:12px; font-weight:400;"><input type="checkbox" id="nr-perm-tt-admin"> Становиться админом в учёте времени</label>
-              <label style="display:flex; align-items:center; gap:6px; font-size:12px; font-weight:400;"><input type="checkbox" id="nr-perm-warehouse" checked> Доступ к складу (схема, пикинг и т.д.)</label>
-              <label style="display:flex; align-items:center; gap:6px; font-size:12px; font-weight:400;"><input type="checkbox" id="nr-perm-edit-layout"> Изменять схему склада (без права — только просмотр)</label>
-            </div>
-            <div id="nr-error" class="full" style="display:none; color:var(--danger); font-size:12px;"></div>
-            <button type="submit" class="btn primary full">+ Добавить роль</button>
-          </form>
+          <div class="toolbar" style="margin-bottom:12px;">
+            <button type="button" class="btn primary" id="open-new-role-modal">+ Добавить роль</button>
+          </div>
           <div id="roles-list"></div>
         </div>
       </div>
