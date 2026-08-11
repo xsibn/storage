@@ -3300,7 +3300,7 @@
   const FULLSCREEN_VIEWS = ['tasks', 'accounts', 'chats', 'hub']; // разделы вроде "Задания"/"Аккаунты"/"Чаты"/"Хаб" — на телефоне занимают весь экран, без вкладок склада
   // Разделы, которые открываются собственным URL (/warehouse, /tasks) и на
   // которых поэтому показываем маленькую кнопку "← Меню" в шапке.
-  const HUB_BACK_VIEWS = ['map', 'table', 'zones', 'reco', 'tasks', 'accounts'];
+  const HUB_BACK_VIEWS = ['map', 'table', 'zones', 'reco', 'tasks', 'accounts', 'chats'];
   let lastWarehouseView = 'map'; // склад: какую под-вкладку показать при возврате из "Задания"/"Аккаунтов"
   let currentActiveView = 'hub'; // используется хабом разделов, чтобы подсветить "Открыто" на нужной карточке
 
