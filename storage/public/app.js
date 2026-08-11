@@ -1370,7 +1370,8 @@
     }
   }
   document.getElementById('activity-log-btn').addEventListener('click', openActivityLog);
-  document.getElementById('bn-journal-btn').addEventListener('click', openActivityLog);
+  const bnJournalBtn = document.getElementById('bn-journal-btn');
+  if(bnJournalBtn) bnJournalBtn.addEventListener('click', openActivityLog);
 
   // ---------- Мой журнал (свои действия, доступно всем — без прав на общий журнал) ----------
   async function undoMyActivityEntry(id, isLatest){
@@ -4288,6 +4289,56 @@
   }
 
   document.getElementById('new-group-btn').addEventListener('click', openNewGroupModal);
+
+  // ---------- Новое ЛС: «+» — выбрать человека из списка/поиска и открыть с ним личный чат ----------
+  async function startDmWith(userId){
+    try{
+      const res = await fetch(API_BASE + '/api/chats/dm', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId })
+      });
+      const payload = await res.json().catch(() => ({}));
+      if(!res.ok) throw new Error(payload.error || 'Не удалось открыть чат');
+      closeModal();
+      await loadChats();
+      if(payload.chat) openChat(payload.chat.id);
+    }catch(err){ alert(err.message); }
+  }
+
+  async function openNewDmModal(){
+    let users;
+    try{ users = await loadChatDirectory(); }
+    catch(err){ alert(err.message); return; }
+
+    openModal('Личное сообщение', `
+      <div class="form-field full">
+        <label style="font-size:12px; color:var(--ink-soft); display:block; margin-bottom:6px;">Кому написать</label>
+        <div class="assign-user-search"><input type="text" id="nd-search" placeholder="Поиск по имени…" autocomplete="off"></div>
+        <div class="assign-user-list" id="nd-user-list">
+          ${users.map(u => `
+            <label class="assign-user-row" data-uid="${u.id}" data-open-dm-pick="${u.id}">
+              <span class="au-avatar"${u.avatarUrl ? ` style="background-image:url('${escHtml(u.avatarUrl)}')"` : ''}>${u.avatarUrl ? '' : escHtml(initials(u.displayName))}</span>
+              <span class="au-name">${escHtml(u.displayName)}</span>
+            </label>
+          `).join('') || '<div class="assign-user-empty">Нет доступных сотрудников</div>'}
+        </div>
+      </div>
+    `, `<button class="btn" id="nd-cancel">Отмена</button>`);
+
+    const listEl = document.getElementById('nd-user-list');
+    document.getElementById('nd-search').addEventListener('input', (e) => {
+      const q = e.target.value.trim().toLowerCase();
+      listEl.querySelectorAll('.assign-user-row').forEach(row => {
+        row.style.display = (!q || row.querySelector('.au-name').textContent.toLowerCase().includes(q)) ? '' : 'none';
+      });
+    });
+    listEl.querySelectorAll('[data-open-dm-pick]').forEach(row => {
+      row.addEventListener('click', () => startDmWith(Number(row.dataset.openDmPick)));
+    });
+    document.getElementById('nd-cancel').addEventListener('click', closeModal);
+  }
+
+  document.getElementById('new-dm-btn').addEventListener('click', openNewDmModal);
 
   // Клик по коллеге в списке "Сотрудники"/директории аккаунтов — открыть с ним ЛС.
   document.addEventListener('click', async (e) => {
