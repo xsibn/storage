@@ -889,7 +889,7 @@
       ['canEditLayout', 'Изменять схему склада (без права — только просмотр)']
     ];
     return rows.map(([key, label]) => `
-      <label style="display:flex; align-items:center; gap:6px; font-size:12px; font-weight:400; padding:4px 0;">
+      <label>
         <input type="checkbox" data-perm="${key}" ${role.perms[key] ? 'checked' : ''} ${dis}>
         ${label}
       </label>`).join('');
@@ -902,21 +902,26 @@
     try {
       const roles = await loadRoles(true);
       listEl.innerHTML = roles.map(r => `
-        <div class="role-row" data-key="${escHtml(r.key)}" style="border-bottom:1px solid var(--line); padding:12px 4px;">
-          <div style="display:flex; align-items:center; gap:8px;">
-            <input type="text" class="role-label-input" value="${escHtml(r.label)}" style="flex:1; padding:7px 9px; border:1px solid var(--line); border-radius:7px; font-size:13px; background:var(--panel); color:var(--ink);">
-            <button type="button" class="icon-btn" data-action="save-label" title="Сохранить название">💾</button>
-            ${r.isSystem ? `<span class="role-badge" style="background:var(--accent-soft); color:var(--accent); font-size:10.5px; padding:3px 8px; border-radius:999px;">системная</span>` : ''}
-            ${!r.isSystem ? `<button type="button" class="icon-btn danger" data-action="delete-role" title="Удалить роль">🗑</button>` : ''}
+        <div class="role-card" data-key="${escHtml(r.key)}">
+          <div class="role-card-head">
+            <input type="text" class="role-label-input" value="${escHtml(r.label)}" title="Название роли">
+            <div class="role-card-actions">
+              <button type="button" class="icon-btn" data-action="save-label" title="Сохранить название">💾</button>
+              ${r.isSystem ? `<span class="role-badge">системная</span>` : `<button type="button" class="icon-btn danger" data-action="delete-role" title="Удалить роль">🗑</button>`}
+            </div>
           </div>
-          <div style="display:flex; gap:16px; flex-wrap:wrap; margin-top:6px;">
+          <div class="role-perms-label">Права</div>
+          <div class="role-perms-grid">
             ${permCheckboxes(r)}
           </div>
-          ${!r.isSystem ? `<button type="button" class="btn" data-action="save-perms" style="margin-top:6px; font-size:11.5px; padding:6px 10px;">Сохранить права</button>` : `<div style="font-size:11px; color:var(--ink-soft); margin-top:4px;">Права сервисной роли всегда полные и не редактируются.</div>`}
+          ${!r.isSystem
+            ? `<div class="role-card-footer"><button type="button" class="btn primary" data-action="save-perms">Сохранить права</button></div>`
+            : `<div class="role-card-note">Права сервисной роли всегда полные и не редактируются.</div>`
+          }
         </div>
       `).join('');
 
-      listEl.querySelectorAll('.role-row').forEach(row => {
+      listEl.querySelectorAll('.role-card').forEach(row => {
         const key = row.dataset.key;
         const labelInput = row.querySelector('.role-label-input');
         row.querySelectorAll('.icon-btn, .btn').forEach(btn => {
