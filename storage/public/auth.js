@@ -189,6 +189,11 @@
     applyAvatarTo($('pp-avatar'), label, currentUser.avatarUrl);
     $('pp-name').textContent = label;
     $('pp-role').textContent = currentUser.roleLabel;
+
+    // Карточка аккаунта на стартовом хабе (под плитками разделов).
+    if ($('hub-account-avatar')) applyAvatarTo($('hub-account-avatar'), label, currentUser.avatarUrl);
+    if ($('hub-account-name')) $('hub-account-name').textContent = label;
+    if ($('hub-account-role')) $('hub-account-role').textContent = currentUser.roleLabel;
     $('pp-manage-users').style.display = currentUser.perms.canManageUsers ? '' : 'none';
     $('pp-avatar-remove-btn').style.display = currentUser.avatarUrl ? '' : 'none';
 
@@ -235,6 +240,7 @@
   }
   $('profile-pill').addEventListener('click', openProfilePage);
   $('profile-page-back').addEventListener('click', closeProfilePage);
+  if ($('hub-account-card')) $('hub-account-card').addEventListener('click', openProfilePage);
 
   $('pp-logout').addEventListener('click', async () => {
     try { await fetch(API_BASE + '/api/auth/logout', { method: 'POST' }); } catch (_) {}
@@ -898,6 +904,47 @@
       </label>`).join('');
   }
 
+  // ---------- модалка создания нового аккаунта ----------
+  function openNewUserModal() {
+    openAuthModal('Новый аккаунт', `
+      <form class="new-user-form" id="new-user-form">
+        <input type="text" id="nu-username" placeholder="Логин" autocomplete="off" required>
+        <input type="text" id="nu-displayname" placeholder="Имя (необязательно)" autocomplete="off">
+        <input type="text" id="nu-password" placeholder="Пароль (от 6 символов)" autocomplete="off" required>
+        <select id="nu-role"></select>
+        <div id="nu-error" class="full" style="display:none; color:var(--danger); font-size:12px;"></div>
+      </form>
+    `, `<button class="btn" id="nu-cancel">Отмена</button><button class="btn primary" id="nu-submit">+ Создать аккаунт</button>`);
+    fillNewUserRoleSelect();
+    $('nu-cancel').addEventListener('click', closeAuthModal);
+    $('new-user-form').addEventListener('submit', submitNewUser);
+    $('nu-submit').addEventListener('click', submitNewUser);
+  }
+
+  async function submitNewUser(e) {
+    e.preventDefault();
+    const errEl = $('nu-error');
+    errEl.style.display = 'none';
+    const body = {
+      username: $('nu-username').value.trim(),
+      displayName: $('nu-displayname').value.trim(),
+      password: $('nu-password').value,
+      role: $('nu-role').value
+    };
+    try {
+      const res = await fetch(API_BASE + '/api/users', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body)
+      });
+      const payload = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(payload.error || 'Не удалось создать аккаунт');
+      closeAuthModal();
+      renderUsersList();
+    } catch (err) {
+      errEl.textContent = err.message;
+      errEl.style.display = 'block';
+    }
+  }
+
   // ---------- модалка создания новой роли ----------
   function openNewRoleModal() {
     openAuthModal('Новая роль', `
@@ -1092,29 +1139,7 @@
     $('users-tab-users').addEventListener('click', () => switchUsersTab('users'));
     $('users-tab-roles').addEventListener('click', () => switchUsersTab('roles'));
     $('open-new-role-modal').addEventListener('click', openNewRoleModal);
-    $('new-user-form').addEventListener('submit', async (e) => {
-      e.preventDefault();
-      const errEl = $('nu-error');
-      errEl.style.display = 'none';
-      const body = {
-        username: $('nu-username').value.trim(),
-        displayName: $('nu-displayname').value.trim(),
-        password: $('nu-password').value,
-        role: $('nu-role').value
-      };
-      try {
-        const res = await fetch(API_BASE + '/api/users', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body)
-        });
-        const payload = await res.json().catch(() => ({}));
-        if (!res.ok) throw new Error(payload.error || 'Не удалось создать аккаунт');
-        $('new-user-form').reset();
-        renderUsersList();
-      } catch (err) {
-        errEl.textContent = err.message;
-        errEl.style.display = 'block';
-      }
-    });
+    $('open-new-user-modal').addEventListener('click', openNewUserModal);
   }
 
   // Вызывается из app.js при каждом открытии раздела "Аккаунты" — обновляет
