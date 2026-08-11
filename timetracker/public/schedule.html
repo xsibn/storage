@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>Графики — учёт времени</title>
+<title>Графики и табель-коды — учёт времени</title>
 <link rel="manifest" href="/time/manifest.json" />
 <meta name="theme-color" content="#0c0f16" />
 <link rel="icon" href="/time/icons/icon-192.png" type="image/png" />
@@ -15,10 +15,17 @@
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" />
 <link rel="stylesheet" href="/time/css/theme.css" />
 <style>
-  body { margin: 0; padding: 0 0 60px; }
+  body { margin: 0; padding: 0 0 60px; user-select: none; }
   .wrap { max-width: 1100px; margin: 0 auto; padding: 0 16px; }
   h1 { font-size: 22px; margin-bottom: 4px; }
-  .sub { color: var(--muted); margin-bottom: 20px; font-size: 14px; max-width: 68ch; }
+  .sub { color: var(--muted); margin-bottom: 20px; font-size: 14px; max-width: 72ch; }
+
+  .mode-tabs { display: flex; gap: 8px; margin-bottom: 12px; }
+  .mode-tab {
+    padding: 10px 18px; border-radius: 10px; border: 1px solid var(--border);
+    background: transparent; color: var(--text); cursor: pointer; font-size: 14px; font-family: inherit; font-weight: 600;
+  }
+  .mode-tab.active { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
 
   .tabs { display: flex; gap: 8px; margin-bottom: 16px; flex-wrap: wrap; }
   .tab {
@@ -37,7 +44,6 @@
     color: var(--text); padding: 7px 10px; font-size: 13px; font-family: inherit; color-scheme: dark;
   }
   .pen-group { display: flex; align-items: flex-end; gap: 14px; flex-wrap: wrap; }
-  .pen-hint { font-size: 12px; color: var(--muted); max-width: 30ch; }
   .code-palette { display: flex; gap: 6px; flex-wrap: wrap; }
   .code-palette button {
     padding: 7px 12px; border-radius: 8px; border: 1px solid var(--border); background: transparent;
@@ -79,25 +85,12 @@
   .cell-btn.shift-Д { color: #34c77b; }
   .cell-btn.shift-Н { color: #5b8cff; }
   .cell-btn.shift-В { color: var(--muted); }
+  .cell-btn.manual { color: #ffb454; }
+  .cell-btn.code-В { color: var(--muted); }
+  .cell-btn.in-range { background: rgba(91,140,255,0.22); }
   .empty-msg { color: var(--muted); padding: 30px 14px; text-align: center; }
 
-  .range-row {
-    display: flex; gap: 10px; align-items: flex-end; flex-wrap: wrap;
-    border: 1px solid var(--border); border-radius: 12px; padding: 14px; margin-top: 16px;
-  }
-  .range-row > div { display: flex; flex-direction: column; }
-  .range-row label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 4px; }
-  .range-row select, .range-row input {
-    background: var(--bg); border: 1px solid var(--border); border-radius: 8px;
-    color: var(--text); padding: 7px 9px; font-size: 13px; font-family: inherit; color-scheme: dark;
-  }
-  .range-row button {
-    padding: 8px 16px; border-radius: 8px; border: none; background: var(--accent);
-    color: var(--accent-ink); font-weight: 600; cursor: pointer; font-size: 13px;
-  }
-  .range-msg { font-size: 13px; margin-top: 8px; min-height: 16px; }
-  .range-msg.error { color: #ff5470; }
-  .range-msg.ok { color: #34c77b; }
+  .drag-hint { font-size: 12.5px; color: var(--muted); margin: 10px 2px 0; }
 </style>
 </head>
 <body>
@@ -110,68 +103,45 @@
     <a href="/" id="portal-back-link" title="Вернуться в меню разделов">← Меню</a>
     <a href="/time/admin-panel.html">🗂 Админ-панель</a>
     <a href="/time/admin.html">👤 Сотрудники</a>
-    <a href="/time/schedule.html" class="current">📅 Графики</a>
-    <a href="/time/timesheet.html">🗓 Табель-коды</a>
+    <a href="/time/schedule.html" class="current">📅 Графики и табель</a>
     <a href="/time/logs.html">📋 Журнал</a>
     <a href="/time/export.html">📊 Экспорт</a>
     <button class="logout-btn" onclick="logout()">Выйти</button>
   </nav>
 </header>
 <div class="wrap">
-  <h1>Графики работы</h1>
-  <div class="sub">
-    Плановый график смен на месяц — отдельно для сотрудников, охранников и аутсорса
-    (категория определяется по основной должности человека). Выберите смену слева,
-    затем кликайте по дням в таблице, чтобы её проставить.
-  </div>
+  <h1>Графики и табель-коды</h1>
+  <div class="sub" id="modeSub"></div>
 
+  <div class="mode-tabs" id="modeTabs"></div>
   <div class="tabs" id="tabs"></div>
 
   <div class="toolbar">
     <div>
       <label>Месяц</label>
-      <input type="month" id="schedMonth" onchange="loadSchedule()" />
+      <input type="month" id="gridMonth" onchange="loadGrid()" />
     </div>
     <div class="pen-group">
       <div>
-        <label>Смена для проставления (кликните, затем — по дням в таблице)</label>
+        <label>Код для проставления (кликните, затем — по дням в таблице)</label>
         <div class="code-palette" id="codePalette"></div>
       </div>
       <div class="custom-code-form">
-        <input type="text" id="customCode" maxlength="4" placeholder="Своя" />
+        <input type="text" id="customCode" maxlength="4" placeholder="Свой" />
         <button onclick="useCustomCode()">Использовать</button>
       </div>
     </div>
   </div>
 
   <div class="table-scroll">
-    <table class="sched" id="schedTable"></table>
+    <table class="sched" id="gridTable"></table>
   </div>
-
-  <div class="range-row">
-    <div>
-      <label>Человек</label>
-      <select id="rangeEmployee"></select>
-    </div>
-    <div>
-      <label>Период с</label>
-      <input type="date" id="rangeFrom" />
-    </div>
-    <div>
-      <label>по</label>
-      <input type="date" id="rangeTo" />
-    </div>
-    <div>
-      <label>Смена</label>
-      <select id="rangeShift"></select>
-    </div>
-    <button onclick="applyRangeShift()">Проставить на период</button>
-  </div>
-  <div class="range-msg" id="rangeMsg"></div>
+  <div class="drag-hint">Клик — проставить один день. Зажмите и потяните вдоль строки — проставите сразу весь период выбранным кодом.</div>
 </div>
 
 <script>
 fetch('/time/api/config').then(r=>r.json()).then(cfg=>{const el=document.getElementById('portal-back-link'); if(el) el.href = cfg.portalUrl || '/';}).catch(()=>{});
+
 const CATEGORIES = [
   { key: 'staff', label: 'Сотрудники' },
   { key: 'guard', label: 'Охранники' },
@@ -179,11 +149,47 @@ const CATEGORIES = [
 ];
 const WEEKDAY_LETTERS = ['Вс', 'Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб'];
 
+const MODES = {
+  schedule: {
+    label: '📅 Графики',
+    sub: 'Плановый график смен на месяц — отдельно для сотрудников, охранников и аутсорса (категория определяется по основной должности человека). Выберите смену слева, затем кликайте по дням в таблице, либо зажмите и потяните вдоль строки, чтобы проставить сразу период.',
+    hasCategories: true,
+    codesUrl: '/time/api/schedule-codes',
+    gridUrl: (month, category) => `/time/api/schedule?month=${month}&category=${category}`,
+    singleUrl: '/time/api/schedule',
+    singleBody: (employee_id, date, value) => ({ employee_id, date, shift: value }),
+    rangeUrl: '/time/api/schedule/range',
+    rangeBody: (employee_id, from, to, value) => ({ employee_id, from, to, shift: value }),
+    cellClass: (v) => v ? `shift-${v}` : '',
+    defaultPen: 'Д',
+  },
+  timesheet: {
+    label: '🗓 Табель-коды',
+    sub: 'Ручные отметки табеля (отпуск, больничный, командировка и т.п.) сразу для всех сотрудников — одна таблица вместо карточки по каждому человеку. Эти коды перекрывают автоматический расчёт по сканам и коды из планового графика; там, где ничего не проставлено — код подставляется из графика или считается по факту прихода/ухода при экспорте табеля.',
+    hasCategories: false,
+    codesUrl: '/time/api/timesheet-codes',
+    gridUrl: (month) => `/time/api/timesheet-codes-grid?month=${month}`,
+    singleUrl: '/time/api/day-codes',
+    singleBody: (employee_id, date, value) => ({ employee_id, date, code: value }),
+    rangeUrl: '/time/api/day-codes/range',
+    rangeBody: (employee_id, from, to, value) => ({ employee_id, from, to, code: value }),
+    cellClass: (v) => v ? (v === 'В' ? 'code-В' : 'manual') : '',
+    defaultPen: '',
+  },
+};
+
+let currentMode = 'schedule';
 let currentCategory = 'staff';
-let shiftCodes = [];
-let selectedPen = 'Д'; // текущая выбранная для проставления смена
-let scheduleEmployees = [];
-let scheduleShifts = new Map(); // "employeeId:date" -> shift
+let paletteCodes = [];
+let selectedPen = '';
+let gridEmployees = [];
+let gridValues = new Map(); // "employeeId:date" -> value
+
+// ---- drag-select state ----
+let dragging = false;
+let dragEmployeeId = null;
+let dragStartDate = null;
+let dragEndDate = null;
 
 async function checkAuth() {
   const resp = await fetch('/time/api/auth/me');
@@ -209,34 +215,57 @@ function currentMonthValue() {
   return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
 }
 
-function renderTabs() {
-  const tabs = document.getElementById('tabs');
-  tabs.innerHTML = CATEGORIES.map(c =>
+function daysInMonth(year, month1) {
+  return new Date(year, month1, 0).getDate();
+}
+
+function renderModeTabs() {
+  const el = document.getElementById('modeTabs');
+  el.innerHTML = Object.entries(MODES).map(([key, m]) =>
+    `<button class="mode-tab ${key === currentMode ? 'active' : ''}" onclick="switchMode('${key}')">${m.label}</button>`
+  ).join('');
+  document.getElementById('modeSub').textContent = MODES[currentMode].sub;
+}
+
+function switchMode(key) {
+  if (key === currentMode) return;
+  currentMode = key;
+  paletteCodes = [];
+  selectedPen = MODES[currentMode].defaultPen;
+  renderModeTabs();
+  renderCategoryTabs();
+  ensureCodes().then(() => {
+    renderCodePalette();
+    loadGrid();
+  });
+}
+
+function renderCategoryTabs() {
+  const el = document.getElementById('tabs');
+  if (!MODES[currentMode].hasCategories) { el.innerHTML = ''; el.style.display = 'none'; return; }
+  el.style.display = '';
+  el.innerHTML = CATEGORIES.map(c =>
     `<button class="tab ${c.key === currentCategory ? 'active' : ''}" onclick="switchCategory('${c.key}')">${escapeHtml(c.label)}</button>`
   ).join('');
 }
 
 function switchCategory(key) {
   currentCategory = key;
-  renderTabs();
-  loadSchedule();
+  renderCategoryTabs();
+  loadGrid();
 }
 
-async function ensureShiftCodes() {
-  if (shiftCodes.length) return;
-  const resp = await fetch('/time/api/schedule-codes');
-  shiftCodes = resp.ok ? await resp.json() : [];
+async function ensureCodes() {
+  const resp = await fetch(MODES[currentMode].codesUrl);
+  paletteCodes = resp.ok ? await resp.json() : [];
+  if (currentMode === 'timesheet' && !selectedPen && paletteCodes.length) selectedPen = paletteCodes[0].code;
 }
 
 function renderCodePalette() {
   const palette = document.getElementById('codePalette');
-  palette.innerHTML = shiftCodes.map(c =>
+  palette.innerHTML = paletteCodes.map(c =>
     `<button title="${escapeHtml(c.label)}" class="${c.code === selectedPen ? 'selected' : ''}" onclick="selectPen('${c.code}')">${escapeHtml(c.code)}</button>`
   ).join('') + `<button class="clear ${selectedPen === '' ? 'selected' : ''}" onclick="selectPen('')">✕ Очистить</button>`;
-
-  const rangeSelect = document.getElementById('rangeShift');
-  rangeSelect.innerHTML = shiftCodes
-    .map(c => `<option value="${c.code}">${escapeHtml(c.code)} — ${escapeHtml(c.label)}</option>`).join('');
 }
 
 function selectPen(code) {
@@ -248,46 +277,43 @@ function useCustomCode() {
   const input = document.getElementById('customCode');
   const code = input.value.trim().toUpperCase();
   if (!code) return;
-  if (!shiftCodes.some(c => c.code === code)) {
-    shiftCodes.push({ code, label: 'Своё обозначение' });
+  if (!paletteCodes.some(c => c.code === code)) {
+    paletteCodes.push({ code, label: 'Своё обозначение' });
   }
   selectPen(code);
   input.value = '';
 }
 
-function daysInMonth(year, month1) {
-  return new Date(year, month1, 0).getDate();
-}
-
-async function loadSchedule() {
-  const month = document.getElementById('schedMonth').value;
+async function loadGrid() {
+  const month = document.getElementById('gridMonth').value;
   if (!month) return;
-  const resp = await fetch(`/time/api/schedule?month=${month}&category=${currentCategory}`);
+  const mode = MODES[currentMode];
+  const url = mode.hasCategories ? mode.gridUrl(month, currentCategory) : mode.gridUrl(month);
+  const resp = await fetch(url);
   if (resp.status === 401 || resp.status === 403) { location.href = '/time/login.html'; return; }
   if (!resp.ok) return;
   const data = await resp.json();
-  scheduleEmployees = data.employees || [];
-  scheduleShifts = new Map((data.shifts || []).map(s => [`${s.employee_id}:${s.date}`, s.shift]));
+  gridEmployees = data.employees || [];
+  const rows = data.shifts || data.codes || [];
+  const valueKey = currentMode === 'schedule' ? 'shift' : 'code';
+  gridValues = new Map(rows.map(r => [`${r.employee_id}:${r.date}`, r[valueKey]]));
   renderTable();
-  renderRangeEmployeeSelect();
-}
-
-function renderRangeEmployeeSelect() {
-  const select = document.getElementById('rangeEmployee');
-  select.innerHTML = scheduleEmployees.map(e => `<option value="${e.id}">${escapeHtml(e.full_name)}</option>`).join('') ||
-    '<option value="">— нет людей в этой категории —</option>';
 }
 
 function renderTable() {
-  const table = document.getElementById('schedTable');
-  const [year, month1] = document.getElementById('schedMonth').value.split('-').map(Number);
+  const table = document.getElementById('gridTable');
+  const [year, month1] = document.getElementById('gridMonth').value.split('-').map(Number);
   const total = daysInMonth(year, month1);
+  const mode = MODES[currentMode];
 
-  if (!scheduleEmployees.length) {
-    table.innerHTML = `<tr><td class="empty-msg">В категории «${escapeHtml(CATEGORIES.find(c => c.key === currentCategory).label)}» пока нет людей.
-      Должность назначается на странице «Сотрудники» — впишите в название должности
-      «охранник» или «аутсорс», чтобы человек попал в соответствующий график;
-      остальные попадают в «Сотрудники».</td></tr>`;
+  if (!gridEmployees.length) {
+    const msg = mode.hasCategories
+      ? `В категории «${escapeHtml(CATEGORIES.find(c => c.key === currentCategory).label)}» пока нет людей.
+         Должность назначается на странице «Сотрудники» — впишите в название должности
+         «охранник» или «аутсорс», чтобы человек попал в соответствующий график;
+         остальные попадают в «Сотрудники».`
+      : `Пока нет сотрудников. Добавьте их на странице «Сотрудники».`;
+    table.innerHTML = `<tr><td class="empty-msg">${msg}</td></tr>`;
     return;
   }
 
@@ -300,71 +326,130 @@ function renderTable() {
   head += '</tr></thead>';
 
   let body = '<tbody>';
-  for (const emp of scheduleEmployees) {
+  for (const emp of gridEmployees) {
     body += `<tr><td class="name-col">${escapeHtml(emp.full_name)}</td>`;
     for (let d = 1; d <= total; d++) {
       const dateKey = `${year}-${String(month1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
       const dow = new Date(year, month1 - 1, d).getDay();
       const isWeekend = dow === 0 || dow === 6;
-      const shift = scheduleShifts.get(`${emp.id}:${dateKey}`) || '';
-      body += `<td class="${isWeekend ? 'weekend' : ''}"><button class="cell-btn shift-${escapeHtml(shift)}" onclick="paintCell(${emp.id}, '${dateKey}')">${escapeHtml(shift)}</button></td>`;
+      const value = gridValues.get(`${emp.id}:${dateKey}`) || '';
+      const cls = mode.cellClass(value);
+      body += `<td class="${isWeekend ? 'weekend' : ''}">` +
+        `<button type="button" class="cell-btn ${cls}" data-emp="${emp.id}" data-date="${dateKey}">${escapeHtml(value)}</button></td>`;
     }
     body += '</tr>';
   }
   body += '</tbody>';
 
   table.innerHTML = head + body;
+  wireCellEvents();
 }
 
-async function paintCell(employeeId, dateKey) {
-  const resp = await fetch('/time/api/schedule', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ employee_id: employeeId, date: dateKey, shift: selectedPen }),
+function wireCellEvents() {
+  const table = document.getElementById('gridTable');
+  table.querySelectorAll('.cell-btn').forEach(btn => {
+    btn.addEventListener('mousedown', (e) => {
+      e.preventDefault();
+      dragging = true;
+      dragEmployeeId = btn.dataset.emp;
+      dragStartDate = btn.dataset.date;
+      dragEndDate = btn.dataset.date;
+      updateRangeHighlight();
+    });
+    btn.addEventListener('mouseenter', () => {
+      if (!dragging) return;
+      if (btn.dataset.emp !== dragEmployeeId) return; // диапазон — только вдоль одной строки
+      dragEndDate = btn.dataset.date;
+      updateRangeHighlight();
+    });
   });
-  if (!resp.ok) return;
-  if (selectedPen) {
-    scheduleShifts.set(`${employeeId}:${dateKey}`, selectedPen);
+  table.addEventListener('touchstart', (e) => {
+    const btn = e.target.closest('.cell-btn');
+    if (!btn) return;
+    dragging = true;
+    dragEmployeeId = btn.dataset.emp;
+    dragStartDate = btn.dataset.date;
+    dragEndDate = btn.dataset.date;
+    updateRangeHighlight();
+  }, { passive: true });
+  table.addEventListener('touchmove', (e) => {
+    if (!dragging) return;
+    const touch = e.touches[0];
+    const el = document.elementFromPoint(touch.clientX, touch.clientY);
+    const btn = el && el.closest('.cell-btn');
+    if (!btn || btn.dataset.emp !== dragEmployeeId) return;
+    dragEndDate = btn.dataset.date;
+    updateRangeHighlight();
+  }, { passive: true });
+}
+
+function updateRangeHighlight() {
+  const table = document.getElementById('gridTable');
+  table.querySelectorAll('.cell-btn.in-range').forEach(el => el.classList.remove('in-range'));
+  if (!dragging || !dragEmployeeId) return;
+  const [from, to] = dragStartDate <= dragEndDate ? [dragStartDate, dragEndDate] : [dragEndDate, dragStartDate];
+  table.querySelectorAll(`.cell-btn[data-emp="${dragEmployeeId}"]`).forEach(el => {
+    if (el.dataset.date >= from && el.dataset.date <= to) el.classList.add('in-range');
+  });
+}
+
+async function commitDrag() {
+  if (!dragging || !dragEmployeeId) { dragging = false; return; }
+  dragging = false;
+  const employeeId = dragEmployeeId;
+  const [from, to] = dragStartDate <= dragEndDate ? [dragStartDate, dragEndDate] : [dragEndDate, dragStartDate];
+  document.querySelectorAll('.cell-btn.in-range').forEach(el => el.classList.remove('in-range'));
+  const mode = MODES[currentMode];
+
+  if (from === to) {
+    // одиночный клик по одной ячейке
+    const resp = await fetch(mode.singleUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(mode.singleBody(Number(employeeId), from, selectedPen)),
+    });
+    if (!resp.ok) return;
+    if (selectedPen) gridValues.set(`${employeeId}:${from}`, selectedPen);
+    else gridValues.delete(`${employeeId}:${from}`);
   } else {
-    scheduleShifts.delete(`${employeeId}:${dateKey}`);
+    // протянули по нескольким дням — проставляем весь диапазон разом
+    const resp = await fetch(mode.rangeUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(mode.rangeBody(Number(employeeId), from, to, selectedPen)),
+    });
+    if (!resp.ok) return;
+    for (const d of eachDate(from, to)) {
+      if (selectedPen) gridValues.set(`${employeeId}:${d}`, selectedPen);
+      else gridValues.delete(`${employeeId}:${d}`);
+    }
   }
   renderTable();
 }
 
-async function applyRangeShift() {
-  const employee_id = document.getElementById('rangeEmployee').value;
-  const from = document.getElementById('rangeFrom').value;
-  const to = document.getElementById('rangeTo').value;
-  const shift = document.getElementById('rangeShift').value;
-  const msg = document.getElementById('rangeMsg');
-  if (!employee_id || !from || !to || !shift) {
-    msg.textContent = 'Укажите человека, период и смену';
-    msg.className = 'range-msg error';
-    return;
+function eachDate(from, to) {
+  const out = [];
+  let cur = new Date(from + 'T00:00:00');
+  const end = new Date(to + 'T00:00:00');
+  while (cur <= end) {
+    out.push(cur.toISOString().slice(0, 10));
+    cur.setDate(cur.getDate() + 1);
   }
-  const resp = await fetch('/time/api/schedule/range', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ employee_id, from, to, shift }),
-  });
-  if (!resp.ok) {
-    const data = await resp.json().catch(() => ({}));
-    msg.textContent = data.error || 'Не удалось применить период';
-    msg.className = 'range-msg error';
-    return;
-  }
-  msg.textContent = `Смена ${shift} проставлена на весь период`;
-  msg.className = 'range-msg ok';
-  await loadSchedule();
+  return out;
 }
+
+document.addEventListener('mouseup', commitDrag);
+document.addEventListener('touchend', commitDrag);
 
 (async () => {
   if (!(await checkAuth())) return;
-  renderTabs();
-  document.getElementById('schedMonth').value = currentMonthValue();
-  await ensureShiftCodes();
+  selectedPen = MODES[currentMode].defaultPen;
+  renderModeTabs();
+  renderCategoryTabs();
+  document.getElementById('gridMonth').value = currentMonthValue();
+  await ensureCodes();
   renderCodePalette();
-  await loadSchedule();
+  await loadGrid();
 })();
 </script>
 <script>
