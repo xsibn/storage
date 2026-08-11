@@ -16,16 +16,10 @@
 <link rel="stylesheet" href="/time/css/theme.css" />
 <style>
   body { margin: 0; padding: 0 0 60px; user-select: none; }
-  .wrap { max-width: 1100px; margin: 0 auto; padding: 0 16px; }
-  h1 { font-size: 22px; margin-bottom: 4px; }
+  .wrap { max-width: none; margin: 0; padding: 0 20px; }
+  .page-head { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; margin-bottom: 4px; }
+  h1 { font-size: 22px; margin: 0; }
   .sub { color: var(--muted); margin-bottom: 20px; font-size: 14px; max-width: 72ch; }
-
-  .mode-tabs { display: flex; gap: 8px; margin-bottom: 12px; }
-  .mode-tab {
-    padding: 10px 18px; border-radius: 10px; border: 1px solid var(--border);
-    background: transparent; color: var(--text); cursor: pointer; font-size: 14px; font-family: inherit; font-weight: 600;
-  }
-  .mode-tab.active { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
 
   .tabs { display: flex; gap: 8px; margin-bottom: 16px; flex-wrap: wrap; }
   .tab {
@@ -44,7 +38,7 @@
     color: var(--text); padding: 7px 10px; font-size: 13px; font-family: inherit; color-scheme: dark;
   }
   .pen-group { display: flex; align-items: flex-end; gap: 14px; flex-wrap: wrap; }
-  .code-palette { display: flex; gap: 6px; flex-wrap: wrap; }
+  .code-palette { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
   .code-palette button {
     padding: 7px 12px; border-radius: 8px; border: 1px solid var(--border); background: transparent;
     color: var(--text); font-size: 13px; cursor: pointer; font-family: inherit;
@@ -52,6 +46,7 @@
   .code-palette button:hover { border-color: var(--accent); }
   .code-palette button.selected { border-color: var(--accent); background: rgba(91,140,255,0.12); font-weight: 600; }
   .code-palette button.clear { color: #ff5470; }
+  .code-palette .sep { width: 1px; align-self: stretch; background: var(--border); margin: 0 4px; }
   .custom-code-form { display: flex; gap: 6px; align-items: center; }
   .custom-code-form input {
     width: 70px; background: var(--bg); border: 1px solid var(--border); border-radius: 8px;
@@ -110,10 +105,15 @@
   </nav>
 </header>
 <div class="wrap">
-  <h1>Графики и табель-коды</h1>
-  <div class="sub" id="modeSub"></div>
+  <div class="page-head">
+    <h1>Графики и табель-коды</h1>
+  </div>
+  <div class="sub">
+    Плановые смены (Д/Н/В) и ручные табельные отметки (отпуск, больничный и т.п.) — в одной таблице.
+    Табельный код перекрывает смену на этот день. Выберите код слева, затем кликайте по дням в таблице,
+    либо зажмите и потяните вдоль строки, чтобы проставить сразу период.
+  </div>
 
-  <div class="mode-tabs" id="modeTabs"></div>
   <div class="tabs" id="tabs"></div>
 
   <div class="toolbar">
@@ -149,41 +149,14 @@ const CATEGORIES = [
 ];
 const WEEKDAY_LETTERS = ['Вс', 'Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб'];
 
-const MODES = {
-  schedule: {
-    label: '📅 Графики',
-    sub: 'Плановый график смен на месяц — отдельно для сотрудников, охранников и аутсорса (категория определяется по основной должности человека). Выберите смену слева, затем кликайте по дням в таблице, либо зажмите и потяните вдоль строки, чтобы проставить сразу период.',
-    hasCategories: true,
-    codesUrl: '/time/api/schedule-codes',
-    gridUrl: (month, category) => `/time/api/schedule?month=${month}&category=${category}`,
-    singleUrl: '/time/api/schedule',
-    singleBody: (employee_id, date, value) => ({ employee_id, date, shift: value }),
-    rangeUrl: '/time/api/schedule/range',
-    rangeBody: (employee_id, from, to, value) => ({ employee_id, from, to, shift: value }),
-    cellClass: (v) => v ? `shift-${v}` : '',
-    defaultPen: 'Д',
-  },
-  timesheet: {
-    label: '🗓 Табель-коды',
-    sub: 'Ручные отметки табеля (отпуск, больничный, командировка и т.п.) сразу для всех сотрудников — одна таблица вместо карточки по каждому человеку. Эти коды перекрывают автоматический расчёт по сканам и коды из планового графика; там, где ничего не проставлено — код подставляется из графика или считается по факту прихода/ухода при экспорте табеля.',
-    hasCategories: false,
-    codesUrl: '/time/api/timesheet-codes',
-    gridUrl: (month) => `/time/api/timesheet-codes-grid?month=${month}`,
-    singleUrl: '/time/api/day-codes',
-    singleBody: (employee_id, date, value) => ({ employee_id, date, code: value }),
-    rangeUrl: '/time/api/day-codes/range',
-    rangeBody: (employee_id, from, to, value) => ({ employee_id, from, to, code: value }),
-    cellClass: (v) => v ? (v === 'В' ? 'code-В' : 'manual') : '',
-    defaultPen: '',
-  },
-};
-
-let currentMode = 'schedule';
 let currentCategory = 'staff';
-let paletteCodes = [];
-let selectedPen = '';
+let shiftCodes = [];     // коды смен (Д/Н/В и свои) — палитра "график"
+let timesheetCodes = []; // коды табеля (ОТ/Б/... и свои) — палитра "табель"
+let selectedPen = { kind: 'shift', code: 'Д' }; // текущая выбранная для проставления кнопка
+
 let gridEmployees = [];
-let gridValues = new Map(); // "employeeId:date" -> value
+let scheduleShifts = new Map(); // "employeeId:date" -> смена (план)
+let dayCodes = new Map();       // "employeeId:date" -> ручной код табеля (перекрывает смену)
 
 // ---- drag-select state ----
 let dragging = false;
@@ -219,31 +192,8 @@ function daysInMonth(year, month1) {
   return new Date(year, month1, 0).getDate();
 }
 
-function renderModeTabs() {
-  const el = document.getElementById('modeTabs');
-  el.innerHTML = Object.entries(MODES).map(([key, m]) =>
-    `<button class="mode-tab ${key === currentMode ? 'active' : ''}" onclick="switchMode('${key}')">${m.label}</button>`
-  ).join('');
-  document.getElementById('modeSub').textContent = MODES[currentMode].sub;
-}
-
-function switchMode(key) {
-  if (key === currentMode) return;
-  currentMode = key;
-  paletteCodes = [];
-  selectedPen = MODES[currentMode].defaultPen;
-  renderModeTabs();
-  renderCategoryTabs();
-  ensureCodes().then(() => {
-    renderCodePalette();
-    loadGrid();
-  });
-}
-
 function renderCategoryTabs() {
   const el = document.getElementById('tabs');
-  if (!MODES[currentMode].hasCategories) { el.innerHTML = ''; el.style.display = 'none'; return; }
-  el.style.display = '';
   el.innerHTML = CATEGORIES.map(c =>
     `<button class="tab ${c.key === currentCategory ? 'active' : ''}" onclick="switchCategory('${c.key}')">${escapeHtml(c.label)}</button>`
   ).join('');
@@ -256,20 +206,34 @@ function switchCategory(key) {
 }
 
 async function ensureCodes() {
-  const resp = await fetch(MODES[currentMode].codesUrl);
-  paletteCodes = resp.ok ? await resp.json() : [];
-  if (currentMode === 'timesheet' && !selectedPen && paletteCodes.length) selectedPen = paletteCodes[0].code;
+  if (shiftCodes.length && timesheetCodes.length) return;
+  const [r1, r2] = await Promise.all([
+    fetch('/time/api/schedule-codes'),
+    fetch('/time/api/timesheet-codes'),
+  ]);
+  shiftCodes = r1.ok ? await r1.json() : [];
+  timesheetCodes = r2.ok ? await r2.json() : [];
+}
+
+function isSamePen(kind, code) {
+  return selectedPen.kind === kind && selectedPen.code === code;
 }
 
 function renderCodePalette() {
   const palette = document.getElementById('codePalette');
-  palette.innerHTML = paletteCodes.map(c =>
-    `<button title="${escapeHtml(c.label)}" class="${c.code === selectedPen ? 'selected' : ''}" onclick="selectPen('${c.code}')">${escapeHtml(c.code)}</button>`
-  ).join('') + `<button class="clear ${selectedPen === '' ? 'selected' : ''}" onclick="selectPen('')">✕ Очистить</button>`;
+  const shiftBtns = shiftCodes.map(c =>
+    `<button title="${escapeHtml(c.label)}" class="${isSamePen('shift', c.code) ? 'selected' : ''}" onclick="selectPen('shift','${c.code}')">${escapeHtml(c.code)}</button>`
+  ).join('') + `<button class="clear ${isSamePen('shift', '') ? 'selected' : ''}" title="Снять смену" onclick="selectPen('shift','')">✕</button>`;
+
+  const codeBtns = timesheetCodes.map(c =>
+    `<button title="${escapeHtml(c.label)}" class="${isSamePen('code', c.code) ? 'selected' : ''}" onclick="selectPen('code','${c.code}')">${escapeHtml(c.code)}</button>`
+  ).join('') + `<button class="clear ${isSamePen('code', '') ? 'selected' : ''}" title="Снять табельный код" onclick="selectPen('code','')">✕ Очистить</button>`;
+
+  palette.innerHTML = shiftBtns + '<div class="sep"></div>' + codeBtns;
 }
 
-function selectPen(code) {
-  selectedPen = code;
+function selectPen(kind, code) {
+  selectedPen = { kind, code };
   renderCodePalette();
 }
 
@@ -277,26 +241,35 @@ function useCustomCode() {
   const input = document.getElementById('customCode');
   const code = input.value.trim().toUpperCase();
   if (!code) return;
-  if (!paletteCodes.some(c => c.code === code)) {
-    paletteCodes.push({ code, label: 'Своё обозначение' });
+  // своё обозначение считаем табельным кодом (перекрывающим смену)
+  if (!timesheetCodes.some(c => c.code === code)) {
+    timesheetCodes.push({ code, label: 'Своё обозначение' });
   }
-  selectPen(code);
+  selectPen('code', code);
   input.value = '';
 }
 
 async function loadGrid() {
   const month = document.getElementById('gridMonth').value;
   if (!month) return;
-  const mode = MODES[currentMode];
-  const url = mode.hasCategories ? mode.gridUrl(month, currentCategory) : mode.gridUrl(month);
-  const resp = await fetch(url);
-  if (resp.status === 401 || resp.status === 403) { location.href = '/time/login.html'; return; }
-  if (!resp.ok) return;
-  const data = await resp.json();
-  gridEmployees = data.employees || [];
-  const rows = data.shifts || data.codes || [];
-  const valueKey = currentMode === 'schedule' ? 'shift' : 'code';
-  gridValues = new Map(rows.map(r => [`${r.employee_id}:${r.date}`, r[valueKey]]));
+  const [schedResp, codesResp] = await Promise.all([
+    fetch(`/time/api/schedule?month=${month}&category=${currentCategory}`),
+    fetch(`/time/api/timesheet-codes-grid?month=${month}`),
+  ]);
+  if (schedResp.status === 401 || schedResp.status === 403) { location.href = '/time/login.html'; return; }
+  if (!schedResp.ok) return;
+  const schedData = await schedResp.json();
+  gridEmployees = schedData.employees || [];
+  scheduleShifts = new Map((schedData.shifts || []).map(s => [`${s.employee_id}:${s.date}`, s.shift]));
+
+  dayCodes = new Map();
+  if (codesResp.ok) {
+    const codesData = await codesResp.json();
+    const empIds = new Set(gridEmployees.map(e => e.id));
+    for (const c of (codesData.codes || [])) {
+      if (empIds.has(c.employee_id)) dayCodes.set(`${c.employee_id}:${c.date}`, c.code);
+    }
+  }
   renderTable();
 }
 
@@ -304,16 +277,12 @@ function renderTable() {
   const table = document.getElementById('gridTable');
   const [year, month1] = document.getElementById('gridMonth').value.split('-').map(Number);
   const total = daysInMonth(year, month1);
-  const mode = MODES[currentMode];
 
   if (!gridEmployees.length) {
-    const msg = mode.hasCategories
-      ? `В категории «${escapeHtml(CATEGORIES.find(c => c.key === currentCategory).label)}» пока нет людей.
-         Должность назначается на странице «Сотрудники» — впишите в название должности
-         «охранник» или «аутсорс», чтобы человек попал в соответствующий график;
-         остальные попадают в «Сотрудники».`
-      : `Пока нет сотрудников. Добавьте их на странице «Сотрудники».`;
-    table.innerHTML = `<tr><td class="empty-msg">${msg}</td></tr>`;
+    table.innerHTML = `<tr><td class="empty-msg">В категории «${escapeHtml(CATEGORIES.find(c => c.key === currentCategory).label)}» пока нет людей.
+      Должность назначается на странице «Сотрудники» — впишите в название должности
+      «охранник» или «аутсорс», чтобы человек попал в соответствующий график;
+      остальные попадают в «Сотрудники».</td></tr>`;
     return;
   }
 
@@ -332,8 +301,10 @@ function renderTable() {
       const dateKey = `${year}-${String(month1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
       const dow = new Date(year, month1 - 1, d).getDay();
       const isWeekend = dow === 0 || dow === 6;
-      const value = gridValues.get(`${emp.id}:${dateKey}`) || '';
-      const cls = mode.cellClass(value);
+      const code = dayCodes.get(`${emp.id}:${dateKey}`) || '';
+      const shift = scheduleShifts.get(`${emp.id}:${dateKey}`) || '';
+      const value = code || shift;
+      const cls = code ? (code === 'В' ? 'code-В' : 'manual') : (shift ? `shift-${shift}` : '');
       body += `<td class="${isWeekend ? 'weekend' : ''}">` +
         `<button type="button" class="cell-btn ${cls}" data-emp="${emp.id}" data-date="${dateKey}">${escapeHtml(value)}</button></td>`;
     }
@@ -399,29 +370,40 @@ async function commitDrag() {
   const employeeId = dragEmployeeId;
   const [from, to] = dragStartDate <= dragEndDate ? [dragStartDate, dragEndDate] : [dragEndDate, dragStartDate];
   document.querySelectorAll('.cell-btn.in-range').forEach(el => el.classList.remove('in-range'));
-  const mode = MODES[currentMode];
+
+  const isShift = selectedPen.kind === 'shift';
+  const singleUrl = isShift ? '/time/api/schedule' : '/time/api/day-codes';
+  const rangeUrl = isShift ? '/time/api/schedule/range' : '/time/api/day-codes/range';
+  const valueField = isShift ? 'shift' : 'code';
+  const targetMap = isShift ? scheduleShifts : dayCodes;
 
   if (from === to) {
-    // одиночный клик по одной ячейке
-    const resp = await fetch(mode.singleUrl, {
+    const resp = await fetch(singleUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(mode.singleBody(Number(employeeId), from, selectedPen)),
+      body: JSON.stringify({ employee_id: Number(employeeId), date: from, [valueField]: selectedPen.code }),
     });
     if (!resp.ok) return;
-    if (selectedPen) gridValues.set(`${employeeId}:${from}`, selectedPen);
-    else gridValues.delete(`${employeeId}:${from}`);
+    if (selectedPen.code) targetMap.set(`${employeeId}:${from}`, selectedPen.code);
+    else targetMap.delete(`${employeeId}:${from}`);
   } else {
-    // протянули по нескольким дням — проставляем весь диапазон разом
-    const resp = await fetch(mode.rangeUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(mode.rangeBody(Number(employeeId), from, to, selectedPen)),
-    });
-    if (!resp.ok) return;
-    for (const d of eachDate(from, to)) {
-      if (selectedPen) gridValues.set(`${employeeId}:${d}`, selectedPen);
-      else gridValues.delete(`${employeeId}:${d}`);
+    if (!selectedPen.code) {
+      // "снять на период" — очищаем каждый день диапазона по отдельности
+      // (у range-эндпоинтов нет режима очистки, только простановки кода)
+      await Promise.all(eachDate(from, to).map(d => fetch(singleUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ employee_id: Number(employeeId), date: d, [valueField]: '' }),
+      })));
+      for (const d of eachDate(from, to)) targetMap.delete(`${employeeId}:${d}`);
+    } else {
+      const resp = await fetch(rangeUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ employee_id: Number(employeeId), from, to, [valueField]: selectedPen.code }),
+      });
+      if (!resp.ok) return;
+      for (const d of eachDate(from, to)) targetMap.set(`${employeeId}:${d}`, selectedPen.code);
     }
   }
   renderTable();
@@ -443,8 +425,6 @@ document.addEventListener('touchend', commitDrag);
 
 (async () => {
   if (!(await checkAuth())) return;
-  selectedPen = MODES[currentMode].defaultPen;
-  renderModeTabs();
   renderCategoryTabs();
   document.getElementById('gridMonth').value = currentMonthValue();
   await ensureCodes();
