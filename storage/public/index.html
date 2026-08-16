@@ -735,7 +735,13 @@
   }
   .assign-user-row:hover{background:var(--bg);}
   .assign-user-row.checked{background:var(--accent-soft); border-color:var(--accent);}
-  .assign-user-row input[type=checkbox]{flex:none; width:16px; height:16px; accent-color:var(--accent); cursor:pointer;}
+  .assign-user-row input[type=checkbox],
+  .assign-user-row input[type=radio]{
+    flex:none; width:16px; height:16px; min-width:16px; accent-color:var(--accent); cursor:pointer;
+    padding:0; margin:0; border:none; background:none; box-sizing:content-box;
+  }
+  .assign-user-row input[type=checkbox]:focus,
+  .assign-user-row input[type=radio]:focus{outline:2px solid var(--accent); outline-offset:2px; background:none;}
   .assign-user-row .au-avatar{
     flex:none; width:28px; height:28px; border-radius:50%; background:var(--accent); color:#fff;
     display:flex; align-items:center; justify-content:center; font-size:11px; font-weight:700;
@@ -781,8 +787,25 @@
     width:16px; height:16px; border-radius:50%; display:flex; align-items:center; justify-content:center; padding:0;
   }
   .nt-assignee-chip-x:hover{background:var(--accent); color:#fff;}
+
+  /* ---------- Мобильная адаптация модалок заданий (тема/описание,
+     выезжающее меню получателей, передача задания, чат/отчёт) ---------- */
   @media (max-width:640px){
-    .nt-assignee-panel{max-height:70vh; overflow-y:auto;}
+    .nt-assignee-panel{max-height:60vh; overflow-y:auto;}
+    .nt-assignee-panel-head{flex-wrap:wrap;}
+    .nt-assignee-panel-head .assign-user-search{flex:1 1 100%;}
+    #nt-select-all{flex:1 1 100%; justify-content:center;}
+    .assign-user-list{max-height:none;}
+  }
+  @media (max-width:480px){
+    .assign-user-row{gap:7px; padding:8px 7px;}
+    .assign-user-row .au-avatar{width:26px; height:26px; font-size:10.5px;}
+    .assign-user-row .au-name{font-size:12.5px;}
+    .assign-user-row .role{font-size:9.5px; padding:2px 6px;}
+    .tc-input-row{flex-wrap:wrap;}
+    .tc-input-row textarea{flex:1 1 100% !important; order:1;}
+    .tc-input-row #tc-attach{order:2;}
+    .tc-input-row #tc-send{order:3; flex:1;}
   }
 
   /* ---------- Заявки на регистрацию ---------- */

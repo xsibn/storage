@@ -3902,7 +3902,7 @@
         <span id="tc-preview-name" style="flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;"></span>
         <button type="button" class="btn" id="tc-preview-clear" style="padding:2px 8px;">✕</button>
       </div>
-      <div style="display:flex; gap:8px; margin-top:6px;">
+      <div class="tc-input-row" style="display:flex; gap:8px; margin-top:6px;">
         <button type="button" class="btn" id="tc-attach" title="Прикрепить фото" style="align-self:flex-end;">📎</button>
         <textarea id="tc-input" rows="2" placeholder="Написать сообщение или отчёт о выполнении…" style="flex:1; padding:8px 10px; border:1px solid var(--line); border-radius:7px; font-family:var(--sans); font-size:13px; background:var(--panel); color:var(--ink); resize:vertical; box-sizing:border-box;"></textarea>
         <button class="btn primary" id="tc-send" style="align-self:flex-end;">Отправить</button>
