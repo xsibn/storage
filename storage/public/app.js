@@ -3881,15 +3881,40 @@
   async function openTaskChatModal(taskId, taskLabel){
     openModal(`💬 ${escHtml(taskLabel || ('Задание #' + taskId))}`, `
       <div id="tc-messages" style="display:flex; flex-direction:column; gap:8px; max-height:50vh; overflow-y:auto; padding:4px 2px 8px;">Загрузка…</div>
+      <div id="tc-preview" style="display:none; align-items:center; gap:8px; margin-top:6px; font-size:12.5px; color:var(--ink-soft);">
+        <img id="tc-preview-img" style="width:44px; height:44px; object-fit:cover; border-radius:6px; border:1px solid var(--line);">
+        <span id="tc-preview-name" style="flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;"></span>
+        <button type="button" class="btn" id="tc-preview-clear" style="padding:2px 8px;">✕</button>
+      </div>
       <div style="display:flex; gap:8px; margin-top:6px;">
+        <button type="button" class="btn" id="tc-attach" title="Прикрепить фото" style="align-self:flex-end;">📎</button>
         <textarea id="tc-input" rows="2" placeholder="Написать сообщение или отчёт о выполнении…" style="flex:1; padding:8px 10px; border:1px solid var(--line); border-radius:7px; font-family:var(--sans); font-size:13px; background:var(--panel); color:var(--ink); resize:vertical; box-sizing:border-box;"></textarea>
         <button class="btn primary" id="tc-send" style="align-self:flex-end;">Отправить</button>
       </div>
+      <input type="file" id="tc-file-input" accept="image/*" style="display:none;">
       <div id="tc-error" style="display:none; color:var(--danger); font-size:12.5px; margin-top:6px;"></div>
     `, '<button class="btn" id="tc-close">Закрыть</button>');
     document.getElementById('tc-close').addEventListener('click', closeModal);
 
     const me = window.__currentUser;
+    let pendingAttachment = null;
+
+    const fileInput = document.getElementById('tc-file-input');
+    document.getElementById('tc-attach').addEventListener('click', () => fileInput.click());
+    fileInput.addEventListener('change', () => {
+      const file = fileInput.files[0];
+      if(!file) return;
+      pendingAttachment = file;
+      const preview = document.getElementById('tc-preview');
+      document.getElementById('tc-preview-img').src = URL.createObjectURL(file);
+      document.getElementById('tc-preview-name').textContent = file.name;
+      preview.style.display = 'flex';
+    });
+    document.getElementById('tc-preview-clear').addEventListener('click', () => {
+      pendingAttachment = null;
+      fileInput.value = '';
+      document.getElementById('tc-preview').style.display = 'none';
+    });
 
     function renderComments(comments){
       const box = document.getElementById('tc-messages');
@@ -3900,10 +3925,12 @@
       }
       box.innerHTML = comments.map(c => {
         const mine = me && c.userId === me.id;
+        const attachmentHtml = chatAttachmentHtml(c);
+        const textHtml = c.text ? escHtml(c.text) : '';
         return `
           <div class="chat-msg${mine ? ' mine' : ''}">
             <div class="cm-author">${escHtml(c.userName || '—')}</div>
-            <div class="cm-bubble">${escHtml(c.text)}</div>
+            <div class="cm-bubble">${attachmentHtml}${textHtml}</div>
             <div class="cm-time">${fmtActivityTime(c.createdAt)}</div>
           </div>
         `;
@@ -3929,17 +3956,28 @@
       errEl.style.display = 'none';
       const input = document.getElementById('tc-input');
       const text = input.value.trim();
-      if(!text) return;
+      if(!text && !pendingAttachment) return;
       const btn = document.getElementById('tc-send');
       btn.disabled = true;
       try{
-        const res = await fetch(`${API_BASE}/api/tasks/${taskId}/comments`, {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ text })
-        });
+        let res;
+        if(pendingAttachment){
+          const fd = new FormData();
+          if(text) fd.append('text', text);
+          fd.append('attachment', pendingAttachment);
+          res = await fetch(`${API_BASE}/api/tasks/${taskId}/comments`, { method: 'POST', body: fd });
+        } else {
+          res = await fetch(`${API_BASE}/api/tasks/${taskId}/comments`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ text })
+          });
+        }
         const payload = await res.json().catch(() => ({}));
         if(!res.ok) throw new Error(payload.error || 'Не удалось отправить сообщение');
         input.value = '';
+        pendingAttachment = null;
+        fileInput.value = '';
+        document.getElementById('tc-preview').style.display = 'none';
         await reload();
       }catch(err){
         errEl.textContent = err.message;
@@ -3981,14 +4019,17 @@
       return `
         <div class="task-card">
           <div class="tc-top">
-            <div class="tc-text">${escHtml(t.text)}</div>
+            <div class="tc-title-wrap">
+              ${t.title ? `<div class="tc-title">${escHtml(t.title)}</div>` : ''}
+              <div class="tc-text">${escHtml(t.text)}</div>
+            </div>
             ${taskStatusBadge(t.status)}
           </div>
           <div class="tc-meta">От: ${escHtml(t.createdByName || '—')} · ${fmtActivityTime(t.createdAt)}</div>
           ${reassignedNote}
           <div class="tc-actions">
             ${actions}
-            <button class="btn" data-task-chat="${t.id}">💬 Отчёт / чат</button>
+            <button class="btn" data-task-chat="${t.id}">💬 Отчёт</button>
           </div>
         </div>
       `;
@@ -4014,7 +4055,7 @@
     });
     wrap.querySelectorAll('[data-task-chat]').forEach(btn => {
       const t = myTasks.find(x => String(x.id) === btn.dataset.taskChat);
-      btn.addEventListener('click', () => openTaskChatModal(btn.dataset.taskChat, t ? t.text : ''));
+      btn.addEventListener('click', () => openTaskChatModal(btn.dataset.taskChat, t ? (t.title || t.text) : ''));
     });
   }
 
@@ -4027,7 +4068,10 @@
     wrap.innerHTML = allTasks.map(t => `
       <div class="task-card">
         <div class="tc-top">
-          <div class="tc-text">${escHtml(t.text)}</div>
+          <div class="tc-title-wrap">
+            ${t.title ? `<div class="tc-title">${escHtml(t.title)}</div>` : ''}
+            <div class="tc-text">${escHtml(t.text)}</div>
+          </div>
           <button class="tc-del" data-del-task="${t.id}" title="Удалить задание">🗑</button>
         </div>
         <div class="tc-meta">От: ${escHtml(t.createdByName || '—')} · ${fmtActivityTime(t.createdAt)} · получателей: ${t.recipients.length}</div>
@@ -4039,7 +4083,7 @@
           `).join('')}
         </div>
         <div class="tc-actions">
-          <button class="btn" data-task-chat="${t.id}">💬 Отчёт / чат</button>
+          <button class="btn" data-task-chat="${t.id}">💬 Отчёт</button>
         </div>
       </div>
     `).join('');
@@ -4048,7 +4092,7 @@
     });
     wrap.querySelectorAll('[data-task-chat]').forEach(btn => {
       const t = allTasks.find(x => String(x.id) === btn.dataset.taskChat);
-      btn.addEventListener('click', () => openTaskChatModal(btn.dataset.taskChat, t ? t.text : ''));
+      btn.addEventListener('click', () => openTaskChatModal(btn.dataset.taskChat, t ? (t.title || t.text) : ''));
     });
     wrap.querySelectorAll('[data-del-task]').forEach(btn => {
       btn.addEventListener('click', async () => {
@@ -4725,38 +4769,91 @@
     `;
     openModal('Новое задание', `
       <div class="form-field full" style="margin-bottom:10px;">
-        <label style="display:block; font-size:12px; color:var(--ink-soft); margin-bottom:4px;">Текст задания</label>
+        <label style="display:block; font-size:12px; color:var(--ink-soft); margin-bottom:4px;">Тема задания</label>
+        <input type="text" id="nt-title" maxlength="200" style="width:100%; padding:9px 10px; border:1px solid var(--line); border-radius:7px; font-family:var(--sans); font-size:13.5px; background:var(--panel); color:var(--ink); box-sizing:border-box;" placeholder="Коротко о чём задание…">
+      </div>
+      <div class="form-field full" style="margin-bottom:10px;">
+        <label style="display:block; font-size:12px; color:var(--ink-soft); margin-bottom:4px;">Описание задания</label>
         <textarea id="nt-text" rows="4" style="width:100%; padding:9px 10px; border:1px solid var(--line); border-radius:7px; font-family:var(--sans); font-size:13.5px; background:var(--panel); color:var(--ink); resize:vertical; box-sizing:border-box;" placeholder="Что нужно сделать…"></textarea>
       </div>
       <div class="form-field full">
-        <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:6px;">
-          <label style="font-size:12px; color:var(--ink-soft); margin:0;">Кому (можно несколько)</label>
-          <button type="button" class="btn" id="nt-select-all" style="padding:4px 8px; font-size:11px;">Выбрать всех</button>
+        <label style="display:block; font-size:12px; color:var(--ink-soft); margin-bottom:4px;">Кому (можно несколько)</label>
+        <div class="nt-assignee" id="nt-assignee">
+          <button type="button" class="nt-assignee-trigger" id="nt-assignee-trigger">
+            <span class="nt-assignee-trigger-label" id="nt-assignee-trigger-label">Выбрать сотрудников…</span>
+            <span class="nt-assignee-trigger-caret">▾</span>
+          </button>
+          <div class="nt-assignee-panel" id="nt-assignee-panel" hidden>
+            <div class="nt-assignee-panel-head">
+              <div class="assign-user-search">
+                <input type="text" id="nt-search" placeholder="Поиск по имени…" autocomplete="off">
+              </div>
+              <button type="button" class="btn" id="nt-select-all" style="padding:4px 8px; font-size:11px;">Выбрать всех</button>
+            </div>
+            <div class="assign-user-count" id="nt-count">Выбрано: 0</div>
+            <div class="assign-user-list" id="nt-user-list">
+              ${users.map(rowHtml).join('') || '<div class="assign-user-empty">Нет доступных сотрудников</div>'}
+            </div>
+            <div class="nt-assignee-panel-foot">
+              <button type="button" class="btn primary" id="nt-assignee-done" style="padding:5px 12px; font-size:12px;">Готово</button>
+            </div>
+          </div>
         </div>
-        <div class="assign-user-search">
-          <input type="text" id="nt-search" placeholder="Поиск по имени…" autocomplete="off">
-        </div>
-        <div class="assign-user-count" id="nt-count">Выбрано: 0</div>
-        <div class="assign-user-list" id="nt-user-list">
-          ${users.map(rowHtml).join('') || '<div class="assign-user-empty">Нет доступных сотрудников</div>'}
-        </div>
+        <div class="nt-assignee-chips" id="nt-assignee-chips"></div>
       </div>
       <div id="nt-error" style="display:none; color:var(--danger); font-size:12.5px; margin-top:8px;"></div>
     `, `<button class="btn" id="nt-cancel">Отмена</button><button class="btn primary" id="nt-submit">Отправить задание</button>`);
 
     const listEl = document.getElementById('nt-user-list');
     const countEl = document.getElementById('nt-count');
+    const triggerEl = document.getElementById('nt-assignee-trigger');
+    const triggerLabelEl = document.getElementById('nt-assignee-trigger-label');
+    const panelEl = document.getElementById('nt-assignee-panel');
+    const chipsEl = document.getElementById('nt-assignee-chips');
+    const usersById = new Map(users.map(u => [String(u.id), u]));
+
+    function openPanel(){
+      panelEl.hidden = false;
+      triggerEl.classList.add('open');
+      setTimeout(() => document.getElementById('nt-search').focus(), 0);
+    }
+    function closePanel(){
+      panelEl.hidden = true;
+      triggerEl.classList.remove('open');
+    }
+    triggerEl.addEventListener('click', () => { panelEl.hidden ? openPanel() : closePanel(); });
+    document.getElementById('nt-assignee-done').addEventListener('click', closePanel);
+    document.addEventListener('click', (e) => {
+      if(!panelEl.hidden && !document.getElementById('nt-assignee').contains(e.target)) closePanel();
+    });
 
     function updateRowState(row){
       const box = row.querySelector('input[type=checkbox]');
       row.classList.toggle('checked', box.checked);
     }
-    function updateCount(){
-      const n = listEl.querySelectorAll('input[type=checkbox]:checked').length;
-      countEl.textContent = `Выбрано: ${n}`;
+    function selectedIds(){
+      return Array.from(listEl.querySelectorAll('input[type=checkbox]:checked')).map(b => b.value);
+    }
+    function updateSummary(){
+      const ids = selectedIds();
+      countEl.textContent = `Выбрано: ${ids.length}`;
+      triggerLabelEl.textContent = ids.length ? `Выбрано сотрудников: ${ids.length}` : 'Выбрать сотрудников…';
+      chipsEl.innerHTML = ids.map(id => {
+        const u = usersById.get(id);
+        if(!u) return '';
+        return `<span class="nt-assignee-chip" data-uid="${id}">${escHtml(u.displayName)}<button type="button" class="nt-assignee-chip-x" data-remove-uid="${id}" title="Убрать">✕</button></span>`;
+      }).join('');
+      chipsEl.querySelectorAll('[data-remove-uid]').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const id = btn.dataset.removeUid;
+          const box = listEl.querySelector(`input[type=checkbox][value="${id}"]`);
+          if(box){ box.checked = false; updateRowState(box.closest('.assign-user-row')); }
+          updateSummary();
+        });
+      });
     }
     listEl.querySelectorAll('.assign-user-row').forEach(row => {
-      row.querySelector('input[type=checkbox]').addEventListener('change', () => { updateRowState(row); updateCount(); });
+      row.querySelector('input[type=checkbox]').addEventListener('change', () => { updateRowState(row); updateSummary(); });
     });
 
     document.getElementById('nt-search').addEventListener('input', (e) => {
@@ -4791,19 +4888,21 @@
         box.checked = !allChecked;
         updateRowState(r);
       });
-      updateCount();
+      updateSummary();
     });
     document.getElementById('nt-submit').addEventListener('click', async () => {
       const errEl = document.getElementById('nt-error');
       errEl.style.display = 'none';
+      const title = document.getElementById('nt-title').value.trim();
       const text = document.getElementById('nt-text').value.trim();
-      const userIds = Array.from(listEl.querySelectorAll('input[type=checkbox]:checked')).map(b => Number(b.value));
-      if(!text){ errEl.textContent = 'Введите текст задания'; errEl.style.display = 'block'; return; }
+      const userIds = selectedIds().map(Number);
+      if(!title){ errEl.textContent = 'Введите тему задания'; errEl.style.display = 'block'; return; }
+      if(!text){ errEl.textContent = 'Введите описание задания'; errEl.style.display = 'block'; return; }
       if(!userIds.length){ errEl.textContent = 'Выберите хотя бы одного сотрудника'; errEl.style.display = 'block'; return; }
       try{
         const res = await fetch(API_BASE + '/api/tasks', {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ text, userIds })
+          body: JSON.stringify({ title, text, userIds })
         });
         const payload = await res.json().catch(() => ({}));
         if(!res.ok) throw new Error(payload.error || 'Не удалось создать задание');

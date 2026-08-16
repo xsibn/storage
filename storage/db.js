@@ -94,6 +94,7 @@ db.exec(`
 
   CREATE TABLE IF NOT EXISTS tasks (
     id               INTEGER PRIMARY KEY AUTOINCREMENT,
+    title            TEXT NOT NULL DEFAULT '',
     text             TEXT NOT NULL,
     created_by_id    INTEGER,
     created_by_name  TEXT NOT NULL DEFAULT '',
@@ -199,6 +200,9 @@ function ensureColumn(table, column, def) {
   db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${def}`);
   return true;
 }
+// Колонка «тема задания» — раньше у задания был только текст, добавляем
+// отдельное короткое поле «тема» на уже существующих базах.
+ensureColumn('tasks', 'title', "TEXT NOT NULL DEFAULT ''");
 const rolesMigrated = ensureColumn('roles', 'can_manage_tasks', 'INTEGER NOT NULL DEFAULT 0');
 if (rolesMigrated) {
   // На уже существующих базах право «ставить задания» по умолчанию получают
@@ -288,11 +292,18 @@ db.exec(`
     task_id     INTEGER NOT NULL,
     user_id     INTEGER,
     user_name   TEXT NOT NULL DEFAULT '',
-    text        TEXT NOT NULL,
+    text        TEXT NOT NULL DEFAULT '',
     created_at  TEXT NOT NULL DEFAULT (datetime('now'))
   );
   CREATE INDEX IF NOT EXISTS idx_task_comments_task ON task_comments(task_id);
 `);
+// Фото (и другие файлы) в чате задания — по аналогии с вложениями в
+// обычных чатах: на диске в public/task-uploads/, в БД только путь и
+// метаданные (см. server.js: TASK_UPLOADS_DIR).
+ensureColumn('task_comments', 'attachment_path', 'TEXT');
+ensureColumn('task_comments', 'attachment_name', 'TEXT');
+ensureColumn('task_comments', 'attachment_type', 'TEXT');
+ensureColumn('task_comments', 'attachment_size', 'INTEGER');
 
 // Порядок пользователей в списке управления — свободно задаваемый вручную
 // (перетаскиванием/кнопками), а не только по id/алфавиту. На новой базе
@@ -1368,6 +1379,7 @@ const TASK_STATUSES = ['new', 'read', 'in_progress', 'done'];
 function rowToTask(r) {
   return {
     id: r.id,
+    title: r.title || '',
     text: r.text,
     createdById: r.created_by_id,
     createdByName: r.created_by_name,
@@ -1391,16 +1403,18 @@ function rowToRecipient(r) {
 }
 
 // Создать задание и разослать его выбранным сотрудникам одним списком.
-function createTask({ text, createdById, createdByName, userIds }) {
+function createTask({ title, text, createdById, createdByName, userIds }) {
+  const ti = String(title || '').trim();
   const t = String(text || '').trim();
+  if (!ti) throw new Error('Тема задания не может быть пустой');
   if (!t) throw new Error('Текст задания не может быть пустым');
   const ids = Array.from(new Set((userIds || []).map(Number).filter(Boolean)));
   if (!ids.length) throw new Error('Выберите хотя бы одного сотрудника');
   for (const uid of ids) {
     if (!getUserById(uid)) throw new Error(`Пользователь #${uid} не найден`);
   }
-  const info = db.prepare('INSERT INTO tasks (text, created_by_id, created_by_name) VALUES (?, ?, ?)')
-    .run(t, createdById || null, createdByName || '');
+  const info = db.prepare('INSERT INTO tasks (title, text, created_by_id, created_by_name) VALUES (?, ?, ?, ?)')
+    .run(ti, t, createdById || null, createdByName || '');
   const taskId = info.lastInsertRowid;
   const insertRecipient = db.prepare('INSERT INTO task_recipients (task_id, user_id, status) VALUES (?, ?, \'new\')');
   for (const uid of ids) insertRecipient.run(taskId, uid);
@@ -1433,7 +1447,7 @@ function listAllTasks() {
 // показывается — но при этом остаётся в архиве/экспорте.
 function listMyTasks(userId) {
   const rows = db.prepare(`
-    SELECT tr.*, t.text AS task_text, t.created_by_name, t.created_at AS task_created_at
+    SELECT tr.*, t.title AS task_title, t.text AS task_text, t.created_by_name, t.created_at AS task_created_at
     FROM task_recipients tr
     JOIN tasks t ON t.id = tr.task_id
     WHERE tr.user_id = ? AND tr.deleted_at IS NULL AND t.deleted_at IS NULL
@@ -1441,6 +1455,7 @@ function listMyTasks(userId) {
   `).all(userId);
   return rows.map(r => ({
     id: r.task_id,
+    title: r.task_title || '',
     text: r.task_text,
     createdByName: r.created_by_name,
     createdAt: r.task_created_at,
@@ -1552,18 +1567,37 @@ function listTaskComments(taskId) {
     userId: r.user_id,
     userName: r.user_name,
     text: r.text,
-    createdAt: r.created_at
+    createdAt: r.created_at,
+    attachmentUrl: r.attachment_path ? `/${r.attachment_path}` : null,
+    attachmentName: r.attachment_name || null,
+    attachmentType: r.attachment_type || null,
+    attachmentSize: r.attachment_size || null
   }));
 }
 
-function addTaskComment(taskId, userId, userName, text) {
+function addTaskComment(taskId, userId, userName, text, attachment) {
   const t = String(text || '').trim();
-  if (!t) throw new Error('Сообщение не может быть пустым');
+  if (!t && !attachment) throw new Error('Сообщение не может быть пустым');
   const task = db.prepare('SELECT id FROM tasks WHERE id = ?').get(taskId);
   if (!task) throw new Error('Задание не найдено');
-  const info = db.prepare(`INSERT INTO task_comments (task_id, user_id, user_name, text) VALUES (?, ?, ?, ?)`)
-    .run(taskId, userId || null, userName || '', t);
-  return db.prepare('SELECT * FROM task_comments WHERE id = ?').get(info.lastInsertRowid);
+  const info = db.prepare(`
+    INSERT INTO task_comments (task_id, user_id, user_name, text, attachment_path, attachment_name, attachment_type, attachment_size)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(
+    taskId, userId || null, userName || '', t,
+    attachment ? attachment.path : null,
+    attachment ? attachment.name : null,
+    attachment ? attachment.type : null,
+    attachment ? attachment.size : null
+  );
+  const row = db.prepare('SELECT * FROM task_comments WHERE id = ?').get(info.lastInsertRowid);
+  return {
+    id: row.id, userId: row.user_id, userName: row.user_name, text: row.text, createdAt: row.created_at,
+    attachmentUrl: row.attachment_path ? `/${row.attachment_path}` : null,
+    attachmentName: row.attachment_name || null,
+    attachmentType: row.attachment_type || null,
+    attachmentSize: row.attachment_size || null
+  };
 }
 
 // Все, кто должен увидеть уведомление о новом сообщении в чате задания:
@@ -1609,6 +1643,7 @@ function listTaskArchiveRows() {
   return db.prepare(`
     SELECT
       t.id            AS task_id,
+      t.title         AS task_title,
       t.text          AS task_text,
       t.created_by_name AS created_by_name,
       t.created_at    AS task_created_at,

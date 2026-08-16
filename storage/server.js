@@ -832,6 +832,22 @@ function extForAttachment(mimetype, originalName) {
   return map[mimetype] || 'bin';
 }
 
+// ---------- Фото/файлы в чате задания ----------
+// Та же схема, что и у вложений в обычном чате: файл на диске в
+// public/task-uploads/, в БД — только путь и метаданные.
+const TASK_UPLOADS_DIR = path.join(__dirname, 'public', 'task-uploads');
+fs.mkdirSync(TASK_UPLOADS_DIR, { recursive: true });
+const taskUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: CHAT_ATTACHMENT_MAX_BYTES },
+  fileFilter: (req, file, cb) => {
+    if (!CHAT_ATTACHMENT_MIME_RE.test(file.mimetype)) {
+      return cb(new Error('Этот тип файла не поддерживается'));
+    }
+    cb(null, true);
+  }
+});
+
 // ---------- Управление пользователями (сервисный аккаунт / начальник) ----------
 
 // GET /api/users — список аккаунтов
@@ -1370,6 +1386,7 @@ app.get('/api/tasks/export', auth.requirePerm('canManageTasks'), (req, res) => {
   const rows = db.listTaskArchiveRows();
   const sheetRows = rows.map(r => ({
     '№ задания': r.task_id,
+    'Тема': r.task_title || '',
     'Текст задания': r.task_text,
     'Поставил': r.created_by_name,
     'Создано': r.task_created_at,
@@ -1383,7 +1400,7 @@ app.get('/api/tasks/export', auth.requirePerm('canManageTasks'), (req, res) => {
   }));
   const ws = XLSX.utils.json_to_sheet(sheetRows);
   ws['!cols'] = [
-    { wch: 9 }, { wch: 50 }, { wch: 20 }, { wch: 18 }, { wch: 22 },
+    { wch: 9 }, { wch: 24 }, { wch: 50 }, { wch: 20 }, { wch: 18 }, { wch: 22 },
     { wch: 12 }, { wch: 18 }, { wch: 18 }, { wch: 18 }, { wch: 18 }, { wch: 18 }
   ];
   const wb = XLSX.utils.book_new();
@@ -1397,10 +1414,10 @@ app.get('/api/tasks/export', auth.requirePerm('canManageTasks'), (req, res) => {
 
 // POST /api/tasks — создать задание и разослать выбранным сотрудникам
 app.post('/api/tasks', auth.requirePerm('canManageTasks'), (req, res) => {
-  const { text, userIds } = req.body || {};
+  const { title, text, userIds } = req.body || {};
   try {
     const task = db.createTask({
-      text, userIds,
+      title, text, userIds,
       createdById: req.user.id,
       createdByName: `${req.user.display_name || req.user.username}`
     });
@@ -1472,15 +1489,30 @@ app.get('/api/tasks/:id/comments', requireTaskChatAccess, (req, res) => {
 });
 
 // POST /api/tasks/:id/comments — написать сообщение/отчёт по заданию
+// (текст и/или фото-вложение). multipart/form-data с полем attachment —
+// как и в обычном чате; обычный JSON тоже работает (без файла).
 app.post('/api/tasks/:id/comments', requireTaskChatAccess, (req, res) => {
-  const { text } = req.body || {};
-  try {
-    const comment = db.addTaskComment(req.taskId, req.user.id, `${req.user.display_name || req.user.username}`, text);
-    res.status(201).json({ comment });
-    notifyTaskComment(req.taskId, req.user.id, comment);
-  } catch (err) {
-    res.status(400).json({ error: err.message });
-  }
+  taskUpload.single('attachment')(req, res, (uploadErr) => {
+    if (uploadErr) return res.status(400).json({ error: uploadErr.message || 'Не удалось загрузить файл' });
+    let attachment = null;
+    try {
+      if (req.file) {
+        const filename = `${req.taskId}-${Date.now()}-${crypto.randomBytes(6).toString('hex')}.${extForAttachment(req.file.mimetype, req.file.originalname)}`;
+        fs.writeFileSync(path.join(TASK_UPLOADS_DIR, filename), req.file.buffer);
+        attachment = {
+          path: `task-uploads/${filename}`,
+          name: req.file.originalname || filename,
+          type: req.file.mimetype,
+          size: req.file.size
+        };
+      }
+      const comment = db.addTaskComment(req.taskId, req.user.id, `${req.user.display_name || req.user.username}`, (req.body || {}).text, attachment);
+      res.status(201).json({ comment });
+      notifyTaskComment(req.taskId, req.user.id, comment);
+    } catch (err) {
+      res.status(400).json({ error: err.message });
+    }
+  });
 });
 
 // DELETE /api/tasks/:id — удалить задание целиком (только тот, кто вправе их ставить)
@@ -1736,10 +1768,10 @@ function notifyTaskComment(taskId, authorId, comment) {
     const targetIds = db.filterUsersWithPrefEnabled(targetIds0, 'tasks');
     const subs = db.listPushSubscriptionsForUsers(targetIds);
     if (!subs.length) return;
-    const preview = String(comment.text || '').slice(0, 180);
+    const preview = String(comment.text || (comment.attachmentUrl ? '📎 Фото' : '')).slice(0, 180);
     push.sendToSubscriptions(subs, {
       title: `Задание #${taskId}: новое сообщение`,
-      body: comment.user_name ? `${comment.user_name}: ${preview}` : preview,
+      body: comment.userName ? `${comment.userName}: ${preview}` : preview,
       tag: `task-${taskId}-chat`,
       url: '/?section=tasks'
     }, (endpoint) => db.deletePushSubscription(endpoint)).catch(() => {});
