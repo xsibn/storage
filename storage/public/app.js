@@ -3878,6 +3878,22 @@
   // Мини-чат внутри задания — отчёт исполнителя и переписка с тем, кто
   // поставил задание. Открывается в модалке; доступен и получателям (для
   // своих заданий), и тем, кто вправе ставить задания (для любого).
+  // Достаёт файл изображения из события paste (Ctrl+V), если в буфере
+  // обмена была картинка — используется и в чатах, и в отчёте задания.
+  function imageFileFromPaste(e){
+    const items = e.clipboardData && e.clipboardData.items;
+    if(!items) return null;
+    for(const item of items){
+      if(item.kind === 'file' && item.type.startsWith('image/')){
+        const file = item.getAsFile();
+        if(!file) continue;
+        const ext = (item.type.split('/')[1] || 'png').replace('jpeg', 'jpg');
+        return new File([file], `paste-${Date.now()}.${ext}`, { type: item.type });
+      }
+    }
+    return null;
+  }
+
   async function openTaskChatModal(taskId, taskLabel){
     openModal(`💬 ${escHtml(taskLabel || ('Задание #' + taskId))}`, `
       <div id="tc-messages" style="display:flex; flex-direction:column; gap:8px; max-height:50vh; overflow-y:auto; padding:4px 2px 8px;">Загрузка…</div>
@@ -3914,6 +3930,16 @@
       pendingAttachment = null;
       fileInput.value = '';
       document.getElementById('tc-preview').style.display = 'none';
+    });
+    document.getElementById('tc-input').addEventListener('paste', (e) => {
+      const file = imageFileFromPaste(e);
+      if(!file) return;
+      e.preventDefault();
+      pendingAttachment = file;
+      const preview = document.getElementById('tc-preview');
+      document.getElementById('tc-preview-img').src = URL.createObjectURL(file);
+      document.getElementById('tc-preview-name').textContent = file.name;
+      preview.style.display = 'flex';
     });
 
     function renderComments(comments){
@@ -4016,6 +4042,8 @@
         actions = `<button class="btn primary" data-task-action="done" data-task-id="${t.id}">✔ Сделано</button>`;
       }
       const reassignedNote = t.reassignedFromName ? `<div class="tc-meta">↪ Передано от: ${escHtml(t.reassignedFromName)}</div>` : '';
+      const canReassign = !!(window.__currentUser && window.__currentUser.perms && window.__currentUser.perms.canManageTasks);
+      const reassignBtn = canReassign ? `<button class="btn" data-task-reassign="${t.id}">↪ Передать</button>` : '';
       return `
         <div class="task-card">
           <div class="tc-top">
@@ -4030,6 +4058,7 @@
           <div class="tc-actions">
             ${actions}
             <button class="btn" data-task-chat="${t.id}">💬 Отчёт</button>
+            ${reassignBtn}
           </div>
         </div>
       `;
@@ -4056,6 +4085,13 @@
     wrap.querySelectorAll('[data-task-chat]').forEach(btn => {
       const t = myTasks.find(x => String(x.id) === btn.dataset.taskChat);
       btn.addEventListener('click', () => openTaskChatModal(btn.dataset.taskChat, t ? (t.title || t.text) : ''));
+    });
+    wrap.querySelectorAll('[data-task-reassign]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const me = window.__currentUser;
+        if(!me) return;
+        openReassignTaskModal(btn.dataset.taskReassign, me.id, loadTasks);
+      });
     });
   }
 
@@ -4402,6 +4438,19 @@
     if(file.size > 25 * 1024 * 1024){
       alert('Файл слишком большой (максимум 25 МБ)');
       chatAttachInput.value = '';
+      return;
+    }
+    pendingAttachment = file;
+    renderAttachPreview();
+  });
+
+  document.getElementById('chat-input').addEventListener('paste', (e) => {
+    if(!activeChatId) return;
+    const file = imageFileFromPaste(e);
+    if(!file) return;
+    e.preventDefault();
+    if(file.size > 25 * 1024 * 1024){
+      alert('Файл слишком большой (максимум 25 МБ)');
       return;
     }
     pendingAttachment = file;
