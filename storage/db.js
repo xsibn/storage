@@ -261,6 +261,38 @@ ensureColumn('chat_messages', 'attachment_size', 'INTEGER');
 // ставилось, включая удалённое.
 ensureColumn('tasks', 'deleted_at', 'TEXT');
 ensureColumn('task_recipients', 'deleted_at', 'TEXT');
+// Передача задания другому сотруднику: получатель (или тот, кто вправе
+// ставить задания) может переадресовать своё задание коллеге — старая
+// запись получателя мягко удаляется, для нового создаётся новая, а на ней
+// остаётся пометка "от кого передано", чтобы это было видно в списке.
+ensureColumn('task_recipients', 'reassigned_from_id', 'INTEGER');
+ensureColumn('task_recipients', 'reassigned_from_name', 'TEXT');
+// Журнал передач задания: одна строка = один факт "кто кому передал",
+// чтобы завсклад мог посмотреть полную историю движения задания, даже
+// если промежуточные получатели давно сняты/удалены из task_recipients.
+db.exec(`
+  CREATE TABLE IF NOT EXISTS task_history (
+    id             INTEGER PRIMARY KEY AUTOINCREMENT,
+    task_id        INTEGER NOT NULL,
+    from_user_id   INTEGER,
+    from_user_name TEXT NOT NULL DEFAULT '',
+    to_user_id     INTEGER NOT NULL,
+    to_user_name   TEXT NOT NULL DEFAULT '',
+    by_user_id     INTEGER,
+    by_user_name   TEXT NOT NULL DEFAULT '',
+    created_at     TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+  CREATE INDEX IF NOT EXISTS idx_task_history_task ON task_history(task_id);
+  CREATE TABLE IF NOT EXISTS task_comments (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    task_id     INTEGER NOT NULL,
+    user_id     INTEGER,
+    user_name   TEXT NOT NULL DEFAULT '',
+    text        TEXT NOT NULL,
+    created_at  TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+  CREATE INDEX IF NOT EXISTS idx_task_comments_task ON task_comments(task_id);
+`);
 
 // Порядок пользователей в списке управления — свободно задаваемый вручную
 // (перетаскиванием/кнопками), а не только по id/алфавиту. На новой базе
@@ -1353,7 +1385,8 @@ function rowToRecipient(r) {
     readAt: r.read_at,
     startedAt: r.started_at,
     doneAt: r.done_at,
-    deletedAt: r.deleted_at || null
+    deletedAt: r.deleted_at || null,
+    reassignedFromName: r.reassigned_from_name || null
   };
 }
 
@@ -1414,7 +1447,8 @@ function listMyTasks(userId) {
     status: r.status,
     readAt: r.read_at,
     startedAt: r.started_at,
-    doneAt: r.done_at
+    doneAt: r.done_at,
+    reassignedFromName: r.reassigned_from_name || null
   }));
 }
 
@@ -1440,6 +1474,108 @@ function setMyTaskStatus(taskId, userId, status) {
   db.prepare(`UPDATE task_recipients SET status = ?${col ? `, ${col} = datetime('now')` : ''} WHERE task_id = ? AND user_id = ?`)
     .run(status, taskId, userId);
   return getTask(taskId);
+}
+
+// Передать задание другому сотруднику. Вызывать может только тот, кто
+// вправе ставить задания (проверка прав — на уровне роута в server.js);
+// fromUserId — у кого забрать, toUserId — кому передать. Старая запись
+// получателя мягко удаляется (чтобы остаться в архиве), новому получателю
+// создаётся новая запись со статусом 'new' и пометкой, от кого передано.
+// Каждая передача также фиксируется в task_history — эта история не
+// зависит от последующих удалений task_recipients и видна целиком.
+function reassignTask(taskId, fromUserId, toUserId, byUserId, byName) {
+  if (!toUserId) throw new Error('Выберите сотрудника, кому передать задание');
+  if (toUserId === fromUserId) throw new Error('Нельзя передать задание самому себе');
+  const task = db.prepare('SELECT * FROM tasks WHERE id = ? AND deleted_at IS NULL').get(taskId);
+  if (!task) throw new Error('Задание не найдено');
+  const fromRow = db.prepare('SELECT * FROM task_recipients WHERE task_id = ? AND user_id = ? AND deleted_at IS NULL').get(taskId, fromUserId);
+  if (!fromRow) throw new Error('Задание не найдено у этого сотрудника');
+  const toUser = getUserById(toUserId);
+  if (!toUser) throw new Error('Сотрудник не найден');
+  const existingTarget = db.prepare('SELECT * FROM task_recipients WHERE task_id = ? AND user_id = ?').get(taskId, toUserId);
+  if (existingTarget && !existingTarget.deleted_at) {
+    throw new Error('У этого сотрудника уже есть это задание');
+  }
+  const fromUser = getUserById(fromUserId);
+  const fromLabel = (fromUser && (fromUser.display_name || fromUser.username)) || '';
+  const toLabel = toUser.display_name || toUser.username;
+  const txn = db.transaction(() => {
+    db.prepare(`UPDATE task_recipients SET deleted_at = datetime('now') WHERE task_id = ? AND user_id = ?`)
+      .run(taskId, fromUserId);
+    if (existingTarget) {
+      db.prepare(`UPDATE task_recipients SET status = 'new', read_at = NULL, started_at = NULL, done_at = NULL,
+                  deleted_at = NULL, reassigned_from_id = ?, reassigned_from_name = ? WHERE id = ?`)
+        .run(fromUserId, fromLabel, existingTarget.id);
+    } else {
+      db.prepare(`INSERT INTO task_recipients (task_id, user_id, status, reassigned_from_id, reassigned_from_name)
+                  VALUES (?, ?, 'new', ?, ?)`)
+        .run(taskId, toUserId, fromUserId, fromLabel);
+    }
+    db.prepare(`INSERT INTO task_history (task_id, from_user_id, from_user_name, to_user_id, to_user_name, by_user_id, by_user_name)
+                VALUES (?, ?, ?, ?, ?, ?, ?)`)
+      .run(taskId, fromUserId || null, fromLabel, toUserId, toLabel, byUserId || null, byName || '');
+  });
+  txn();
+  return getTask(taskId);
+}
+
+// Полная история передач задания (для тех, кто вправе ставить задания) —
+// не зависит от того, что происходило дальше с получателями.
+function getTaskHistory(taskId) {
+  return db.prepare(`
+    SELECT * FROM task_history WHERE task_id = ? ORDER BY created_at ASC
+  `).all(taskId).map(r => ({
+    fromUserId: r.from_user_id,
+    fromUserName: r.from_user_name,
+    toUserId: r.to_user_id,
+    toUserName: r.to_user_name,
+    byUserName: r.by_user_name,
+    createdAt: r.created_at
+  }));
+}
+
+// Мини-чат внутри задания: писать и читать могут получатели задания (даже
+// если их сняли позже — история переписки должна остаться видна) и те, кто
+// вправе ставить задания (см. проверку доступа canAccessTaskChat ниже).
+// Так исполнитель может прямо там же отчитаться о выполнении, а завсклад —
+// это увидеть и ответить.
+function canAccessTaskChat(taskId, userId) {
+  const task = db.prepare('SELECT id FROM tasks WHERE id = ?').get(taskId);
+  if (!task) return false;
+  const wasRecipient = db.prepare('SELECT 1 FROM task_recipients WHERE task_id = ? AND user_id = ?').get(taskId, userId);
+  return !!wasRecipient;
+}
+
+function listTaskComments(taskId) {
+  return db.prepare(`SELECT * FROM task_comments WHERE task_id = ? ORDER BY created_at ASC`).all(taskId).map(r => ({
+    id: r.id,
+    userId: r.user_id,
+    userName: r.user_name,
+    text: r.text,
+    createdAt: r.created_at
+  }));
+}
+
+function addTaskComment(taskId, userId, userName, text) {
+  const t = String(text || '').trim();
+  if (!t) throw new Error('Сообщение не может быть пустым');
+  const task = db.prepare('SELECT id FROM tasks WHERE id = ?').get(taskId);
+  if (!task) throw new Error('Задание не найдено');
+  const info = db.prepare(`INSERT INTO task_comments (task_id, user_id, user_name, text) VALUES (?, ?, ?, ?)`)
+    .run(taskId, userId || null, userName || '', t);
+  return db.prepare('SELECT * FROM task_comments WHERE id = ?').get(info.lastInsertRowid);
+}
+
+// Все, кто должен увидеть уведомление о новом сообщении в чате задания:
+// все, кто когда-либо был получателем (текущие и снятые), плюс постановщик,
+// минус сам автор сообщения.
+function listTaskChatParticipantIds(taskId, excludeUserId) {
+  const task = db.prepare('SELECT created_by_id FROM tasks WHERE id = ?').get(taskId);
+  const recipientIds = db.prepare('SELECT DISTINCT user_id FROM task_recipients WHERE task_id = ?').all(taskId).map(r => r.user_id);
+  const ids = new Set(recipientIds);
+  if (task && task.created_by_id) ids.add(task.created_by_id);
+  ids.delete(excludeUserId);
+  return Array.from(ids);
 }
 
 // "Удаление" задания — мягкое: строка остаётся в базе с проставленным
@@ -1968,7 +2104,9 @@ module.exports = {
   listUsers, reorderUsers, getUserByUsername, getUserById, countUsers, insertUser, updateUserRole,
   touchUserLogin, touchUserSeen,
   setUserPasswordHash, setUserDisabled, deleteUser, listAssignableUsers, setUserAvatar, updateUserIdentity,
-  createTask, getTask, listAllTasks, listMyTasks, markMyNewTasksRead, countMyNewTasks, setMyTaskStatus, deleteTask, removeTaskRecipient,
+  createTask, getTask, listAllTasks, listMyTasks, markMyNewTasksRead, countMyNewTasks, setMyTaskStatus, reassignTask, getTaskHistory,
+  canAccessTaskChat, listTaskComments, addTaskComment, listTaskChatParticipantIds,
+  deleteTask, removeTaskRecipient,
   listTaskArchiveRows,
   ensureGeneralChat, addUserToGeneralChat, isChatMember, listMyChats, totalUnreadChats, getOrCreateDm,
   createGroupChat, addGroupMembers, leaveGroupChat, deleteChat, listChatMembers, listChatMessages, sendChatMessage, markChatRead,

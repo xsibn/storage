@@ -3716,6 +3716,85 @@
   // ---------- ЗАДАНИЯ СОТРУДНИКАМ ----------
   const TASK_STATUS_LABEL = { new: 'Новое', read: 'Прочитано', in_progress: 'В работе', done: 'Готово' };
   let assignableUsersCache = null;
+  let reassignTargetsCache = null;
+
+  // Список коллег, кому можно передать задание — доступен любому
+  // сотруднику (не только тем, кто вправе ставить задания).
+  async function loadReassignTargets(force){
+    if(reassignTargetsCache && !force) return reassignTargetsCache;
+    const res = await fetch(API_BASE + '/api/tasks/reassign-targets');
+    if(!res.ok) throw new Error('Не удалось загрузить список сотрудников');
+    const data = await res.json();
+    reassignTargetsCache = data.users;
+    return reassignTargetsCache;
+  }
+
+  // Модалка передачи задания другому сотруднику. taskId+fromUserId
+  // определяют, у какого получателя забрать задание; toUserId выбирается
+  // из списка коллег. onDone вызывается после успешной передачи.
+  async function openReassignTaskModal(taskId, fromUserId, onDone){
+    let users;
+    try{
+      users = await loadReassignTargets();
+    }catch(err){ alert(err.message); return; }
+    users = users.filter(u => u.id !== Number(fromUserId));
+    const rowHtml = (u) => `
+      <label class="assign-user-row" data-uid="${u.id}">
+        <input type="radio" name="rt-target" value="${u.id}">
+        <span class="au-avatar"${u.avatarUrl ? ` style="background-image:url('${escHtml(u.avatarUrl)}')"` : ''}>${u.avatarUrl ? '' : escHtml(initials(u.displayName))}</span>
+        <span class="au-name">${escHtml(u.displayName)}</span>
+        <span class="role">${escHtml(u.roleLabel || '')}</span>
+      </label>
+    `;
+    openModal('Передать задание', `
+      <div class="form-field full">
+        <div class="assign-user-search">
+          <input type="text" id="rt-search" placeholder="Поиск по имени…" autocomplete="off">
+        </div>
+        <div class="assign-user-list" id="rt-user-list">
+          ${users.map(rowHtml).join('') || '<div class="assign-user-empty">Нет доступных сотрудников</div>'}
+        </div>
+      </div>
+      <div id="rt-error" style="display:none; color:var(--danger); font-size:12.5px; margin-top:8px;"></div>
+    `, `<button class="btn" id="rt-cancel">Отмена</button><button class="btn primary" id="rt-submit">Передать</button>`);
+
+    const listEl = document.getElementById('rt-user-list');
+    listEl.querySelectorAll('.assign-user-row').forEach(row => {
+      row.addEventListener('click', () => {
+        listEl.querySelectorAll('.assign-user-row').forEach(r => r.classList.remove('checked'));
+        row.classList.add('checked');
+        row.querySelector('input[type=radio]').checked = true;
+      });
+    });
+    document.getElementById('rt-search').addEventListener('input', (e) => {
+      const q = e.target.value.trim().toLowerCase();
+      listEl.querySelectorAll('.assign-user-row').forEach(row => {
+        const name = row.querySelector('.au-name').textContent.toLowerCase();
+        row.style.display = (!q || name.includes(q)) ? '' : 'none';
+      });
+    });
+    document.getElementById('rt-cancel').addEventListener('click', closeModal);
+    document.getElementById('rt-submit').addEventListener('click', async () => {
+      const errEl = document.getElementById('rt-error');
+      errEl.style.display = 'none';
+      const checked = listEl.querySelector('input[type=radio]:checked');
+      if(!checked){ errEl.textContent = 'Выберите сотрудника'; errEl.style.display = 'block'; return; }
+      const toUserId = Number(checked.value);
+      try{
+        const res = await fetch(`${API_BASE}/api/tasks/${taskId}/reassign`, {
+          method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ toUserId, fromUserId })
+        });
+        const payload = await res.json().catch(() => ({}));
+        if(!res.ok) throw new Error(payload.error || 'Не удалось передать задание');
+        closeModal();
+        if(onDone) await onDone();
+      }catch(err){
+        errEl.textContent = err.message;
+        errEl.style.display = 'block';
+      }
+    });
+  }
 
   function taskStatusBadge(status){
     return `<span class="task-status ${status}">${TASK_STATUS_LABEL[status] || status}</span>`;
@@ -3746,10 +3825,17 @@
             </div>
           `).join('')}
         </div>
+        <div>
+          <div style="font-size:12px; color:var(--ink-soft); margin-bottom:6px;">История передачи</div>
+          <div id="task-history-list" style="display:flex; flex-direction:column; gap:6px; font-size:12.5px;">Загрузка…</div>
+        </div>
       </div>
     `;
-    openModal(escHtml(name), body, '<button class="btn danger" id="task-recipient-remove">🗑 Убрать у этого сотрудника</button><button class="btn" id="task-recipient-close">Закрыть</button>');
+    openModal(escHtml(name), body, '<button class="btn danger" id="task-recipient-remove">🗑 Убрать у этого сотрудника</button><button class="btn" id="task-recipient-reassign">↪ Передать другому</button><button class="btn" id="task-recipient-close">Закрыть</button>');
     document.getElementById('task-recipient-close').addEventListener('click', closeModal);
+    document.getElementById('task-recipient-reassign').addEventListener('click', () => {
+      openReassignTaskModal(taskId, userId, loadTasks);
+    });
     document.getElementById('task-recipient-remove').addEventListener('click', async () => {
       if(!(await confirmDialog(`Убрать это задание у сотрудника «${name}»? У остальных получателей оно останется.`, { title: 'Снять задание', okLabel: 'Убрать' }))) return;
       try{
@@ -3759,6 +3845,108 @@
         closeModal();
         await loadTasks();
       }catch(err){ alert(err.message); }
+    });
+    loadTaskHistoryInto(taskId);
+  }
+
+  async function loadTaskHistoryInto(taskId){
+    const histEl = document.getElementById('task-history-list');
+    if(!histEl) return;
+    try{
+      const res = await fetch(`${API_BASE}/api/tasks/${taskId}/history`);
+      const payload = await res.json().catch(() => ({}));
+      if(!res.ok) throw new Error(payload.error || 'Не удалось загрузить историю');
+      const histEl2 = document.getElementById('task-history-list');
+      if(!histEl2) return; // модалка уже закрыта
+      const history = payload.history || [];
+      if(!history.length){
+        histEl2.innerHTML = '<div style="color:var(--ink-soft);">Задание никому не передавалось.</div>';
+        return;
+      }
+      histEl2.innerHTML = history.map(h => `
+        <div style="display:flex; justify-content:space-between; gap:12px;">
+          <span>${escHtml(h.fromUserName || '—')} → ${escHtml(h.toUserName || '—')}</span>
+          <span style="color:var(--ink-soft); white-space:nowrap;">${fmtActivityTime(h.createdAt)}</span>
+        </div>
+      `).join('');
+    }catch(err){
+      const histEl2 = document.getElementById('task-history-list');
+      if(histEl2) histEl2.innerHTML = `<div style="color:var(--danger);">${escHtml(err.message)}</div>`;
+    }
+  }
+
+  // Мини-чат внутри задания — отчёт исполнителя и переписка с тем, кто
+  // поставил задание. Открывается в модалке; доступен и получателям (для
+  // своих заданий), и тем, кто вправе ставить задания (для любого).
+  async function openTaskChatModal(taskId, taskLabel){
+    openModal(`💬 ${escHtml(taskLabel || ('Задание #' + taskId))}`, `
+      <div id="tc-messages" style="display:flex; flex-direction:column; gap:8px; max-height:50vh; overflow-y:auto; padding:4px 2px 8px;">Загрузка…</div>
+      <div style="display:flex; gap:8px; margin-top:6px;">
+        <textarea id="tc-input" rows="2" placeholder="Написать сообщение или отчёт о выполнении…" style="flex:1; padding:8px 10px; border:1px solid var(--line); border-radius:7px; font-family:var(--sans); font-size:13px; background:var(--panel); color:var(--ink); resize:vertical; box-sizing:border-box;"></textarea>
+        <button class="btn primary" id="tc-send" style="align-self:flex-end;">Отправить</button>
+      </div>
+      <div id="tc-error" style="display:none; color:var(--danger); font-size:12.5px; margin-top:6px;"></div>
+    `, '<button class="btn" id="tc-close">Закрыть</button>');
+    document.getElementById('tc-close').addEventListener('click', closeModal);
+
+    const me = window.__currentUser;
+
+    function renderComments(comments){
+      const box = document.getElementById('tc-messages');
+      if(!box) return;
+      if(!comments.length){
+        box.innerHTML = '<div class="tasks-empty">Пока никто ничего не написал.</div>';
+        return;
+      }
+      box.innerHTML = comments.map(c => {
+        const mine = me && c.userId === me.id;
+        return `
+          <div class="chat-msg${mine ? ' mine' : ''}">
+            <div class="cm-author">${escHtml(c.userName || '—')}</div>
+            <div class="cm-bubble">${escHtml(c.text)}</div>
+            <div class="cm-time">${fmtActivityTime(c.createdAt)}</div>
+          </div>
+        `;
+      }).join('');
+      box.scrollTop = box.scrollHeight;
+    }
+
+    async function reload(){
+      try{
+        const res = await fetch(`${API_BASE}/api/tasks/${taskId}/comments`);
+        const payload = await res.json().catch(() => ({}));
+        if(!res.ok) throw new Error(payload.error || 'Не удалось загрузить сообщения');
+        renderComments(payload.comments || []);
+      }catch(err){
+        const box = document.getElementById('tc-messages');
+        if(box) box.innerHTML = `<div class="tasks-empty">${escHtml(err.message)}</div>`;
+      }
+    }
+    await reload();
+
+    document.getElementById('tc-send').addEventListener('click', async () => {
+      const errEl = document.getElementById('tc-error');
+      errEl.style.display = 'none';
+      const input = document.getElementById('tc-input');
+      const text = input.value.trim();
+      if(!text) return;
+      const btn = document.getElementById('tc-send');
+      btn.disabled = true;
+      try{
+        const res = await fetch(`${API_BASE}/api/tasks/${taskId}/comments`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ text })
+        });
+        const payload = await res.json().catch(() => ({}));
+        if(!res.ok) throw new Error(payload.error || 'Не удалось отправить сообщение');
+        input.value = '';
+        await reload();
+      }catch(err){
+        errEl.textContent = err.message;
+        errEl.style.display = 'block';
+      } finally {
+        btn.disabled = false;
+      }
     });
   }
 
@@ -3789,6 +3977,7 @@
       } else if(t.status === 'in_progress'){
         actions = `<button class="btn primary" data-task-action="done" data-task-id="${t.id}">✔ Сделано</button>`;
       }
+      const reassignedNote = t.reassignedFromName ? `<div class="tc-meta">↪ Передано от: ${escHtml(t.reassignedFromName)}</div>` : '';
       return `
         <div class="task-card">
           <div class="tc-top">
@@ -3796,7 +3985,11 @@
             ${taskStatusBadge(t.status)}
           </div>
           <div class="tc-meta">От: ${escHtml(t.createdByName || '—')} · ${fmtActivityTime(t.createdAt)}</div>
-          ${actions ? `<div class="tc-actions">${actions}</div>` : ''}
+          ${reassignedNote}
+          <div class="tc-actions">
+            ${actions}
+            <button class="btn" data-task-chat="${t.id}">💬 Отчёт / чат</button>
+          </div>
         </div>
       `;
     }).join('');
@@ -3818,6 +4011,10 @@
           btn.disabled = false;
         }
       });
+    });
+    wrap.querySelectorAll('[data-task-chat]').forEach(btn => {
+      const t = myTasks.find(x => String(x.id) === btn.dataset.taskChat);
+      btn.addEventListener('click', () => openTaskChatModal(btn.dataset.taskChat, t ? t.text : ''));
     });
   }
 
@@ -3841,10 +4038,17 @@
             </span>
           `).join('')}
         </div>
+        <div class="tc-actions">
+          <button class="btn" data-task-chat="${t.id}">💬 Отчёт / чат</button>
+        </div>
       </div>
     `).join('');
     wrap.querySelectorAll('[data-recipient]').forEach(chip => {
       chip.addEventListener('click', () => openTaskRecipientDetails(chip));
+    });
+    wrap.querySelectorAll('[data-task-chat]').forEach(btn => {
+      const t = allTasks.find(x => String(x.id) === btn.dataset.taskChat);
+      btn.addEventListener('click', () => openTaskChatModal(btn.dataset.taskChat, t ? t.text : ''));
     });
     wrap.querySelectorAll('[data-del-task]').forEach(btn => {
       btn.addEventListener('click', async () => {

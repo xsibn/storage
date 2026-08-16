@@ -1347,6 +1347,21 @@ app.get('/api/tasks/assignable-users', auth.requirePerm('canManageTasks'), (req,
   });
 });
 
+// GET /api/tasks/reassign-targets — список коллег, кому можно передать
+// задание. Доступен только тем, кто вправе ставить задания (передавать
+// задания может только уполномоченный, а не сам сотрудник).
+app.get('/api/tasks/reassign-targets', auth.requirePerm('canManageTasks'), (req, res) => {
+  res.json({
+    users: db.listAssignableUsers()
+      .filter(u => u.id !== req.user.id)
+      .map(u => ({
+        id: u.id, username: u.username, displayName: u.display_name || u.username,
+        role: u.role, roleLabel: auth.labelFor(u.role),
+        avatarUrl: u.avatar_path ? `/${u.avatar_path}` : null
+      }))
+  });
+});
+
 // GET /api/tasks/export — выгрузка архива заданий в .xlsx: абсолютно все
 // задания и их получатели, включая удалённые (задание удалено целиком или
 // снято только с одного получателя) — see db.listTaskArchiveRows.
@@ -1405,6 +1420,64 @@ app.patch('/api/tasks/:id/status', (req, res) => {
   try {
     const task = db.setMyTaskStatus(id, req.user.id, status);
     res.json({ task });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+// PATCH /api/tasks/:id/reassign — передать задание другому сотруднику.
+// Доступно только тем, кто вправе ставить задания: указываем, у кого
+// забрать (fromUserId) и кому передать (toUserId). Каждая передача
+// фиксируется в истории задания (см. GET /api/tasks/:id/history).
+app.patch('/api/tasks/:id/reassign', auth.requirePerm('canManageTasks'), (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  if (!Number.isInteger(id)) return res.status(400).json({ error: 'bad id' });
+  const { toUserId, fromUserId } = req.body || {};
+  if (!fromUserId) return res.status(400).json({ error: 'Не указан текущий получатель' });
+  try {
+    const task = db.reassignTask(id, Number(fromUserId), Number(toUserId), req.user.id, `${req.user.display_name || req.user.username}`);
+    res.json({ task });
+    notifyTaskRecipients(task, [Number(toUserId)]);
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+// GET /api/tasks/:id/history — история передач задания (кто кому и когда
+// передавал) — доступна только тем, кто вправе ставить задания.
+app.get('/api/tasks/:id/history', auth.requirePerm('canManageTasks'), (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  if (!Number.isInteger(id)) return res.status(400).json({ error: 'bad id' });
+  res.json({ history: db.getTaskHistory(id) });
+});
+
+// ---------- Мини-чат внутри задания (отчёт о выполнении) ----------
+// Доступ: те, кто вправе ставить задания (видят чат любого задания), и
+// сотрудники, которые являются (или были) получателями конкретного
+// задания — видят и пишут только в чат своих заданий.
+function requireTaskChatAccess(req, res, next) {
+  const id = parseInt(req.params.id, 10);
+  if (!Number.isInteger(id)) return res.status(400).json({ error: 'bad id' });
+  const canManage = !!auth.permsFor(req.user.role).canManageTasks;
+  if (!canManage && !db.canAccessTaskChat(id, req.user.id)) {
+    return res.status(403).json({ error: 'Недостаточно прав' });
+  }
+  req.taskId = id;
+  next();
+}
+
+// GET /api/tasks/:id/comments — переписка по заданию
+app.get('/api/tasks/:id/comments', requireTaskChatAccess, (req, res) => {
+  res.json({ comments: db.listTaskComments(req.taskId) });
+});
+
+// POST /api/tasks/:id/comments — написать сообщение/отчёт по заданию
+app.post('/api/tasks/:id/comments', requireTaskChatAccess, (req, res) => {
+  const { text } = req.body || {};
+  try {
+    const comment = db.addTaskComment(req.taskId, req.user.id, `${req.user.display_name || req.user.username}`, text);
+    res.status(201).json({ comment });
+    notifyTaskComment(req.taskId, req.user.id, comment);
   } catch (err) {
     res.status(400).json({ error: err.message });
   }
@@ -1634,9 +1707,12 @@ app.post('/api/push/unsubscribe', (req, res) => {
 // поставил (сам себе постановщик уведомление не получает). Отправка идёт
 // уже после ответа клиенту — создание задания не должно ждать сеть до
 // push-сервисов Google/Apple/Mozilla.
-function notifyTaskRecipients(task) {
+function notifyTaskRecipients(task, onlyUserIds) {
   try {
-    const recipientIds = (task.recipients || []).map(r => r.userId);
+    let recipientIds = (task.recipients || []).map(r => r.userId);
+    if (Array.isArray(onlyUserIds) && onlyUserIds.length) {
+      recipientIds = recipientIds.filter(id => onlyUserIds.includes(id));
+    }
     const targetIds = db.filterUsersWithPrefEnabled(recipientIds, 'tasks');
     const subs = db.listPushSubscriptionsForUsers(targetIds);
     if (!subs.length) return;
@@ -1649,6 +1725,26 @@ function notifyTaskRecipients(task) {
     }, (endpoint) => db.deletePushSubscription(endpoint)).catch(() => {});
   } catch (err) {
     console.error('notifyTaskRecipients:', err && err.message);
+  }
+}
+
+// Разослать пуш о новом сообщении в чате задания всем его участникам
+// (текущим и бывшим получателям + постановщику), кроме автора сообщения.
+function notifyTaskComment(taskId, authorId, comment) {
+  try {
+    const targetIds0 = db.listTaskChatParticipantIds(taskId, authorId);
+    const targetIds = db.filterUsersWithPrefEnabled(targetIds0, 'tasks');
+    const subs = db.listPushSubscriptionsForUsers(targetIds);
+    if (!subs.length) return;
+    const preview = String(comment.text || '').slice(0, 180);
+    push.sendToSubscriptions(subs, {
+      title: `Задание #${taskId}: новое сообщение`,
+      body: comment.user_name ? `${comment.user_name}: ${preview}` : preview,
+      tag: `task-${taskId}-chat`,
+      url: '/?section=tasks'
+    }, (endpoint) => db.deletePushSubscription(endpoint)).catch(() => {});
+  } catch (err) {
+    console.error('notifyTaskComment:', err && err.message);
   }
 }
 
